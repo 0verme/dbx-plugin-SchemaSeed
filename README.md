@@ -68,6 +68,10 @@ npm run build
 - Does not read DBX private Store, credentials, connection strings, private frontend modules, private Tauri commands, or undocumented APIs.
 - Metadata remains `WAITING_UPSTREAM_9917`; if #9917 becomes available during this work, this PR still does not consume it.
 
+## Phase 1 design documents
+
+- [Generation Model（Issue #12）](docs/GENERATION_MODEL.md)：冻结 Column / Semantic / Consistency-Constraint 三层职责、GenerationPlan、deterministic seed 与 diagnostics 边界。
+
 ## Long-term direction
 
 以下内容属于 roadmap，不代表当前已经可用：
