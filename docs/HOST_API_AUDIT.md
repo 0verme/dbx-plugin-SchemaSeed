@@ -1,12 +1,13 @@
 # DBX Host API Audit
 
-本文件记录 Phase 0 的源码级 Host API 审计。本文只更新 `Table Context`；`Schema Metadata` 仍保留为 Issue #3 的独立审计范围。
+本文件记录 Phase 0 的源码级 Host API 审计。`Table Context` 已按 `t8y2/dbx#9918` 的最终实现刷新；`Schema Metadata` 仍严格等待未合并的 `t8y2/dbx#9917`，本任务不消费猜测中的 API。
 
 ## Baseline
 
-- DBX repository: `E:\AI生成代码\dbx`
-- audited commit: `882bd130abf7c5d67583ab4cea6e03fb47e0b488` (`origin/main`)
-- audit date: `2026-09-21`
+- DBX repository: `/vol5/1000/ai-workspace/repos/dbx`
+- audited commit: `7b74cb42ffa57c18eeed5f869889add46cc0d0a3` (`origin/main`)
+- `t8y2/dbx#9918` implementation commit: `78315c377a544d816104d19a99317ecd1d2ba330`，已包含在 audited commit 中
+- audit date: `2026-09-22`
 - 审计期间未修改 DBX working tree；DBX 当前分支上的既有未跟踪文件未删除、未 reset、未覆盖。
 
 ## Table Context
@@ -14,14 +15,14 @@
 ### Verdict
 
 ```text
-NOT_PUBLICLY_SUPPORTED
+VERIFIED_SOURCE_CONTRACT
 ```
 
-DBX 当前可以通过正式 Plugin API 在**已保存连接（saved connection）**的 sidebar context menu 中触发插件，但不能从某一张具体 table 的操作入口触发同一插件 contribution，也没有向插件公开完整的 `connectionId`、`database`、`schema`、`table` table-scoped payload。
+`t8y2/dbx#9918` 已合并到 audited `origin/main`。DBX Desktop 的 Sidebar Tree 现在可以通过正式 Plugin API 从 canonical table node 触发 `menu: "table"` contribution，并发送完整的 table-scoped payload。真实 Windows DBX 安装验证仍是本任务的手工 smoke gate。
 
 ### Context Menu target matrix
 
-`context-menu v1` 的正式 contribution target 只有 saved connection sidebar menu。`connection` 是 manifest 中的 menu surface 名称，不是一个可由插件自行扩展的任意 target。
+`context-menu v1` 的正式 contribution target 现在包括 `connection` 和 `table`。`table` target 的首版挂载面是 Desktop Sidebar Tree；上游文档明确不等同于独立 Object Browser integration。
 
 | Target | Formal contribution | Classification | Source evidence | Finding |
 | --- | --- | --- | --- | --- |
@@ -29,45 +30,47 @@ DBX 当前可以通过正式 Plugin API 在**已保存连接（saved connection�
 | saved connection | 同上 | A | `plugins/README.md` — `### \`context-menu\``；`apps/desktop/src/lib/sidebar/sidebarLayout.ts` — `makeConnectionNode` | 正式支持；这是 `connection` target 的实际 UI 语义。 |
 | database | 无 database-specific contribution | B | `apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `buildDatabaseSidebarMenu`；`apps/desktop/src/types/database.ts` — `TreeNode` | DBX 内部有 database menu/node，但没有公开的 plugin menu target。 |
 | schema | 无 schema-specific contribution | B | `apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `buildDatabaseSidebarMenu`；`apps/desktop/src/stores/connectionStore.ts` — `loadSchemas` | DBX 内部有 schema menu/node，但没有公开的 plugin menu target。 |
-| table | 无 table-specific contribution | B | `apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `buildObjectSidebarMenu`；`apps/desktop/src/lib/table/tableTree.ts` — `buildTableTreeNodes` / `makeTableTreeEntry` | DBX 内部有 table menu/node，但没有公开的 plugin menu target。 |
+| table | `context-menu` + `menu: "table"` | A | `plugins/manifest.schema.json` — enum `connection` / `table`; `plugins/README.md` — table-scoped action; `apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `appendPluginTableMenuItems`; `apps/desktop/src/lib/plugins/pluginContext.ts` — canonical payload builder | 正式支持；只对 Sidebar Tree 的 `node.type === "table"` 挂载，使用 canonical metadata。 |
 | column | 无 column-specific contribution | B | `apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `buildObjectSidebarMenu` 的 `node.type === "column"` 分支；`apps/desktop/src/types/database.ts` — `TreeNodeType` | DBX 内部有 column menu/node，但没有公开的 plugin menu target。 |
 
-本轮未将 database/schema/table/column 判为 C：源码中已有 `TreeNode` 与 native menu 分支；当前证据显示缺口是 Plugin API 未暴露，而不是 DBX 内部完全没有对象或菜单抽象。
+本轮仍将 database/schema/column 判为 B；table 已因 #9918 的正式实现判为 A。Central Object Browser 与 Web UI 的支持情况单独记录，不从 Sidebar Tree 证据外推。
 
 ### Table Context matrix
 
-以下分类按**插件可获得的正式 table context**判断。`A` 行中的 `database` 仅表示当前 connection-menu payload 有这个公开字段，不代表它已经是被点击 table 的 database；因此不能据此将完整 Table Context 判为通过。
+以下分类按**插件可获得的正式 table context**判断。#9918 的 payload 是 `params.table` 下的 object identity；`database`、`schema` 缺省时省略，不用 connection summary 或 display label 代替。
 
 | Capability | Classification | Public Plugin API | DBX Internal | Evidence |
 | --- | --- | --- | --- | --- |
-| `connectionId` | A | 当前 connection menu 的 payload 为 `connection.id`；语义上是 DBX saved connection identity。 | connection node 由 `config.id` 同时写入 `id` 和 `connectionId`。 | `apps/desktop/src/lib/sidebar/sidebarLayout.ts` — `makeConnectionNode`；`apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `appendPluginConnectionMenuItems` 发送 `id: config.id`。公开字段嵌套在 `connection` 下，不是顶层 `connectionId`。 |
-| `database` | A | 当前公开 payload 为 `connection.database`，缺省值被 host 归一化为空字符串；这是 connection context 的字段，不是被点击 table 的 database。 | 被点击 database/table 的 `TreeNode.database` 是另一份 table-scoped 内部值。`buildDatabaseTreeNodes`、`loadSchemas` 和 `buildTableTreeNodes` 会沿树节点传递它。 | `plugins/README.md` — payload `{ id, dbType, name, database }`；`apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `database: config.database`（缺省回退为空字符串）；`apps/desktop/src/types/database.ts` — `TreeNode.database?: string`。 |
-| `schema` | B | 当前 context-menu payload 没有 `schema` 字段，也没有 table-specific public context type。 | `TreeNode.schema?`、`ObjectBrowserRow.schema?` 和 table tree 的 `schema?: string` 在 DBX 内部存在。 | `apps/desktop/src/types/database.ts` — `TreeNode`；`apps/desktop/src/lib/table/objectBrowserRows.ts` — `ObjectBrowserRow`；`apps/desktop/src/lib/table/tableTree.ts` — `buildTableTreeNodes`。 |
-| `table` | B | 当前 context-menu payload 没有 `table` / `tableName` 字段，也没有 table-specific public context type。 | table node 的稳定对象名在 `makeTableTreeEntry` 中作为 `label`/node id 构造；`TreeNode.tableName?` 与 `ObjectBrowserRow.name` 也只属于 DBX 内部 UI 模型。 | `apps/desktop/src/lib/table/tableTree.ts` — `makeTableTreeEntry`；`apps/desktop/src/types/database.ts` — `TreeNode`；`apps/desktop/src/components/objects/ObjectBrowser.vue` — `getObjectBrowserMenuItems`。 |
-| table context menu | B | `PluginContextMenuContribution` 的正式 schema 只接受 `menu: "connection"`；插件不能声明 database/schema/table/column target。 | DBX native sidebar menu 分别处理 database/schema、table/view 和 column；central `ObjectBrowser` 也有本地 `CustomContextMenu`，但都没有接入 plugin registry。 | `plugins/manifest.schema.json` — `contextMenuContribution.menu`；`crates/dbx-plugin-runtime/src/plugins/manifest.rs` — `validate_contributions`；`apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue` — `buildDatabaseSidebarMenu` / `buildObjectSidebarMenu` / `appendPluginConnectionMenuItems`；`apps/desktop/src/components/objects/ObjectBrowser.vue` — `getObjectBrowserMenuItems`。 |
+| `connectionId` | A | `params.table.connectionId: string`，必需。 | 来自 canonical `TreeNode.connectionId`。 | `apps/desktop/src/types/database.ts` — `PluginTableContext`; `apps/desktop/src/lib/plugins/pluginContext.ts` — `buildPluginTableContext`。 |
+| `database` | A | `params.table.database?: string`，有值才发送。 | 来自 canonical `TreeNode.database`，不读取 connection config。 | `apps/desktop/src/lib/plugins/pluginContext.ts` — `nonEmptyContextValue` / `buildPluginTableContext`。 |
+| `schema` | A | `params.table.schema?: string`，有值才发送。 | 来自 canonical `TreeNode.schema`。 | `apps/desktop/src/lib/plugins/pluginContext.ts` — `buildPluginTableContext`。 |
+| `table` | A | `params.table.table: string`，必需。 | 来自 canonical `TreeNode.tableName`；不从 display label fallback。 | `apps/desktop/src/lib/plugins/pluginContext.ts` — `PluginTableContextNode` / `buildPluginTableContext`。 |
+| table context menu | A（Sidebar Tree） | manifest `context-menu` contribution 的 `menu` enum 包含 `table`；调用 method 为 `contextMenu/<contributionId>`。 | `node.type === "table"` 的 native sidebar menu 调用 `appendPluginTableMenuItems`。 | `plugins/manifest.schema.json`; `plugins/README.md`; `apps/desktop/src/components/sidebar/SidebarTreeRuntimeHost.vue`。 |
+| Object Browser table menu | B | 当前没有独立 Object Browser plugin contribution surface。 | Object Browser 仍使用自己的 native `CustomContextMenu`。 | `plugins/README.md` 的首版范围说明；`apps/desktop/src/components/objects/ObjectBrowser.vue`。 |
 
 #### Payload semantics
 
-- `connectionId`：`makeConnectionNode` 将 `config.id` 同时作为 sidebar node `id` 和 `connectionId`；插件 payload 再从 `connectionStore.getConfig(node.connectionId)` 取回 `config.id`。这是 DBX connection identity，不是临时 UI node id；但 wire shape 是 `connection.id`。
-- `database`：公开字段来自保存连接的 `config.database`，不是右键点击 node 的 `node.database`。同一表达式对 PostgreSQL、MySQL、SQLite 都适用，但语义并不因此变成统一的 table scope：MySQL 的 tree 可以有多个 database node，SQLite 的持久化 connection database 会由 `normalizeStoredConnectionDatabase` 归一为 `undefined`，最终 payload 变成 `""`。
-- `schema`：内部 `TreeNode.schema` 和 table/object browser row schema 都是 optional；当前公开 payload 完全没有该字段，因此 SQLite / MySQL 是否为 `undefined`、空字符串或某个内部默认值没有 public contract 可供插件依赖。
-- `table`：内部 table name 可从 tree node 的 `label`/node id 或 `ObjectBrowserRow.name` 得到，但这些值没有跨插件边界发送；不能把 display label、private store 或 UI route 当作 public table name。
+- `connectionId` 与 `table` 是必需的 non-empty string；DBX 在 `buildPluginTableContext` 中从 canonical `TreeNode` metadata 读取。
+- `database` 与 `schema` 是 optional；host 对空白值归一化后直接省略，插件不能依赖空字符串占位。
+- wire shape 是 `{ table: { connectionId, database?, schema?, table } }`，不是旧 connection-shaped payload，也不是顶层 `connectionId`。
+- `table` 使用 `TreeNode.tableName`；host 明确不从 display label、private store、UI route 或 clipboard fallback。
+- payload 只含 object identity，不含 credentials、connection strings 或 raw connection configuration。
 
 ### Invocation path
 
-#### Sidebar tree（唯一接入 plugin context-menu 的 UI path）
+#### Sidebar tree（#9918 verified path）
 
 ```text
 TreeItem.onTreeItemContextMenu
 → ConnectionTree.openSidebarContextMenu
 → sidebarTreeRuntime.buildContextMenu
 → SidebarTreeRuntimeHost.buildContextMenu
-→ treeItemMenuItems
-→ buildConnectionSidebarMenu（仅 node.type === "connection"）
-→ appendPluginConnectionMenuItems
-→ FrontendPluginRegistry.listContextMenuItems("connection")
+→ buildObjectSidebarMenu（node.type === "table"）
+→ appendPluginTableMenuItems
+→ FrontendPluginRegistry.listContextMenuItems("table")
+→ buildPluginTableContextMenuInvocation(contribution.id, node)
 → api.invokePlugin(pluginId, `contextMenu/${contribution.id}`, {
-    connection: { id, dbType, name, database }
+    table: { connectionId, database?, schema?, table }
   })
 → POST /api/plugins/invoke（或 Tauri invoke_plugin）
 → dbx-web routes::invoke_plugin
@@ -75,7 +78,7 @@ TreeItem.onTreeItemContextMenu
 → plugin sidecar backend
 ```
 
-对 database/schema，`buildDatabaseSidebarMenu` 在内部 menu 分支直接 `return true`；对 table/view，`buildObjectSidebarMenu` 直接 `return true`；对 column 也有独立 `return true` 分支。它们都不会调用 `appendPluginConnectionMenuItems`。
+`appendPluginTableMenuItems` 只接受 canonical `node.type === "table"`；无效 identity 会使该 contribution 不显示。DBX 原生 table menu 在 Sidebar Tree 中调用同一 sidecar method，并将返回的 `{ message }` 显示为 toast。
 
 #### Central Object Browser
 
@@ -91,8 +94,16 @@ ContentArea
 `ObjectBrowser.vue` 的 table row context menu 没有 `FrontendPluginRegistry`、`listContextMenuItems` 或 `invokePlugin` 调用。此处链路明确停止：
 
 ```text
-STOP: central Object Browser 的 table menu 不是 plugin contribution surface。
+STOP: central Object Browser 不是 #9918 table contribution surface。
 ```
+
+### Desktop / Web support
+
+| Host surface | Result | Evidence / boundary |
+| --- | --- | --- |
+| DBX Desktop Sidebar Tree | **VERIFIED** | `SidebarTreeRuntimeHost.vue` renders `menu: "table"` contributions and invokes the canonical #9918 payload builder. |
+| DBX Desktop Object Browser | **NOT INCLUDED** | 上游文档明确首版只覆盖 Sidebar Tree；`ObjectBrowser.vue` 没有 plugin registry invocation。 |
+| DBX Web UI | **NOT_VERIFIED / no table menu claim** | `crates/dbx-web` 提供通用 `/plugins/invoke` backend route，但 audited source 没有独立 Web Sidebar Tree 的 `menu: "table"` rendering callsite。不能把 backend route 当作 Web table-menu 支持。 |
 
 ### Rejected workarounds
 
@@ -104,9 +115,11 @@ STOP: central Object Browser 的 table menu 不是 plugin contribution surface�
 - 读取 credential 文件、连接配置私有存储或生产连接串。
 - 让 SchemaSeed 自己维护第二套数据库连接以补齐 table context。
 
-### Recommended upstream gap
+### Remaining upstream gap
 
-为 DBX Host API 增加一个正式、版本化的 **table-scoped context-menu contribution target**：从 sidebar/Object Browser 的具体 table 操作入口触发插件，并公开稳定的 DBX connection identity 与 `database`、可选 `schema`、稳定 `table` name；同时明确 PostgreSQL / MySQL / SQLite 中缺省 database/schema 的 optional/null/empty 语义。不要暴露 credential，也不要求插件读取 DBX private state 或重新维护连接。
+- **Table Context / Sidebar Tree：已由 #9918 正式支持。** SchemaSeed 不再需要 workaround。
+- **Object Browser / Web table menu：** audited source 尚未提供独立的 table contribution 挂载面；不能从 Sidebar Tree 证据外推支持。
+- **Schema Metadata：** 仍等待未合并的 `t8y2/dbx#9917`。后续应提供正式、版本化的 metadata Host API，并明确 PostgreSQL / MySQL / SQLite 的字段语义；本任务不读取 DBX private state、credentials，也不维护第二套数据库连接。
 
 ## Schema Metadata
 

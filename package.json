@@ -1,0 +1,11 @@
+{
+  "name": "@0verme/schema-seed-table-context-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "node scripts/verify.mjs",
+    "build": "node scripts/build.mjs"
+  }
+}

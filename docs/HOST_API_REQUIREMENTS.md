@@ -2,13 +2,13 @@
 
 > Status: Minimal Host API Consumer Contract v0.1
 >
-> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约，不是 DBX 已接受、已实现或已承诺的 Host API 设计。文中的 TypeScript 形状只用于表达消费侧需求，不冻结 DBX 的 method name、namespace、permission、SDK package、RPC、Rust enum、wire representation、版本策略或错误类型。
+> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约。Table Context 已按 `t8y2/dbx#9918` 的最终公开实现对齐；Schema Metadata 仍等待未合并的 `t8y2/dbx#9917`。文中的 TypeScript 形状区分 SchemaSeed 内部消费形状与 DBX wire nesting，不冻结尚未公开的 metadata method、namespace、permission、SDK package、RPC、Rust enum、版本策略或错误类型。
 
-本契约基于已合并的 Phase 0 审计事实：
+本契约基于已审计的 Phase 0 事实：
 
-- [Table Context 审计](HOST_API_AUDIT.md#table-context) 的结论是 `NOT_PUBLICLY_SUPPORTED`：正式 Plugin Context Menu 目前只覆盖 saved connection，没有 table-scoped contribution，也没有向第三方插件公开完整 table context。
-- [Schema Metadata 审计](HOST_API_AUDIT.md#schema-metadata) 的结论是 `NOT_PUBLICLY_SUPPORTED`：DBX 内部已有 schema core、`ColumnInfo` 及目标 driver 路径，但当前没有公开的 metadata Host API、permission、SDK type 或 Plugin Host bridge dispatch。
-- DBX 内部 capability 存在，不等于 Plugin Host capability 已存在。DBX 的 private store、frontend module、Tauri command、HTTP schema route 和 Object Browser state 都不是本契约允许 SchemaSeed 依赖的 API。
+- [Table Context 审计](HOST_API_AUDIT.md#table-context) 已验证 #9918：Desktop Sidebar Tree 支持 `menu: "table"`，wire payload 为 `{ table: { connectionId, database?, schema?, table } }`；Object Browser / Web UI 不从该证据外推。
+- [Schema Metadata 审计](HOST_API_AUDIT.md#schema-metadata) 的结论仍是 `NOT_PUBLICLY_SUPPORTED`：DBX 内部已有 schema core、`ColumnInfo` 及目标 driver 路径，但没有公开的 metadata Host API、permission、SDK type 或 Plugin Host bridge dispatch；严格等待 #9917。
+- DBX internal capability 不等于 Plugin Host capability。DBX 的 private store、frontend module、Tauri command、HTTP schema route 和 Object Browser state 都不是本契约允许 SchemaSeed 依赖的 API。
 
 ## Contract principles
 
@@ -26,9 +26,9 @@ SchemaSeed 的最小消费契约必须保持：
 
 ## TableContext Contract
 
-### TableContext conceptual shape
+### TableContext internal consumer shape
 
-以下是消费侧的概念形状，不是 DBX SDK interface 或最终 wire schema：
+这是 SchemaSeed 内部 adapter 输出的最小形状；DBX #9918 的 wire payload 将其嵌套在 `params.table` 下：
 
 ```ts
 interface TableContext {
@@ -39,30 +39,45 @@ interface TableContext {
 }
 ```
 
-`database?` 和 `schema?` 只表示这两个维度对所有目标数据库不是统一必有字段；它们的缺省、不可用和错误语义不能由 TypeScript optional property 单独决定。上游必须提供足够的语义，使 SchemaSeed 能区分这些状态；最终使用 `null`、`undefined`、discriminated result 或其他表示方式属于 upstream design pending。
+对应 invocation params：
+
+```json
+{
+  "table": {
+    "connectionId": "...",
+    "database": "...",
+    "schema": "...",
+    "table": "..."
+  }
+}
+```
+
+`database` 和 `schema` 有值时发送、无值时省略；`connectionId` 与 `table` 必须是 non-empty string。SchemaSeed 不把 display label、connection summary 或空字符串占位转换成 table context。
 
 ### Field decisions
 
 | Field | Consumer role | Required consumer semantics | 不允许的替代来源 |
 | --- | --- | --- | --- |
-| `connectionId` | DBX 稳定 connection identity 的引用 | **Required**。必须是 DBX 可稳定识别现有 connection/session 的 identity；不是 credential、connection string，也不是临时 UI node id。SchemaSeed 只把它交还给 Host 边界使用。当前 saved connection menu 已有 `connection.id`，但尚无完整 table-scoped context contract。 | private store、临时 node id、连接配置文本、credential |
-| `database` | 数据库命名空间（若该 driver/连接模型有此维度） | **Optional**。PostgreSQL、MySQL、SQLite 对 database 的语义不完全相同；consumer 必须能区分 value exists、legitimately not applicable / absent、driver 或 Host 未暴露，而不能把 missing 和空字符串当成同一语义。 | 从 route、DOM、display label 或连接字符串猜测 |
-| `schema` | schema 命名空间（若该 driver/连接模型有此维度） | **Optional**。PostgreSQL 有明确 schema 语义；MySQL 的 database/schema 关系不能未经契约直接等同；SQLite 不提供相同的 server schema 维度。consumer 必须能区分 value exists、legitimately not applicable / absent、driver 未提供和 Host capability 不支持。 | private Vue state、Object Browser state、UI 默认值 |
-| `table` | 被调用对象的稳定 table name | **Required**。必须是稳定的数据库对象名，不是 display label、拼接后的 node id、DOM 文本、route 参数或 clipboard 内容。缺少该值时不能由 SchemaSeed 推断。 | DOM、route、clipboard、display label、private Vue state |
+| `connectionId` | DBX 稳定 connection identity 的引用 | **Required / VERIFIED**。来自 canonical table node；不是 credential、connection string 或临时 UI node id。 | private store、临时 node id、连接配置文本、credential |
+| `database` | 数据库命名空间（若该 driver/连接模型有此维度） | **Optional / VERIFIED**。#9918 有值才发送；无值由 host 省略，SchemaSeed 不从 connection summary 猜测。 | 从 route、DOM、display label 或连接字符串猜测 |
+| `schema` | schema 命名空间（若该 driver/连接模型有此维度） | **Optional / VERIFIED**。#9918 有值才发送；无值由 host 省略，driver-specific 适用性仍由 host contract 表达。 | private Vue state、Object Browser state、UI 默认值 |
+| `table` | 被调用对象的稳定 table name | **Required / VERIFIED**。来自 canonical `TreeNode.tableName`，不是 display label、拼接后的 node id、DOM 文本、route 参数或 clipboard 内容。 | DOM、route、clipboard、display label、private Vue state |
 
 因此，`connectionId` 与 `table` 是 v0.1 context 的必需消费能力；`database` 与 `schema` 是可选维度，但 optional 不等于可以静默丢失其缺失原因。
 
 ### Context source boundary
 
-SchemaSeed 需要的合法路径是：
+SchemaSeed 当前合法的 table context 路径是：
 
 ```text
-DBX table-scoped invocation
-→ stable TableContext
-→ DBX existing connection/session
+DBX Desktop Sidebar Tree table node
+→ `contextMenu/<contributionId>`
+→ `{ table: { connectionId, database?, schema?, table } }`
+→ thin adapter
+→ stable internal TableContext
 ```
 
-当前 DBX 的 connection context menu payload 中存在 `connection.id` 和 connection-level `database`，但该入口只对应 saved connection，不是被点击 table 的 context。DBX 内部已有 database/schema/table node 和 native menu，仍不能把它们当作第三方插件可访问的 table-scoped API。
+该路径只消费 #9918 正式 payload。SchemaSeed 不读取 DBX private state、connection config、display label 或 Object Browser state；Table Context 不因此授权 Metadata API。
 
 ## TableMetadata Contract
 
@@ -117,11 +132,11 @@ interface ColumnMetadata {
 
 | Capability | v0.1 Required | Consumer Requirement | PostgreSQL | MySQL | SQLite | Current Plugin API |
 | --- | --- | --- | --- | --- | --- | --- |
-| table-scoped invocation | Yes | 从具体 table 入口获得 context | DBX internal table node/native menu；无 plugin target | DBX internal table node/native menu；无 plugin target | DBX internal table node/native menu；无 plugin target | `NOT_PUBLICLY_SUPPORTED` |
-| `connectionId` | Yes | 稳定引用 DBX existing connection/session | saved connection identity internal/public connection payload；无 table-scoped payload | 同上；无 table-scoped payload | 同上；无 table-scoped payload | `NOT_PUBLICLY_SUPPORTED`（仅有 saved-connection `connection.id`，不满足 table scope） |
-| `database` | Optional | value / legitimately absent / driver or Host unavailable 必须可区分 | connection/tree model 可携带；table-scoped public payload 缺失 | connection/tree model 可携带；database 与 schema 语义不能直接等同；table-scoped public payload 缺失 | 可能不适用同一 database 维度；table-scoped public payload 缺失 | `NOT_PUBLICLY_SUPPORTED`（当前字段不是 table context） |
-| `schema` | Optional | value / legitimately absent / driver or Host unavailable 必须可区分 | internal tree/object model 可选；无 table-scoped public payload | internal tree/object model 可选；无 table-scoped public payload | 不保证存在与 PG 相同的 schema 维度 | `NOT_PUBLICLY_SUPPORTED` |
-| `table` | Yes | stable database object name，不是 display label | internal table object name；无 table-scoped public payload | internal table object name；无 table-scoped public payload | internal table object name；无 table-scoped public payload | `NOT_PUBLICLY_SUPPORTED` |
+| table-scoped invocation | Yes | 从具体 table 入口获得 context | DBX internal table node/native menu；Sidebar Tree 已接入 #9918 | 同上 | 同上 | **A / VERIFIED（Desktop Sidebar Tree）** |
+| `connectionId` | Yes | 稳定引用 DBX existing connection/session | canonical table node field | canonical table node field | canonical table node field | **A / VERIFIED** |
+| `database` | Optional | value exists 时消费；未提供时保持 omitted | table node 可携带 | table node 可携带 | 可能不适用同一 database 维度 | **A / VERIFIED（optional）** |
+| `schema` | Optional | value exists 时消费；未提供时保持 omitted | table node 可选 | table node 可选 | 不保证存在与 PG 相同的 schema 维度 | **A / VERIFIED（optional）** |
+| `table` | Yes | stable database object name，不是 display label | canonical `TreeNode.tableName` | canonical `TreeNode.tableName` | canonical `TreeNode.tableName` | **A / VERIFIED** |
 | `columns` | Yes | `TableMetadata.columns` 来自 DBX schema abstraction | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `NOT_PUBLICLY_SUPPORTED` |
 | column name | Yes | stable column name | internal PASS | internal PASS | internal PASS | `NOT_PUBLICLY_SUPPORTED` |
 | data type | Yes | native/general database type text；不引入 semantic type | `format_type(...)` 等 native/general path：internal PASS | `COLUMN_TYPE` 等 native/general path：internal PASS | `PRAGMA table_info.type`：internal PASS | `NOT_PUBLICLY_SUPPORTED` |
@@ -131,7 +146,7 @@ interface ColumnMetadata {
 | scale | Yes, when structured value exists | structured number 或明确 unavailable；不能用 `0` 表示 missing | internal PASS | internal PASS | structured value `MISSING` | `NOT_PUBLICLY_SUPPORTED` |
 | default | Yes, when a default is exposed | minimal text/expression text，并区分 absent、unsupported 和 failed | internal PASS；可能是 expression text | internal PASS；raw default text | internal PASS；`dflt_value` text | `NOT_PUBLICLY_SUPPORTED` |
 
-**Matrix reading rule：** DBX internal `PASS` 只表示 audited driver/schema path 已有能力；它绝不升级为 Plugin API `PASS`。当前没有任何一项完整的 v0.1 table-scoped acquisition contract 达到 public Plugin Host `PASS`。
+**Matrix reading rule：** Table Context 的 `A / VERIFIED` 只适用于 DBX #9918 已公开的 Desktop Sidebar Tree payload；Metadata 的 DBX internal `PASS` 仍绝不升级为 Plugin API `PASS`。Object Browser / Web table menu 不从该矩阵外推。
 
 ## Driver Differences
 
@@ -165,12 +180,12 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里定义的是�
 | **value exists** | Host/driver 返回了可消费的稳定值 | column `name`、PostgreSQL 的 numeric precision | 消费该值，不再从 UI 或 type text 反推 |
 | **legitimately absent / not applicable** | 该维度对当前 database model 不适用，或数据库明确没有该值 | SQLite 的 server-style schema/database 维度；没有 default 的 column | 作为正常语义处理，不当作调用失败 |
 | **driver does not expose structured value** | driver 可能有声明文本或内部线索，但没有结构化字段 | SQLite 的 length / precision / scale | 保留 unavailable 语义，不把它转成 `0`，也不要求 SchemaSeed 解析 workaround |
-| **Host API does not support capability** | DBX 内部可能有路径，但 public Plugin Host 没有该 capability | 当前 table-scoped context 和 metadata API | 标记为 Host API gap，不读取 private DBX boundary |
+| **Host API does not support capability** | DBX 内部可能有路径，但 public Plugin Host 没有该 capability | 当前 schema metadata API；Object Browser / Web table menu 也不在 #9918 范围 | 标记为 Host API gap，不读取 private DBX boundary |
 | **Host / driver call failed** | 本次获取发生调用、session 或 driver failure | 连接/session 错误或 metadata 调用失败 | 保留 failure 语义；不降级为 missing 或 legitimately absent |
 
 特别规则：
 
-- `database` / `schema` 的 missing 不能简单等价于 `""`；当前 saved connection menu 对缺省 `connection.database` 的空字符串归一化是 existing payload 行为，不是 table context contract。
+- `database` / `schema` 在 #9918 table context 中无值时被省略；不能从 saved connection menu 的 `connection.database` 或空字符串占位推断 table scope。
 - `length` / `precision` / `scale` 的 missing 不能简单等价于 `0`。
 - `default` 的 absent 不能与空文本、driver unsupported、Host unsupported 或调用失败混为一个 optional omission。
 - SchemaSeed 不要求上游现在采用 `null`、`undefined`、tagged union、error object 或 capability negotiation；这些表示法都是 **upstream design pending**。
@@ -178,7 +193,7 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里定义的是�
 
 ## Future Capabilities
 
-以下能力不属于 v0.1 required contract，只记录已审计的 DBX internal 状态和 roadmap 归类。它们仍没有 public Plugin Host capability。
+以下 metadata 能力不属于 v0.1 required contract，只记录已审计的 DBX internal 状态和 roadmap 归类。它们仍没有 public Plugin Host capability；Table Context 不在此 future list 中。
 
 | Version | Capability | Current DBX internal fact | Consumer contract status |
 | --- | --- | --- | --- |
@@ -193,28 +208,23 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里定义的是�
 
 ## Upstream Gaps
 
-以下是从 consumer contract 提炼出的两个独立、可直接转为 upstream requirement 的 gap。本轮只记录需求，不创建 `t8y2/dbx` Issue，也不预先指定 DBX 的实现 API。
+以下记录剩余的 metadata upstream requirement；Table Context 的 Sidebar Tree gap 已由 #9918 关闭。本轮只记录需求，不创建 `t8y2/dbx` Issue，也不预先指定 DBX 的 metadata 实现 API。
 
-### Gap A — Table-scoped Plugin Context
+### Table Context outcome
 
-DBX 需要提供一种正式、公开、版本可兼容的 table-scoped plugin invocation/context 能力，使 SchemaSeed 能够：
+`t8y2/dbx#9918` 已提供正式、公开、版本化的 Sidebar Tree table-scoped invocation/context：
 
 ```text
-从具体 table 入口被调用
-→ 获得稳定 connection identity
-→ 获得适用时的 database
-→ 获得适用时的 schema
-→ 获得稳定 table name
+具体 table 入口
+→ stable connection identity
+→ optional database/schema
+→ stable table name
+→ `{ table: { ... } }` sidecar invocation
 ```
 
-最低要求：
+SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。真实 Windows DBX smoke 仍待用户环境验证。
 
-- `connectionId` 必须引用 DBX existing connection/session，不暴露 credential、connection string 或 private store。
-- `database`、`schema` 必须能表达 present、legitimately absent/not applicable、driver/Host unavailable；不要求所有 driver 强行提供同一语义。
-- `table` 必须是稳定 object name，不得要求插件从 DOM、route、clipboard、display label 或 private Vue state 反推。
-- 该 gap 的 contribution target、manifest permission、SDK type、payload nesting、RPC method、namespace 和 version name 均 **upstream design pending**。
-
-### Gap B — Schema Metadata Host Boundary
+### Gap A — Schema Metadata Host Boundary
 
 DBX 需要提供一个正式、公开的 metadata Host boundary，使 SchemaSeed 在已有 `TableContext` 下复用：
 
@@ -256,16 +266,22 @@ TableContext
 
 ## Phase 0 position
 
-本文件只完成 Issue #4 的 consumer contract 收敛，不关闭 Phase 0 Gate，也不把任何假想 API 写成 DBX 已实现事实。
+本文件只完成 consumer contract 收敛，不关闭 Phase 0 Gate，也不把任何假想 Metadata API 写成 DBX 已实现事实。
 
 根据已完成审计，当前应保持：
 
 ```text
+Table Context / Desktop Sidebar Tree:
+VERIFIED_SOURCE_CONTRACT
+
+Schema Metadata:
+WAITING_UPSTREAM_9917
+
 Schema Acquisition Path:
 BLOCKED BY PUBLIC HOST API GAPS
 ```
 
-最终 `BLOCKED` / `READY` / `READY_WITH_FOLLOWUPS` 仍由 Issue #5 / #6 在 Probe 和 Gate 阶段正式确认。
+真实 Windows DBX smoke 与后续 Metadata API 仍是独立 gate；本 Probe 不消费未合并的 #9917。
 
 ## Evidence references
 

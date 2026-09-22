@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/t8y2/dbx/main/plugins/manifest.schema.json",
+  "manifest_version": 1,
+  "id": "io.github.0verme.schema-seed",
+  "name": "SchemaSeed",
+  "version": "0.1.0",
+  "publisher": "0verme",
+  "description": "SchemaSeed Phase 0 Table Context consumer probe.",
+  "engines": {
+    "dbx": ">=0.6.19",
+    "host_api": "^1.0"
+  },
+  "permissions": [],
+  "entrypoints": {
+    "backend": {
+      "protocol_versions": [1],
+      "transport": "stdio-jsonl",
+      "executable": "bin/schema-seed-probe"
+    }
+  },
+  "contributions": [
+    {
+      "type": "context-menu",
+      "id": "io.github.0verme.schema-seed.table-context-probe",
+      "label": "SchemaSeed: Show table context",
+      "description": "Display the DBX #9918 table identity received by SchemaSeed.",
+      "menu": "table"
+    }
+  ],
+  "localizations": {
+    "zh-CN": {
+      "name": "SchemaSeed",
+      "description": "SchemaSeed Phase 0 Table Context consumer probe。",
+      "contributions": {
+        "io.github.0verme.schema-seed.table-context-probe": {
+          "label": "SchemaSeed：显示 Table Context",
+          "description": "显示 SchemaSeed 从 DBX #9918 收到的 table identity。"
+        }
+      }
+    }
+  }
+}

@@ -1,46 +1,71 @@
-# Phase 0 Feasibility Report
+# SchemaSeed Phase 0 Feasibility Report
 
-Status: NOT_EVALUATED
-
-本报告是 Gate 模板。当前尚未完成 DBX 源码级审计，因此不对任何能力做通过或阻塞判断。
+Status: NOT_CLOSED
 
 ## v0.1 Required
 
 | Capability | Result | Evidence |
 |---|---|---|
-| Table Context | TBD | |
-| Columns | TBD | |
-| Type | TBD | |
-| Nullable | TBD | |
-| Length | TBD | |
-| Precision / Scale | TBD | |
-| Default | TBD | |
+| Table Context | VERIFIED; probe IMPLEMENTED; manual smoke PENDING USER VERIFICATION | DBX #9918 latest `origin/main`; `manifest.json`; `src/table-context.mjs`; `backend/schema-seed-probe.mjs` |
+| Columns | WAITING_UPSTREAM_9917 | No public metadata Host API is consumed by this probe. |
+| Type | WAITING_UPSTREAM_9917 | Same metadata boundary. |
+| Nullable | WAITING_UPSTREAM_9917 | Same metadata boundary. |
+| Length | WAITING_UPSTREAM_9917 | Same metadata boundary. |
+| Precision / Scale | WAITING_UPSTREAM_9917 | Same metadata boundary. |
+| Default | WAITING_UPSTREAM_9917 | Same metadata boundary. |
+
+## Table Context probe
+
+The verified #9918 path is:
+
+```text
+DBX Sidebar Tree table node
+→ native `context-menu` contribution with `menu: "table"`
+→ `contextMenu/io.github.0verme.schema-seed.table-context-probe`
+→ JSONL backend
+→ thin table payload adapter
+→ SchemaSeed internal TableContext
+→ `{ message: JSON.stringify(context) }` toast
+```
+
+The consumer model is internal:
+
+```ts
+interface TableContext {
+  connectionId: string;
+  database?: string;
+  schema?: string;
+  table: string;
+}
+```
+
+It is not the DBX wire payload. The actual #9918 wire payload nests this object under `params.table`; `database` and `schema` are omitted when unavailable.
+
+## Schema Metadata
+
+```text
+WAITING_UPSTREAM_9917
+```
+
+No metadata workaround or second database connection is used.
 
 ## Future Capabilities
 
 | Capability | Result | Target |
 |---|---|---|
-| Comment | TBD | v0.2 |
-| Primary Key | TBD | v0.3 |
-| UNIQUE | TBD | v0.3 |
-| CHECK | TBD | v0.3 |
-| Identity | TBD | v0.3 |
-| Foreign Key | TBD | v0.4 |
-
-## Schema Acquisition Path
-
-TBD
+| Comment | WAITING_UPSTREAM_9917 / future contract | v0.2 |
+| Primary Key | WAITING_UPSTREAM_9917 / future contract | v0.3 |
+| UNIQUE | WAITING_UPSTREAM_9917 / future contract | v0.3 |
+| CHECK | WAITING_UPSTREAM_9917 / future contract | v0.3 |
+| Identity | WAITING_UPSTREAM_9917 / future contract | v0.3 |
+| Foreign Key | WAITING_UPSTREAM_9917 / future contract | v0.4 |
 
 ## Final Gate
 
-最终状态只能为：
+Overall Phase 0 remains:
 
-- `READY`
-- `READY_WITH_FOLLOWUPS`
-- `BLOCKED`
+```text
+NOT_CLOSED
+```
 
-### Gate rules
-
-- `READY`：v0.1 所需正式 Host API 全部满足。
-- `READY_WITH_FOLLOWUPS`：v0.1 所需能力满足，但 PK、FK、UNIQUE、CHECK、Comment、Identity 等后续能力仍有缺口；允许开始 v0.1。
-- `BLOCKED`：无法通过正式 Plugin API 获取当前 table，或没有正式 Schema Metadata API；此时停止 SchemaSeed 功能实现，只推进 DBX upstream。
+`READY` is not claimed. Table Context source audit is verified and the consumer probe is implemented, but real DBX manual smoke is pending and Schema Metadata is waiting for #9917.

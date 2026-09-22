@@ -1,0 +1,9 @@
+# SchemaSeed uses a dependency-free Node.js JSONL sidecar. The DBX SDK CLI's
+# native backend builder currently targets Rust/Go, so scripts/build.mjs stages
+# this universal launcher and calls the same unsigned `.dbxp` packager contract.
+schema_version = 1
+
+[package]
+include = ["backend", "src"]
+
+[dev]
