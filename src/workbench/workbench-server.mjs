@@ -28,6 +28,11 @@ export function createWorkbenchServer(options = {}) {
         sendJson(response, 200, await controller.dispatch(action));
         return;
       }
+      if (request.method === "POST" && url.pathname === "/api/export") {
+        const input = await readJsonBody(request);
+        sendJson(response, 200, controller.prepareExport(input.format));
+        return;
+      }
       if (request.method === "GET" && ASSETS.has(url.pathname)) {
         const [filename, contentType] = ASSETS.get(url.pathname);
         const contents = await readFile(path.join(WEB_ROOT, filename));
@@ -42,8 +47,13 @@ export function createWorkbenchServer(options = {}) {
       }
       sendJson(response, 404, { error: "Not found" });
     } catch (error) {
-      const status = error instanceof RangeError || error instanceof TypeError || error instanceof SyntaxError ? 400 : 500;
-      sendJson(response, status, { error: error instanceof Error ? error.message : String(error) });
+      const status = typeof error?.code === "string" && error.code.startsWith("export_") ? 409
+        : error instanceof RangeError || error instanceof TypeError || error instanceof SyntaxError ? 400 : 500;
+      sendJson(response, status, {
+        error: error instanceof Error ? error.message : String(error),
+        ...(typeof error?.code === "string" ? { code: error.code } : {}),
+        ...(typeof error?.severity === "string" ? { severity: error.severity } : {}),
+      });
     }
   });
 }

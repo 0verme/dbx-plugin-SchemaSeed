@@ -16,6 +16,13 @@ const SEMANTIC_LABELS = {
   address: "Address · 地址",
 };
 
+export function exportButtonState(viewModel) {
+  const enabled = viewModel.export?.enabled === true
+    && !viewModel.exportBusy
+    && ["ready", "ready_with_warnings"].includes(viewModel.status);
+  return Object.freeze({ csv: enabled, json: enabled });
+}
+
 export function renderWorkbench(viewModel) {
   const statusBadge = byId("status-badge");
   statusBadge.textContent = STATUS_LABELS[viewModel.status] ?? viewModel.status;
@@ -43,6 +50,7 @@ export function renderWorkbench(viewModel) {
   renderPersonGroups(viewModel.personGroups);
   renderDiagnostics(viewModel.diagnostics, viewModel.information ?? []);
   renderPreview(viewModel);
+  renderExport(viewModel);
 }
 
 function renderMappings(columns) {
@@ -267,6 +275,14 @@ function renderPreview(viewModel) {
     }
     body.append(row);
   }
+}
+
+function renderExport(viewModel) {
+  const buttons = exportButtonState(viewModel);
+  byId("download-csv").disabled = !buttons.csv;
+  byId("download-json").disabled = !buttons.json;
+  byId("export-status").textContent = viewModel.exportMessage
+    || (buttons.csv ? `${viewModel.export.rowCount} rows · CSV UTF-8 · Spreadsheet-safe · JSON UTF-8` : "Export available after successful preview generation.");
 }
 
 function fillSelect(id, values, selectedValue) {

@@ -107,6 +107,13 @@
         </div>
         <p id="safe-synthetic-notice" class="safe-notice"></p>
         <div id="preview-state" class="preview-state" role="status"></div>
+        <div class="export-actions">
+          <div class="export-buttons">
+            <button id="download-csv" class="button" type="button" data-export-format="csv" disabled>Download CSV</button>
+            <button id="download-json" class="button" type="button" data-export-format="json" disabled>Download JSON</button>
+          </div>
+          <p id="export-status" class="export-status" role="status" aria-live="polite"></p>
+        </div>
         <div class="table-scroll preview-scroll">
           <table class="preview-table">
             <thead><tr id="preview-columns"></tr></thead>
@@ -127,6 +134,6 @@
         <button class="button" type="button" data-action="retry">重试</button>
       </section>
     </main>
-    <footer>Fixture-only harness · No DBX metadata · No database writes · Export is a follow-up</footer>
+    <footer>Fixture-only harness · No DBX metadata · No database writes · CSV / JSON export only</footer>
   </body>
 </html>

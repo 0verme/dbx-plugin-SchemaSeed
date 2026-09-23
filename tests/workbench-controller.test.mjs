@@ -55,6 +55,22 @@ describe("Fixture-driven WorkbenchController", () => {
     assert.equal(initial.information[0].code, "safe_synthetic_mode");
     assert.equal(initial.tableContext.tableIdentity, "simple_customer");
     assert.equal(initial.status, "ready_with_warnings");
+    assert.equal(initial.export.enabled, true);
+    assert.equal(workbench.prepareExport("csv").summary.format, "CSV");
+    assert.equal(workbench.prepareExport("json").summary.format, "JSON");
+  });
+
+  it("enables both downloads for a warning-free ready plan", async () => {
+    const provider = new InlineFixtureProvider({
+      simple_id: { tableIdentity: "simple_id", columns: [{ name: "id", dataType: "INTEGER", nullable: false }] },
+    });
+    const workbench = new WorkbenchController({ provider });
+    const state = await workbench.initialize();
+
+    assert.equal(state.status, "ready");
+    assert.equal(state.export.enabled, true);
+    assert.match(workbench.prepareExport("csv").filename, /\.csv$/);
+    assert.match(workbench.prepareExport("json").filename, /\.json$/);
   });
 
   it("keeps inferred candidates unconfirmed until the user acts", async () => {
@@ -114,13 +130,16 @@ describe("Fixture-driven WorkbenchController", () => {
     assert.equal(viewModel.columns.find((column) => column.column === "customer_name").mappingValue, "auto");
   });
 
-  it("regenerates the same preview with the same plan and seed", async () => {
+  it("regenerates the same preview and export dataset with the same plan and seed", async () => {
     const workbench = controller();
     const initial = await loadFixture(workbench, "simple_customer");
+    const initialExport = workbench.prepareExport("json").content;
     const regenerated = await workbench.dispatch({ type: "regenerate" });
 
     assert.equal(regenerated.plan.seed, initial.plan.seed);
     assert.deepEqual(regenerated.preview.rows, initial.preview.rows);
+    assert.deepEqual(regenerated.preview.rows, workbench.currentDataset.rows);
+    assert.equal(workbench.prepareExport("json").content, initialExport);
   });
 
   it("uses a new seed and changes the preview", async () => {
@@ -132,6 +151,8 @@ describe("Fixture-driven WorkbenchController", () => {
     assert.equal(changed.controls.seed, "new-seed-1");
     assert.notEqual(changed.plan.seed, initial.plan.seed);
     assert.notDeepEqual(changed.preview.rows, initial.preview.rows);
+    assert.notEqual(workbench.prepareExport("json").content, JSON.stringify(initial.preview.rows, initial.tableContext.columns, 2));
+    assert.deepEqual(JSON.parse(workbench.prepareExport("json").content), changed.preview.rows);
   });
 
   it("applies supported locale changes through the Core plan", async () => {
@@ -170,10 +191,26 @@ describe("Fixture-driven WorkbenchController", () => {
     assert.equal(blocked.status, "blocked");
     assert.equal(blocked.plan.status, "blocked");
     assert.deepEqual(blocked.preview.rows, []);
+    assert.equal(blocked.export.enabled, false);
+    assert.throws(() => workbench.prepareExport("csv"), (error) => error.code === "export_blocked_plan");
     assert.equal(diagnostic(blocked, "semantic_schema_incompatible").blocking, true);
     const mapping = blocked.columns.find((column) => column.column === "birthday");
     assert.equal(mapping.selectedMapping, "Birthday");
     assert.match(mapping.mappingStatus, /incompatible/);
+  });
+
+  it("uses the same generated dataset for preview and JSON after mapping changes", async () => {
+    const workbench = controller();
+    const initial = await loadFixture(workbench, "person_basic");
+    assert.equal(initial.export.enabled, true);
+    const before = workbench.prepareExport("json");
+    assert.deepEqual(JSON.parse(before.content), initial.preview.rows);
+
+    const mapped = await workbench.dispatch({ type: "set-mapping", column: "customer_name", semanticType: "email" });
+    const after = workbench.prepareExport("json");
+    assert.notDeepEqual(mapped.preview.rows, initial.preview.rows);
+    assert.deepEqual(JSON.parse(after.content), mapped.preview.rows);
+    assert.deepEqual(workbench.currentDataset.rows, mapped.preview.rows);
   });
 
   it("shows a partial Person group warning while keeping preview usable", async () => {
@@ -235,5 +272,7 @@ describe("Fixture-driven WorkbenchController", () => {
     assert.match(result.error, /fixture read failed/);
     assert.equal(result.plan, null);
     assert.deepEqual(result.preview.rows, []);
+    assert.equal(result.export.enabled, false);
+    assert.throws(() => failed.prepareExport("json"), (error) => error.code === "export_no_dataset");
   });
 });

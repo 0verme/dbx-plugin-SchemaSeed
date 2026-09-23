@@ -20,7 +20,7 @@ Table Context:
   real DBX manual smoke: PENDING USER VERIFICATION
 
 Schema Metadata:
-  WAITING_UPSTREAM_9917
+  UPSTREAM_READY_FOR_NEXT_PHASE (#10043 merged; Phase 0 Gate pending)
 
 Overall Phase 0:
   NOT_CLOSED
@@ -104,7 +104,7 @@ Preview Rows + Diagnostics
 
 ### Upstream boundary
 
-Phase 1A fixture Core 不依赖 `t8y2/dbx#10043` merge。正式 DBX Schema Metadata acquisition 与 adapter 仍等待 upstream PR #10043 merge、验证以及 Phase 0 Gate；本仓库不得复制其未合并 API / DTO 细节，也不得添加 workaround。
+Phase 1A fixture Core 不依赖 `t8y2/dbx#10043` merge。Upstream PR #10043 已在 Phase 1D 执行期间 merge；正式 DBX Schema Metadata acquisition / adapter 仍需独立验证与 Phase 0 Gate。该状态记为 `UPSTREAM_READY_FOR_NEXT_PHASE`；本仓库不得在 Phase 1A 中提前复制 Host API / DTO 或添加 workaround。
 
 ## Phase 1B — Semantic Mapping + Person Synthetic Generation（[#19](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/19)）
 
@@ -140,12 +140,26 @@ Fixture Preview + Diagnostics
 - `WorkbenchController` 使用现有 `buildGenerationPlan()` 与 `generateRows()`；只消费 `FixtureSchemaMetadataProvider`。
 - Rows 默认 20、限制 1–100；支持 seed、same-seed Regenerate、New Seed、`zh-CN` / `en`、显式 mapping confirmation / override、Person groups、Core diagnostics 与 preview。
 - Runtime 为 standalone loopback development harness only。当前 DBX `.dbxp` build / manifest 仍只包含 Phase 0 JSONL probe；Workbench 未 packaged in DBX。
-- Export remains a follow-up implementation；无 Direct Insert。
+- Phase 1C 完成时 Export 尚未实现；CSV / JSON 后续由 Phase 1D 单独交付。无 Direct Insert。
 
 ### Upstream boundary
 
-Upstream `t8y2/dbx#10043` 是 production Schema Metadata integration prerequisite，不是 fixture-driven Workbench prerequisite。即使上游 merge，也不扩大 Phase 1C；正式 adapter 需独立 Issue 与 Phase 0 Gate。
+Upstream `t8y2/dbx#10043` 已 merge 并记录为 `UPSTREAM_READY_FOR_NEXT_PHASE`，但不扩大 Phase 1C；正式 adapter 需独立 Issue 与 Phase 0 Gate。
+
+## Phase 1D — Deterministic Export Core + Workbench Download（[#23](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/23)）
+
+### 当前状态
+
+- Deterministic CSV / JSON Export Core 与 Workbench Download 已在 `feat/phase1d-export` 实现并完成检查，PR review pending；Export 只消费 Workbench 当前已由 Generation Core 产生的 dataset，不重复生成。
+- [Phase 1D Export](PHASE1D_EXPORT.md) 记录 dataset contract、Preview / export parity、CSV escaping / spreadsheet-safe / UTF-8 BOM、JSON decimal precision、filename 与 runtime 边界。
+- `npm run build` 仍仅构建 Phase 0 `.dbxp` probe；Workbench 继续通过 `npm run workbench` 运行 standalone harness。
+
+### 明确延期 / 边界
+
+- SQL Export deferred：fixture Workbench 没有 production database dialect；不实现 generic SQL serializer。
+- 不实现 DBX metadata adapter、DBX Workbench packaging、PK / UNIQUE / CHECK / FK、Relation Planner 或 SCD。
+- CSV / JSON 不依赖 upstream `t8y2/dbx#10043`；该 PR 在 Phase 1D 执行期间已 merge，仅记录 `UPSTREAM_READY_FOR_NEXT_PHASE`，不扩大本 Issue。
 
 ## 后续版本规划
 
-正式 DBX Metadata Host API consumer 需在 `t8y2/dbx#10043` 正式 merge、验证且 Phase 0 Gate 满足后单独设计 / 实施；本轮不提前消费或猜测其 method、permission、SDK type 或 wire shape。`#10043` 是 production metadata integration prerequisite，不是 fixture-driven Semantic / Person generation 或 Workbench prerequisite。
+`t8y2/dbx#10043` 已 merge；后续顺序仍为 Phase 0 Metadata Consumer Probe → Phase 0 Gate → 独立实现 `DbxHostSchemaMetadataProvider` → DBX packaged Workbench。本轮只记录 `UPSTREAM_READY_FOR_NEXT_PHASE`，不提前消费或猜测其 method、permission、SDK type 或 wire shape；该上游 merge 不影响 fixture-driven Export。
