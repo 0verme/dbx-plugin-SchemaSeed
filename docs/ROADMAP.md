@@ -140,11 +140,25 @@ Fixture Preview + Diagnostics
 - `WorkbenchController` 使用现有 `buildGenerationPlan()` 与 `generateRows()`；只消费 `FixtureSchemaMetadataProvider`。
 - Rows 默认 20、限制 1–100；支持 seed、same-seed Regenerate、New Seed、`zh-CN` / `en`、显式 mapping confirmation / override、Person groups、Core diagnostics 与 preview。
 - Runtime 为 standalone loopback development harness only。当前 DBX `.dbxp` build / manifest 仍只包含 Phase 0 JSONL probe；Workbench 未 packaged in DBX。
-- Export remains a follow-up implementation；无 Direct Insert。
+- Phase 1C 完成时 Export 尚未实现；CSV / JSON 后续由 Phase 1D 单独交付。无 Direct Insert。
 
 ### Upstream boundary
 
 Upstream `t8y2/dbx#10043` 是 production Schema Metadata integration prerequisite，不是 fixture-driven Workbench prerequisite。即使上游 merge，也不扩大 Phase 1C；正式 adapter 需独立 Issue 与 Phase 0 Gate。
+
+## Phase 1D — Deterministic Export Core + Workbench Download（[#23](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/23)）
+
+### 当前状态
+
+- Deterministic CSV / JSON Export Core 与 Workbench Download 已在 `feat/phase1d-export` 实现并完成检查，PR review pending；Export 只消费 Workbench 当前已由 Generation Core 产生的 dataset，不重复生成。
+- [Phase 1D Export](PHASE1D_EXPORT.md) 记录 dataset contract、Preview / export parity、CSV escaping / spreadsheet-safe / UTF-8 BOM、JSON decimal precision、filename 与 runtime 边界。
+- `npm run build` 仍仅构建 Phase 0 `.dbxp` probe；Workbench 继续通过 `npm run workbench` 运行 standalone harness。
+
+### 明确延期 / 边界
+
+- SQL Export deferred：fixture Workbench 没有 production database dialect；不实现 generic SQL serializer。
+- 不实现 DBX metadata adapter、DBX Workbench packaging、PK / UNIQUE / CHECK / FK、Relation Planner 或 SCD。
+- CSV / JSON 不依赖 upstream `t8y2/dbx#10043`，也不因其 merge 扩大本 Issue。
 
 ## 后续版本规划
 

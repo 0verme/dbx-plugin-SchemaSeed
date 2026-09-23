@@ -2,7 +2,7 @@
 
 SchemaSeed 是一款 DBX 测试数据生成插件。
 
-当前仓库包含 **Phase 0：Table Context Consumer Probe**、已合并的 **Phase 1A：Fixture-driven Generation Core**、已合并的 **Phase 1B：Semantic Mapping + Person Synthetic Generation**，以及 **Phase 1C：Fixture-driven Workbench**。Phase 1A–1C 只消费 SchemaSeed 内部 `TableSchema` 与本地 fixtures，不依赖 DBX metadata、数据库连接或真实 PII。
+当前仓库包含 **Phase 0：Table Context Consumer Probe**、已合并的 **Phase 1A：Fixture-driven Generation Core**、已合并的 **Phase 1B：Semantic Mapping + Person Synthetic Generation**、已合并的 **Phase 1C：Fixture-driven Workbench**，以及 **Phase 1D：Deterministic CSV / JSON Export**。Phase 1A–1D 只消费 SchemaSeed 内部 `TableSchema` 与本地 fixtures，不依赖 DBX metadata、数据库连接或真实 PII。
 
 ## 当前状态
 
@@ -29,7 +29,11 @@ Phase 1B:
 Phase 1C:
   fixture-driven Workbench: IMPLEMENTED (#21)
   runtime: STANDALONE DEVELOPMENT HARNESS ONLY (not packaged in DBX)
-  Export: FOLLOW-UP
+  Export: CSV / JSON via the current generated dataset; SQL deferred
+
+Phase 1D:
+  Deterministic CSV / JSON Export: READY (Issue #23; PR review pending)
+  SQL export: DEFERRED
 ```
 
 ## Probe architecture
@@ -116,7 +120,15 @@ Safe Synthetic fixture preview
 - `WorkbenchController` 使用 `FixtureSchemaMetadataProvider`，构建现有 `GenerationPlan` 并调用现有 `generateRows()`；不复制 inference、RNG 或 generation rules。
 - Rows 默认 20、限制 1–100；支持 seed、same-seed Regenerate、New Seed 和 Core 支持的 `zh-CN` / `en`。
 - Mapping candidate 保持未确认，用户通过 confirmed mapping 或 explicit override 操作；Person Groups、evidence 和 diagnostics 来自 Core plan。
-- **未 packaged in DBX**：当前 manifest / `.dbxp` 仍只包含 Phase 0 JSONL probe。Export remains a follow-up implementation；正式 DBX metadata adapter 继续等待 upstream #10043 与 Phase 0 Gate。
+- **未 packaged in DBX**：当前 manifest / `.dbxp` 仍只包含 Phase 0 JSONL probe。Phase 1D 在 Workbench 层序列化既有 generated dataset；正式 DBX metadata adapter 继续等待 upstream #10043 与 Phase 0 Gate。
+
+## Phase 1D — Deterministic Export Core + Workbench Download（Issue #23）
+
+- [Phase 1D Export](docs/PHASE1D_EXPORT.md) 记录 ExportDataset contract、Preview / export parity、CSV / JSON semantics 与 runtime 边界。
+- CSV / JSON 只序列化 Workbench 已通过 `generateRows(plan)` 生成的同一份 dataset；独立 Export Core 不依赖 UI、fixture provider、DBX 或 database driver。
+- CSV 明确支持 UTF-8、Workbench UTF-8 BOM、column order、escaping、empty-field NULL 和默认 spreadsheet-safe 下载；JSON 保留 null / boolean 类型、精确 decimal string 与稳定列顺序。
+- Workbench 使用 browser Blob / object URL 下载。`npm run build` 与 Phase 0 `.dbxp` probe packaging 不变。
+- **SQL Export deferred**：没有可靠 production dialect 时不实现 generic SQL serializer。正式 DBX metadata adapter / Workbench packaging 继续等待 upstream #10043 与 Phase 0 Gate。
 
 ## Boundaries
 
@@ -141,7 +153,7 @@ Safe Synthetic fixture preview
 - Deterministic seed
 - Constraint-aware values
 - Relational datasets
-- SQL / CSV / JSON export
+- SQL export (deferred; CSV / JSON delivered in Phase 1D)
 - Read-only by default
 
 本轮不读取 DBX 私有 Store、Credential 文件或未公开前端模块，不维护第二套数据库连接体系，也不修改 `t8y2/dbx`。Phase 0 Gate 仍是正式 DBX Metadata acquisition/integration 的前置条件；它不阻塞离线 fixture-driven Core 的实现。

@@ -14,7 +14,12 @@ let viewModel = {
   plan: null,
 };
 let busy = false;
-renderWorkbench(viewModel);
+let exportMessage = "";
+renderState();
+
+function renderState(nextViewModel = viewModel) {
+  renderWorkbench({ ...nextViewModel, exportMessage, exportBusy: busy });
+}
 
 controls.addEventListener("submit", (event) => event.preventDefault());
 controls.addEventListener("change", (event) => {
@@ -45,10 +50,14 @@ root.addEventListener("change", (event) => {
 });
 
 root.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-action], [data-confirm-column]");
+  const target = event.target.closest("[data-action], [data-confirm-column], [data-export-format]");
   if (!target) return;
   if (target.dataset.confirmColumn) {
     void dispatch({ type: "confirm-detected", column: target.dataset.confirmColumn });
+    return;
+  }
+  if (target.dataset.exportFormat) {
+    void download(target.dataset.exportFormat);
     return;
   }
   if (target.dataset.action === "regenerate") void dispatch({ type: "regenerate" });
@@ -61,10 +70,10 @@ async function initialize() {
     const response = await fetch("/api/state");
     if (!response.ok) throw new Error(`Workbench server returned HTTP ${response.status}`);
     viewModel = await response.json();
-    renderWorkbench(viewModel);
+    renderState();
   } catch (error) {
     viewModel = { ...viewModel, status: "preview_error", error: error.message };
-    renderWorkbench(viewModel);
+    renderState();
   }
 }
 
@@ -72,7 +81,7 @@ async function dispatch(action) {
   if (busy) return;
   busy = true;
   setBusy(true);
-  renderWorkbench({ ...viewModel, status: "loading", actionError: null });
+  renderState({ ...viewModel, status: "loading", actionError: null });
   try {
     const response = await fetch("/api/action", {
       method: "POST",
@@ -82,13 +91,54 @@ async function dispatch(action) {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? `Workbench server returned HTTP ${response.status}`);
     viewModel = result;
-    renderWorkbench(viewModel);
+    exportMessage = "";
+    renderState();
   } catch (error) {
     viewModel = { ...viewModel, actionError: error.message };
-    renderWorkbench(viewModel);
+    renderState();
   } finally {
     busy = false;
     setBusy(false);
+    renderState();
+  }
+}
+
+async function download(format) {
+  if (busy || viewModel.export?.enabled !== true) return;
+  busy = true;
+  setBusy(true);
+  exportMessage = "正在准备下载…";
+  renderState();
+  try {
+    const response = await fetch("/api/export", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ format }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      const error = new Error(result.error ?? `Export failed with HTTP ${response.status}`);
+      error.code = result.code;
+      throw error;
+    }
+
+    const blob = new Blob([result.content], { type: result.mimeType });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = result.filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    exportMessage = `${result.summary.rowCount} rows · ${result.summary.format} · ${result.summary.encoding}`
+      + (result.summary.spreadsheetSafe ? " · Spreadsheet-safe" : "");
+  } catch (error) {
+    exportMessage = `${error.code ?? "export_error"} · ${error.message}`;
+  } finally {
+    busy = false;
+    setBusy(false);
+    renderState();
   }
 }
 

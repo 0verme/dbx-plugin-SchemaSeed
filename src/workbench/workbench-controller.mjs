@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { exportCsv } from "../export/csv-exporter.mjs";
+import { createExportDataset, createExportFilename, ExportError } from "../export/export-dataset.mjs";
+import { exportJson } from "../export/json-exporter.mjs";
 import { generateRows } from "../generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../generation/generation-plan.mjs";
 import { FixtureSchemaMetadataProvider } from "../providers/fixture-schema-metadata-provider.mjs";
@@ -31,7 +34,7 @@ export class WorkbenchController {
     this.semanticMappings = {};
     this.schema = null;
     this.plan = null;
-    this.rows = [];
+    this.currentDataset = null;
     this.diagnostics = [];
     this.error = null;
     this.actionError = null;
@@ -191,7 +194,13 @@ export class WorkbenchController {
       information: plan ? [{ code: "safe_synthetic_mode", reason: "Preview uses the GenerationPlan Safe Synthetic mode." }] : [],
       preview: {
         columns: plan?.table.columns.map((column) => column.name) ?? [],
-        rows: this.rows.map((row) => ({ ...row })),
+        rows: this.currentDataset?.rows.map((row) => ({ ...row })) ?? [],
+      },
+      export: {
+        enabled: Boolean(plan && plan.status !== "blocked"
+          && ["ready", "ready_with_warnings"].includes(this.status)
+          && this.currentDataset?.rows.length > 0),
+        rowCount: this.currentDataset?.rows.length ?? 0,
       },
       plan: plan ? {
         status: plan.status,
@@ -213,11 +222,42 @@ export class WorkbenchController {
     };
   }
 
+  /**
+   * Return a download descriptor for the already-generated current dataset.
+   * @param {"csv" | "json"} format
+   */
+  prepareExport(format) {
+    if (format !== "csv" && format !== "json") throw new TypeError("Export format must be csv or json");
+    if (this.plan?.status === "blocked" || this.status === "blocked") {
+      throw new ExportError("export_blocked_plan", "Blocked plans cannot be exported");
+    }
+    if (!this.plan || !this.currentDataset || this.status === "preview_error"
+      || !["ready", "ready_with_warnings"].includes(this.status)
+      || this.currentDataset.rows.length === 0) {
+      throw new ExportError("export_no_dataset", "A successfully generated dataset with rows is required for export");
+    }
+
+    const content = format === "csv"
+      ? exportCsv(this.currentDataset, { header: true, mode: "spreadsheet_safe", bom: true })
+      : exportJson(this.currentDataset, { pretty: true });
+    return {
+      filename: createExportFilename(this.currentDataset.tableIdentity, this.currentDataset.rows.length, format),
+      mimeType: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8",
+      content,
+      summary: {
+        rowCount: this.currentDataset.rows.length,
+        format: format.toUpperCase(),
+        encoding: "UTF-8",
+        spreadsheetSafe: format === "csv",
+      },
+    };
+  }
+
   async refreshPreview() {
     this.status = "loading";
     this.schema = null;
     this.plan = null;
-    this.rows = [];
+    this.currentDataset = null;
     this.diagnostics = [];
     this.error = null;
     try {
@@ -234,9 +274,11 @@ export class WorkbenchController {
         ? buildGenerationPlan(this.schema, { ...options, personGroups: selectedFixtureGroups(declarations, initialPlan) })
         : initialPlan;
       const result = generateRows(this.plan);
-      this.rows = result.rows;
       this.diagnostics = result.diagnostics;
       this.status = result.status;
+      if (this.plan.status !== "blocked" && result.status !== "blocked") {
+        this.currentDataset = createExportDataset(this.plan, result);
+      }
     } catch (error) {
       this.failPreview(error);
     }
@@ -253,7 +295,7 @@ export class WorkbenchController {
   failPreview(error) {
     this.status = "preview_error";
     this.plan = null;
-    this.rows = [];
+    this.currentDataset = null;
     this.diagnostics = [];
     this.error = error instanceof Error ? error.message : String(error);
   }
