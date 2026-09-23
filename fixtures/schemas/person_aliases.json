@@ -1,0 +1,11 @@
+{
+  "tableIdentity": "person_aliases",
+  "columns": [
+    { "name": "cust_name", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "sex", "dataType": "VARCHAR", "nullable": false, "length": 8 },
+    { "name": "dob", "dataType": "DATE", "nullable": false },
+    { "name": "phone_no", "dataType": "VARCHAR", "nullable": false, "length": 32 },
+    { "name": "email_address", "dataType": "VARCHAR", "nullable": false, "length": 128 },
+    { "name": "home_address", "dataType": "VARCHAR", "nullable": false, "length": 255 }
+  ]
+}

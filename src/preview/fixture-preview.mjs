@@ -9,7 +9,7 @@ export const DEFAULT_PREVIEW_ROW_COUNT = 20;
 /**
  * Preview is a consumer of the generation engine. Its convenience default is
  * intentionally outside the core/plan, which always requires rowCount.
- * @param {{ provider?: import("../schema/schema-metadata-provider.mjs").SchemaMetadataProvider, tableIdentity: string, rowCount?: number, seed?: string | number, overrides?: Record<string, unknown> }} input
+ * @param {{ provider?: import("../schema/schema-metadata-provider.mjs").SchemaMetadataProvider, tableIdentity: string, rowCount?: number, seed?: string | number, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string }} input
  */
 export async function previewTable(input) {
   const tableIdentity = typeof input?.tableIdentity === "string" ? input.tableIdentity : "<unknown-table>";
@@ -44,6 +44,11 @@ export async function previewTable(input) {
     seed: input.seed,
     rowCount: input.rowCount ?? DEFAULT_PREVIEW_ROW_COUNT,
     overrides: input.overrides,
+    semanticOverrides: input.semanticOverrides,
+    semanticMappings: input.semanticMappings,
+    personGroups: input.personGroups,
+    locale: input.locale,
+    mode: input.mode,
   });
   const generated = generateRows(plan);
   return {
@@ -54,7 +59,7 @@ export async function previewTable(input) {
   };
 }
 
-/** @param {{ fixtureName: string, rowCount?: number, seed?: string | number, overrides?: Record<string, unknown>, provider?: FixtureSchemaMetadataProvider }} input */
+/** @param {{ fixtureName: string, rowCount?: number, seed?: string | number, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string, provider?: FixtureSchemaMetadataProvider }} input */
 export async function previewFixture(input) {
   const provider = input?.provider ?? new FixtureSchemaMetadataProvider();
   return previewTable({
@@ -63,5 +68,10 @@ export async function previewFixture(input) {
     rowCount: input?.rowCount,
     seed: input?.seed,
     overrides: input?.overrides,
+    semanticOverrides: input?.semanticOverrides,
+    semanticMappings: input?.semanticMappings,
+    personGroups: input?.personGroups,
+    locale: input?.locale,
+    mode: input?.mode,
   });
 }

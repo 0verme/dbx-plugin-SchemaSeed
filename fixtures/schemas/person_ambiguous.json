@@ -1,0 +1,10 @@
+{
+  "tableIdentity": "person_ambiguous",
+  "columns": [
+    { "name": "name_gender", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "remark", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "info", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "value", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "data", "dataType": "VARCHAR", "nullable": false, "length": 64 }
+  ]
+}

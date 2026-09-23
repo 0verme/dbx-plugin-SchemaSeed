@@ -1,0 +1,9 @@
+{
+  "tableIdentity": "person_two_groups",
+  "columns": [
+    { "name": "customer_name", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "customer_mobile", "dataType": "VARCHAR", "nullable": false, "length": 32 },
+    { "name": "contact_name", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "contact_mobile", "dataType": "VARCHAR", "nullable": false, "length": 32 }
+  ]
+}

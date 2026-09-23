@@ -33,6 +33,9 @@ const coreFiles = [
   "src/schema/schema-metadata-provider.mjs",
   "src/generation/generation-plan.mjs",
   "src/generation/generation-engine.mjs",
+  "src/generation/person-synthetic.mjs",
+  "src/semantic/semantic-inference.mjs",
+  "src/semantic/person-groups.mjs",
   "src/preview/fixture-preview.mjs",
   "src/providers/fixture-schema-metadata-provider.mjs",
 ];

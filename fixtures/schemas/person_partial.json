@@ -1,0 +1,9 @@
+{
+  "tableIdentity": "person_partial",
+  "columns": [
+    { "name": "person_id", "dataType": "INTEGER", "nullable": false },
+    { "name": "person_name", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "person_email", "dataType": "VARCHAR", "nullable": false, "length": 128 },
+    { "name": "notes", "dataType": "VARCHAR", "nullable": true, "length": 32 }
+  ]
+}
