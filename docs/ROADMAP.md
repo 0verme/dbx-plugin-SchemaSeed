@@ -106,6 +106,32 @@ Preview Rows + Diagnostics
 
 Phase 1A fixture Core 不依赖 `t8y2/dbx#10043` merge。正式 DBX Schema Metadata acquisition 与 adapter 仍等待 upstream PR #10043 merge、验证以及 Phase 0 Gate；本仓库不得复制其未合并 API / DTO 细节，也不得添加 workaround。
 
+## Phase 1B — Semantic Mapping + Person Synthetic Generation（[#19](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/19)）
+
+### 目标链路
+
+```text
+TableSchema
+   ↓ Schema Interpretation
+Semantic Detection (column name + type + length)
+   ↓ explicit override / confirmed mapping / inspectable inference
+Person semantic group
+   ↓
+GenerationPlan
+   ↓ deterministic Safe Synthetic values
+Fixture Preview + Diagnostics
+```
+
+### 当前实现边界
+
+- SemanticType 与 schema type 分离；支持 `unknown / name / gender / birthday / mobile / email / address`。
+- Inference 为离线 deterministic 规则，提供 confidence、evidence、source；low-confidence、ambiguous、incompatible candidate 不会静默变成 semantic generator。
+- 显式 semantic override > confirmed mapping > automatic inference > schema fallback；显式 Generation Rule 仍按 #12 独立优先。
+- Person 是 synthetic logical entity；字段可选，partial group 有 warning，不生成隐藏字段；多组通过显式 `personGroups` 声明。
+- Safe Synthetic 为默认 mode。姓名、性别、手机号、地址使用 test marker；email 使用 `example.com`；不读取真实 PII，也不保证现实世界绝不碰撞。
+- 稳定上下文是 seed + table + group + row + locale，每个字段使用稳定 semantic rule identity；Fixture Preview 是 GenerationPlan/Engine 的 consumer。
+- Validator-Compatible 只保留 unsupported-mode diagnostic；不实现中国身份证/checksum、真实号码验证、Workbench UI 或 exporter。
+
 ## 后续版本规划
 
-正式 DBX Metadata Host API consumer 需在 `t8y2/dbx#10043` merge 后单独设计 / 验证；本轮不提前消费或猜测其 method、permission、SDK type 或 wire shape。
+正式 DBX Metadata Host API consumer 需在 `t8y2/dbx#10043` 正式 merge、验证且 Phase 0 Gate 满足后单独设计 / 实施；本轮不提前消费或猜测其 method、permission、SDK type 或 wire shape。`#10043` 是 metadata integration prerequisite，不是 fixture-driven Semantic / Person generation prerequisite。

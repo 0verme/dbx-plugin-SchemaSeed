@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
+import { generatePersonSyntheticValue } from "./person-synthetic.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const DAY_MS = 86_400_000;
@@ -34,12 +35,18 @@ export function generateRows(plan) {
     try {
       for (const columnPlan of plan.columns) {
         const { schema, rule, nullProbability } = columnPlan;
-        const identity = [plan.seed, plan.table.tableIdentity, schema.name, rowIdentity, rule.identity];
+        const semantic = rule.kind.startsWith("semantic:");
+        if (semantic && !columnPlan.personGroupIdentity) {
+          throw new Error("A semantic Person rule must belong to a resolved Person group");
+        }
+        const identity = semantic
+          ? [plan.seed, plan.table.tableIdentity, columnPlan.personGroupIdentity, rowIdentity, plan.locale, plan.mode, rule.identity]
+          : [plan.seed, plan.table.tableIdentity, schema.name, rowIdentity, rule.identity];
         if (nullProbability > 0 && randomUnit([...identity, "nullable"]) < nullProbability) {
           entries.push([schema.name, null]);
           continue;
         }
-        entries.push([schema.name, generateValue(rule, identity, schema)]);
+        entries.push([schema.name, generateValue(rule, identity, schema, plan.locale)]);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -64,8 +71,11 @@ export function generateRows(plan) {
   return { rows, diagnostics: [...plan.diagnostics], status: planStatus(plan.diagnostics) };
 }
 
-function generateValue(rule, identity, column) {
+function generateValue(rule, identity, column, locale) {
   const parameters = rule.parameters;
+  if (rule.kind.startsWith("semantic:")) {
+    return generatePersonSyntheticValue(rule.kind.slice("semantic:".length), identity, locale);
+  }
   switch (rule.kind) {
     case "integer": {
       const min = Number.isSafeInteger(parameters.min) ? parameters.min : parameters.defaultMin;

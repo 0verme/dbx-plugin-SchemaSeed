@@ -4,6 +4,8 @@
 
 **Design Freeze for Issue #12 — Phase 1 implementation input**
 
+> 本文是分层与职责的设计模型；Phase 1B 的实际 Semantic / Person contract 由 [PHASE1B_ARCHITECTURE.md](PHASE1B_ARCHITECTURE.md) 具体化。Issue #13 已完成 Design Freeze，implementation 单独由 #19 跟踪。
+
 本文档冻结 SchemaSeed 的最小 Generation Model 语义与职责边界。它是 SchemaSeed 的 **Conceptual / Internal Draft**：
 
 - **不是 DBX SDK Contract**；
@@ -916,7 +918,7 @@ business entity
 
 ### 12.4 与其它 Phase 1 design Issue 的边界
 
-- **#13 Sensitive Synthetic Data**：定义 Person 的 Safe Synthetic / Validator-Compatible、checksum 和具体敏感字段 consistency；#12 只定义 group contract 和层间接口。
+- **#13 Sensitive Synthetic Data**：已冻结 Person 的 Safe Synthetic / Validator-Compatible 边界与最小 consistency contract；Phase 1B 实现见 #19。身份证 checksum 算法仍后置；#12 只定义 group contract 和层间接口。
 - **#14 Workbench UX**：消费本模型的 inspectable plan、confidence/evidence、diagnostics 和 Preview/Export 一致性；#12 不定义 UI。
 - **#15 Future Constraints**：定义 relational/temporal 的后续产品和实现前置；#12 不提前实现 FK graph 或 SCD。
 
@@ -1105,7 +1107,7 @@ info diagnostic: group consistency disabled by user
 2. deterministic hash/RNG 算法、canonical identity 编码和 `determinismProfile` 的兼容策略；
 3. 不同 database identifier case/collation 下 `columnIdentity` 的规范化细节；
 4. 各种 target format 对 `OMIT_USE_DEFAULT` / `OMIT_IDENTITY` 的具体表示；
-5. #13 对 Person group 的 Safe Synthetic 与 Validator-Compatible 具体规则；
+5. #13 已冻结 Person group 的 Safe Synthetic 与 Validator-Compatible 边界；中国身份证 checksum / validator-specific 算法仍需未来专门 Issue 定义；
 6. #15 对 PK/UNIQUE/CHECK evaluator、FK relation 和 Temporal/SCD 的后续实现前置；
 7. #14 如何把 blocked/unsupported/low-confidence plan 展示为最小 Workbench UX。
 
@@ -1122,17 +1124,19 @@ info diagnostic: group consistency disabled by user
 
 ### SchemaSeed dependency boundary
 
-Phase 1A 可独立执行以下本地链路：
+Phase 1A 及 fixture-only Phase 1B 可独立执行以下本地链路：
 
 ```text
 repository fixture
         ↓
 SchemaSeed TableSchema
         ↓
+Schema Interpretation / Semantic Mapping
+        ↓
 GenerationPlan / GenerationEngine / Preview
 ```
 
-它不读取真实 metadata、不连接 DBX，也不依赖 #10043 的 merge。fixture provider 不是 production metadata source。
+它不读取真实 metadata、不连接 DBX，也不依赖 #10043 的 merge。fixture provider 不是 production metadata source。#10043 是正式 metadata integration prerequisite，不是 fixture-driven Semantic / Person generation prerequisite。
 
 正式 Host integration 仍只允许沿以下 future path：
 

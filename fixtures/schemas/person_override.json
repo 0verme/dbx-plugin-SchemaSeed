@@ -1,0 +1,7 @@
+{
+  "tableIdentity": "person_override",
+  "columns": [
+    { "name": "customer_name", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "phone_no", "dataType": "VARCHAR", "nullable": false, "length": 32 }
+  ]
+}

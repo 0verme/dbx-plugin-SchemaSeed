@@ -1,43 +1,52 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 import { normalizeTableSchema } from "../schema/schema-model.mjs";
+import { checkSemanticCompatibility, inferSemanticType, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
+import { resolvePersonGroups } from "../semantic/person-groups.mjs";
 
 const SUPPORTED_RULES = new Set(["integer", "decimal", "varchar", "string", "boolean", "date", "timestamp"]);
 const MAX_ROW_COUNT = 1_000_000;
 const MAX_DECIMAL_PRECISION = 1_000;
 
 /**
- * The semantic slot is deliberately unknown in Phase 1A. Rule selection is
- * explicit user rule > future semantic decision > schema fallback; no semantic
- * inference or personal-data generator is implemented here.
- *
- * @typedef {"unknown"} SemanticType
+ * @typedef {"unknown" | "name" | "gender" | "birthday" | "mobile" | "email" | "address"} SemanticType
+ * @typedef {Object} SemanticMapping
+ * @property {SemanticType} semanticType
+ * @property {"high" | "medium" | "low" | "unknown"} confidence
+ * @property {Array<{ source: string, observation: string, explanation: string }>} evidence
+ * @property {string} source
+ * @property {string} status
+ * @property {boolean} selected
  * @typedef {Object} GenerationRule
  * @property {string} identity
- * @property {"integer" | "decimal" | "varchar" | "boolean" | "date" | "timestamp" | "unsupported"} kind
- * @property {"explicit_user_rule" | "schema_type_fallback"} source
+ * @property {string} kind
+ * @property {string} source
  * @property {Record<string, unknown>} parameters
  * @typedef {Object} ColumnGenerationPlan
  * @property {import("../schema/schema-model.mjs").ColumnSchema} schema
- * @property {{ type: SemanticType }} semanticType
+ * @property {SemanticMapping} semanticMapping
+ * @property {Record<string, unknown>} inference
  * @property {GenerationRule} rule
+ * @property {string | null} personGroupIdentity
  * @property {number} nullProbability
  * @typedef {Object} GenerationPlan
  * @property {import("../schema/schema-model.mjs").TableSchema} table
  * @property {ColumnGenerationPlan[]} columns
+ * @property {Array<Record<string, unknown>>} semanticGroups
  * @property {string} seed
  * @property {number} rowCount
+ * @property {string} locale
+ * @property {string} mode
  * @property {"sha256-addressed-v1"} determinismProfile
  * @property {GenerationDiagnostic[]} diagnostics
  * @property {"ready" | "ready_with_warnings" | "blocked"} status
  */
 
 /**
- * Convert normalized schema facts and user overrides into a fully inspectable
- * plan. This layer never calls a provider, UI, Faker, or database.
- *
+ * Convert normalized schema facts, semantic mappings, groups, and user rules
+ * into an inspectable plan. No provider, UI, Faker, or database is called.
  * @param {unknown} tableInput
- * @param {{ seed?: string | number, rowCount?: number, overrides?: Record<string, unknown> }} options
+ * @param {{ seed?: string | number, rowCount?: number, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string }} options
  * @returns {GenerationPlan}
  */
 export function buildGenerationPlan(tableInput, options = {}) {
@@ -53,7 +62,11 @@ export function buildGenerationPlan(tableInput, options = {}) {
 
   const seed = normalizeSeed(options.seed, schema.tableIdentity, diagnostics);
   const rowCount = normalizeRowCount(options.rowCount, schema.tableIdentity, diagnostics);
+  const locale = normalizeLocale(options.locale, schema.tableIdentity, diagnostics);
+  const mode = normalizeMode(options.mode, schema.tableIdentity, diagnostics);
   const overrides = normalizeOverrides(options.overrides, schema.tableIdentity, diagnostics);
+  const semanticOverrides = normalizeSemanticMappings(options.semanticOverrides, "explicit-user-semantic-override", schema.tableIdentity, diagnostics);
+  const confirmedMappings = normalizeSemanticMappings(options.semanticMappings, "confirmed-semantic-mapping", schema.tableIdentity, diagnostics);
   const seenColumns = new Set();
   const columnPlans = schema.columns.map((column) => {
     if (seenColumns.has(column.name)) {
@@ -67,35 +80,200 @@ export function buildGenerationPlan(tableInput, options = {}) {
       }));
     }
     seenColumns.add(column.name);
-    return planColumn(schema.tableIdentity, column, overrides.get(column.name), diagnostics);
+    const inference = inferSemanticType(column, locale);
+    const semanticMapping = resolveSemanticMapping(
+      schema.tableIdentity,
+      column,
+      inference,
+      semanticOverrides,
+      confirmedMappings,
+      locale,
+      diagnostics,
+    );
+    return planColumn(schema.tableIdentity, column, overrides.get(column.name), semanticMapping, inference, locale, mode, diagnostics);
   });
 
-  for (const columnName of overrides.keys()) {
-    if (!seenColumns.has(columnName)) {
-      diagnostics.push(makeDiagnostic({
-        severity: "error",
-        code: "invalid_override",
-        table: schema.tableIdentity,
-        column: columnName,
-        rule: "explicit-user-rule",
-        reason: "Override refers to a column that does not exist in the table schema",
-      }));
+  for (const [mappingSet, rule] of [[overrides, "explicit-user-rule"], [semanticOverrides, "semantic-user-override"], [confirmedMappings, "confirmed-semantic-mapping"]]) {
+    for (const columnName of mappingSet.keys()) {
+      if (!seenColumns.has(columnName)) {
+        diagnostics.push(makeDiagnostic({
+          severity: "error",
+          code: rule === "explicit-user-rule" ? "invalid_override" : "semantic_override_invalid",
+          table: schema.tableIdentity,
+          column: columnName,
+          rule,
+          reason: "Mapping refers to a column that does not exist in the table schema",
+        }));
+      }
     }
   }
 
+  const grouped = resolvePersonGroups(columnPlans, options.personGroups, schema.tableIdentity, diagnostics);
+  const finalizedColumns = grouped.columns.map((column) => Object.freeze({
+    ...column,
+    semanticMapping: Object.freeze({ ...column.semanticMapping, evidence: Object.freeze([...column.semanticMapping.evidence]) }),
+    inference: Object.freeze({ ...column.inference, evidence: Object.freeze([...column.inference.evidence]), candidates: Object.freeze([...column.inference.candidates]) }),
+    rule: Object.freeze({ ...column.rule, parameters: Object.freeze({ ...column.rule.parameters }) }),
+  }));
   const frozenDiagnostics = Object.freeze(diagnostics);
   return Object.freeze({
     table: schema,
-    columns: Object.freeze(columnPlans),
+    columns: Object.freeze(finalizedColumns),
+    semanticGroups: Object.freeze(grouped.groups),
     seed,
     rowCount,
+    locale,
+    mode,
     determinismProfile: "sha256-addressed-v1",
     diagnostics: frozenDiagnostics,
     status: planStatus(diagnostics),
   });
 }
 
-function planColumn(tableIdentity, column, override, diagnostics) {
+function resolveSemanticMapping(tableIdentity, column, inference, semanticOverrides, confirmedMappings, locale, diagnostics) {
+  const explicitType = semanticOverrides.get(column.name);
+  if (semanticOverrides.has(column.name)) {
+    return selectSemanticMapping(tableIdentity, column, explicitType, "explicit_user_semantic_override", inference, locale, diagnostics);
+  }
+  const confirmedType = confirmedMappings.get(column.name);
+  if (confirmedMappings.has(column.name)) {
+    return selectSemanticMapping(tableIdentity, column, confirmedType, "confirmed_semantic_mapping", inference, locale, diagnostics);
+  }
+
+  if (inference.status === "ambiguous") {
+    diagnostics.push(makeDiagnostic({
+      severity: "warning",
+      code: "semantic_ambiguous",
+      table: tableIdentity,
+      column: column.name,
+      rule: "semantic-inference",
+      reason: `Column name matches multiple semantic types: ${inference.candidates.join(", ")}; schema-type fallback is retained`,
+      blocking: false,
+    }));
+    return mappingFromInference(inference, "ambiguous", false);
+  }
+  if (inference.status === "incompatible") {
+    diagnostics.push(makeDiagnostic({
+      severity: "warning",
+      code: "semantic_schema_incompatible",
+      table: tableIdentity,
+      column: column.name,
+      rule: `semantic:${inference.semanticType}:v1`,
+      reason: `${inference.reason}; schema-type fallback is retained`,
+      blocking: false,
+    }));
+    return mappingFromInference(inference, "incompatible", false);
+  }
+  if (inference.status === "candidate") {
+    if (inference.confidence === "low") {
+      diagnostics.push(makeDiagnostic({
+        severity: "warning",
+        code: "semantic_low_confidence",
+        table: tableIdentity,
+        column: column.name,
+        rule: "semantic-inference",
+        reason: `Candidate ${inference.semanticType} has low-confidence name evidence; schema-type fallback is retained`,
+        blocking: false,
+      }));
+    }
+    diagnostics.push(makeDiagnostic({
+      severity: "warning",
+      code: "semantic_confirmation_required",
+      table: tableIdentity,
+      column: column.name,
+      rule: `semantic:${inference.semanticType}:v1`,
+      reason: `Candidate ${inference.semanticType} is inspectable but requires an explicit semantic override or confirmed mapping before Person generation`,
+      blocking: false,
+    }));
+    return mappingFromInference(inference, "needs_confirmation", false);
+  }
+  return mappingFromInference(inference, "unknown", false);
+}
+
+function selectSemanticMapping(tableIdentity, column, rawType, source, inference, locale, diagnostics) {
+  const fail = (code, reason, severity = "error") => {
+    diagnostics.push(makeDiagnostic({
+      severity,
+      code,
+      table: tableIdentity,
+      column: column.name,
+      rule: source,
+      reason,
+    }));
+    return {
+      semanticType: typeof rawType === "string" && SEMANTIC_TYPES.includes(rawType) ? rawType : "unknown",
+      confidence: "unknown",
+      evidence: [...inference.evidence],
+      source,
+      status: "invalid",
+      selected: false,
+    };
+  };
+
+  if (typeof rawType !== "string") {
+    return fail("semantic_override_invalid", "Semantic mapping must be a string SemanticType");
+  }
+  if (!SEMANTIC_TYPES.includes(rawType)) {
+    return fail("unsupported_semantic_type", `Unsupported semantic type ${rawType}`);
+  }
+  if (rawType === "unknown") {
+    return {
+      semanticType: "unknown",
+      confidence: "unknown",
+      evidence: [Object.freeze({ source: source === "confirmed_semantic_mapping" ? "user_confirmed" : "user_override", observation: rawType, explanation: "Semantic generation was explicitly left unknown" })],
+      source,
+      status: "unknown",
+      selected: false,
+    };
+  }
+
+  const compatibility = checkSemanticCompatibility(column, rawType, locale);
+  const evidence = [...(inference.semanticType === rawType ? inference.evidence : []), ...compatibility.evidence];
+  evidence.push(Object.freeze({
+    source: source === "confirmed_semantic_mapping" ? "user_confirmed" : "user_override",
+    observation: rawType,
+    explanation: source === "confirmed_semantic_mapping" ? "Semantic mapping was explicitly confirmed" : "Semantic type was explicitly overridden by the user",
+  }));
+  if (compatibility.compatible !== true) {
+    diagnostics.push(makeDiagnostic({
+      severity: "error",
+      code: "semantic_schema_incompatible",
+      table: tableIdentity,
+      column: column.name,
+      rule: source,
+      reason: compatibility.reason,
+    }));
+    return {
+      semanticType: rawType,
+      confidence: inference.semanticType === rawType ? inference.confidence : "unknown",
+      evidence,
+      source,
+      status: "incompatible",
+      selected: false,
+    };
+  }
+  return {
+    semanticType: rawType,
+    confidence: inference.semanticType === rawType ? inference.confidence : "unknown",
+    evidence,
+    source,
+    status: "selected",
+    selected: true,
+  };
+}
+
+function mappingFromInference(inference, status, selected) {
+  return {
+    semanticType: inference.semanticType,
+    confidence: inference.confidence,
+    evidence: [...inference.evidence],
+    source: inference.status === "unknown" ? "schema_type_fallback" : "automatic_semantic_inference",
+    status,
+    selected,
+  };
+}
+
+function planColumn(tableIdentity, column, override, semanticMapping, inference, locale, mode, diagnostics) {
   const interpreted = interpretColumnType(column);
   const schemaRuleId = `schema:${column.name}`;
   if (!interpreted) {
@@ -110,7 +288,14 @@ function planColumn(tableIdentity, column, override, diagnostics) {
         ? `No schema fallback generator supports data type ${knownType}`
         : `Data type metadata is ${column.dataType.state}; ${column.dataType.reason || "a known type is required"}`,
     }));
-    return makeColumnPlan(column, { kind: "unsupported", parameters: {} }, "schema_type_fallback", 0, schemaRuleId);
+    return {
+      schema: column,
+      semanticMapping,
+      inference,
+      rule: { identity: schemaRuleId, kind: "unsupported", source: "schema_type_fallback", parameters: {} },
+      nullProbability: 0,
+      personGroupIdentity: null,
+    };
   }
 
   const ruleKind = interpreted.kind;
@@ -120,44 +305,49 @@ function planColumn(tableIdentity, column, override, diagnostics) {
     baseParameters.defaultMax = Math.max(baseParameters.defaultMin, Math.min(baseParameters.schemaMax, 1_000_000));
   }
   validateTypeMetadata(tableIdentity, column, ruleKind, baseParameters, schemaRuleId, diagnostics);
-  const fallback = makeColumnPlan(column, { kind: ruleKind, parameters: baseParameters }, "schema_type_fallback", 0, schemaRuleId);
-
-  let parameters = { ...fallback.rule.parameters };
-  let source = "schema_type_fallback";
-  let ruleIdentity = schemaRuleId;
   let nullProbability = defaultNullProbability(column, tableIdentity, diagnostics);
+  let rule;
+  let finalSemanticMapping = semanticMapping;
 
   if (override !== undefined) {
-    const valid = validateOverride(tableIdentity, column, ruleKind, override, parameters, nullProbability, diagnostics);
+    const valid = validateOverride(tableIdentity, column, ruleKind, override, baseParameters, nullProbability, diagnostics);
     if (valid) {
-      parameters = valid.parameters;
       nullProbability = valid.nullProbability;
-      source = "explicit_user_rule";
-      ruleIdentity = valid.identity;
+      rule = { identity: valid.identity, kind: ruleKind, source: "explicit_user_rule", parameters: { ...valid.parameters, nullProbability } };
+      if (semanticMapping.selected) {
+        finalSemanticMapping = { ...semanticMapping, status: "overridden_by_explicit_user_rule", selected: false };
+      }
+    } else if (semanticMapping.selected) {
+      finalSemanticMapping = { ...semanticMapping, status: "blocked_by_invalid_explicit_rule", selected: false };
     }
   }
 
-  const rule = Object.freeze({
-    identity: ruleIdentity,
-    kind: ruleKind,
-    source,
-    parameters: Object.freeze({ ...parameters, nullProbability }),
-  });
-  return Object.freeze({ schema: column, semanticType: Object.freeze({ type: "unknown" }), rule, nullProbability });
-}
+  if (!rule && semanticMapping.selected) {
+    rule = {
+      identity: `semantic:${semanticMapping.semanticType}:v1`,
+      kind: `semantic:${semanticMapping.semanticType}`,
+      source: semanticMapping.source,
+      parameters: { locale, mode, nullProbability: 0 },
+    };
+    nullProbability = 0;
+  }
+  if (!rule) {
+    rule = {
+      identity: schemaRuleId,
+      kind: ruleKind,
+      source: "schema_type_fallback",
+      parameters: { ...baseParameters, nullProbability },
+    };
+  }
 
-function makeColumnPlan(column, ruleInput, source, nullProbability, identity) {
-  return Object.freeze({
+  return {
     schema: column,
-    semanticType: Object.freeze({ type: "unknown" }),
-    rule: Object.freeze({
-      identity,
-      kind: ruleInput.kind,
-      source,
-      parameters: Object.freeze({ ...ruleInput.parameters, nullProbability }),
-    }),
+    semanticMapping: finalSemanticMapping,
+    inference,
+    rule: { ...rule, parameters: { ...rule.parameters } },
     nullProbability,
-  });
+    personGroupIdentity: null,
+  };
 }
 
 function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdentity, diagnostics) {
@@ -418,6 +608,46 @@ function normalizeRowCount(rowCount, tableIdentity, diagnostics) {
     reason: `rowCount must be an integer from 0 through ${MAX_ROW_COUNT}`,
   }));
   return 0;
+}
+
+function normalizeLocale(locale, tableIdentity, diagnostics) {
+  if (locale === undefined) return "zh-CN";
+  if (locale === "zh-CN" || locale === "en") return locale;
+  diagnostics.push(makeDiagnostic({
+    severity: "error",
+    code: "invalid_locale",
+    table: tableIdentity,
+    rule: "generation-settings",
+    reason: "Locale must be one of zh-CN or en",
+  }));
+  return "zh-CN";
+}
+
+function normalizeMode(mode, tableIdentity, diagnostics) {
+  if (mode === undefined || mode === "safe_synthetic") return "safe_synthetic";
+  diagnostics.push(makeDiagnostic({
+    severity: "unsupported",
+    code: "validator_mode_unsupported",
+    table: tableIdentity,
+    rule: "generation-mode",
+    reason: `Generation mode ${String(mode)} is unsupported; Safe Synthetic is the only implemented mode`,
+  }));
+  return String(mode);
+}
+
+function normalizeSemanticMappings(input, rule, tableIdentity, diagnostics) {
+  if (input === undefined) return new Map();
+  if (!isRecord(input)) {
+    diagnostics.push(makeDiagnostic({
+      severity: "error",
+      code: "semantic_override_invalid",
+      table: tableIdentity,
+      rule,
+      reason: "Semantic mappings must be an object keyed by column name",
+    }));
+    return new Map();
+  }
+  return new Map(Object.entries(input));
 }
 
 function normalizeOverrides(input, tableIdentity, diagnostics) {

@@ -1,0 +1,12 @@
+{
+  "tableIdentity": "person_basic",
+  "columns": [
+    { "name": "customer_id", "dataType": "BIGINT", "nullable": false },
+    { "name": "customer_name", "dataType": "VARCHAR", "nullable": false, "length": 64 },
+    { "name": "gender", "dataType": "VARCHAR", "nullable": false, "length": 8 },
+    { "name": "birthday", "dataType": "DATE", "nullable": false },
+    { "name": "mobile", "dataType": "VARCHAR", "nullable": false, "length": 32 },
+    { "name": "email", "dataType": "VARCHAR", "nullable": false, "length": 128 },
+    { "name": "address", "dataType": "VARCHAR", "nullable": false, "length": 255 }
+  ]
+}

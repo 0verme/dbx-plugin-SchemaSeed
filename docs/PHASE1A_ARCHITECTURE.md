@@ -1,5 +1,7 @@
 # Phase 1A — Generation Core + Fixture-driven Preview
 
+> Historical Phase 1A scope. Phase 1B now extends this Core with Semantic Mapping and Safe Synthetic Person generation; see [PHASE1B_ARCHITECTURE.md](PHASE1B_ARCHITECTURE.md) for current semantic behavior.
+
 ## Status and boundary
 
 Phase 1A implements the offline, single-table Generation Core against repository fixtures. It is independent of DBX Host API availability:
