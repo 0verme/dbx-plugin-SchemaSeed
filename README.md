@@ -13,7 +13,7 @@ Table Context:
   real DBX manual smoke: PENDING USER VERIFICATION
 
 Schema Metadata:
-  WAITING_UPSTREAM_9917
+  UPSTREAM_READY_FOR_NEXT_PHASE (#10043 merged; Phase 0 Gate pending)
 
 Overall Phase 0:
   NOT_CLOSED
@@ -24,7 +24,7 @@ Phase 1A:
 
 Phase 1B:
   Semantic Mapping + Safe Synthetic Person Preview: IMPLEMENTED (PR #20 merged)
-  DBX Schema Metadata integration: WAITING_UPSTREAM_10043 / Phase 0 Gate
+  DBX Schema Metadata integration: UPSTREAM_READY_FOR_NEXT_PHASE / Phase 0 Gate pending
 
 Phase 1C:
   fixture-driven Workbench: IMPLEMENTED (#21)
@@ -120,7 +120,7 @@ Safe Synthetic fixture preview
 - `WorkbenchController` 使用 `FixtureSchemaMetadataProvider`，构建现有 `GenerationPlan` 并调用现有 `generateRows()`；不复制 inference、RNG 或 generation rules。
 - Rows 默认 20、限制 1–100；支持 seed、same-seed Regenerate、New Seed 和 Core 支持的 `zh-CN` / `en`。
 - Mapping candidate 保持未确认，用户通过 confirmed mapping 或 explicit override 操作；Person Groups、evidence 和 diagnostics 来自 Core plan。
-- **未 packaged in DBX**：当前 manifest / `.dbxp` 仍只包含 Phase 0 JSONL probe。Phase 1D 在 Workbench 层序列化既有 generated dataset；正式 DBX metadata adapter 继续等待 upstream #10043 与 Phase 0 Gate。
+- **未 packaged in DBX**：当前 manifest / `.dbxp` 仍只包含 Phase 0 JSONL probe。Phase 1D 在 Workbench 层序列化既有 generated dataset；upstream #10043 已 merge，但 metadata adapter 仍需独立 Phase 0 Gate 与后续阶段。
 
 ## Phase 1D — Deterministic Export Core + Workbench Download（Issue #23）
 
@@ -128,7 +128,7 @@ Safe Synthetic fixture preview
 - CSV / JSON 只序列化 Workbench 已通过 `generateRows(plan)` 生成的同一份 dataset；独立 Export Core 不依赖 UI、fixture provider、DBX 或 database driver。
 - CSV 明确支持 UTF-8、Workbench UTF-8 BOM、column order、escaping、empty-field NULL 和默认 spreadsheet-safe 下载；JSON 保留 null / boolean 类型、精确 decimal string 与稳定列顺序。
 - Workbench 使用 browser Blob / object URL 下载。`npm run build` 与 Phase 0 `.dbxp` probe packaging 不变。
-- **SQL Export deferred**：没有可靠 production dialect 时不实现 generic SQL serializer。正式 DBX metadata adapter / Workbench packaging 继续等待 upstream #10043 与 Phase 0 Gate。
+- **SQL Export deferred**：没有可靠 production dialect 时不实现 generic SQL serializer。Upstream #10043 在 Phase 1D 执行期间已 merge；记录为 `UPSTREAM_READY_FOR_NEXT_PHASE`，本 Issue 不加入 metadata adapter 或 Workbench packaging，Phase 0 Gate 仍需单独完成。
 
 ## Boundaries
 
@@ -138,7 +138,7 @@ Safe Synthetic fixture preview
 - 不执行 `information_schema`、`pg_catalog`、`SHOW COLUMNS`、`SHOW CREATE TABLE` 或 `PRAGMA table_info`。
 - 不打开 PostgreSQL、MySQL 或 SQLite 连接。
 - 不读取 DBX private Store、credentials、connection strings、private frontend modules、private Tauri commands 或 undocumented APIs。
-- 正式 DBX Schema Metadata integration 仍等待 `t8y2/dbx#9917` / upstream PR #10043 merge；该 prerequisite 不阻塞 fixture-driven Workbench。
+- Upstream `t8y2/dbx#10043` 已 merge；记录状态为 `UPSTREAM_READY_FOR_NEXT_PHASE`。正式 DBX Schema Metadata integration 仍需独立 Phase 0 Gate 与后续阶段，不阻塞 fixture-driven Workbench / Export。
 
 ## Phase 1 design documents
 

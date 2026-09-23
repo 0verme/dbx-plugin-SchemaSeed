@@ -69,7 +69,7 @@ SQL export is intentionally deferred. A generic `INSERT INTO table VALUES (...)`
 
 ## DBX integration boundary
 
-CSV / JSON export does not depend on DBX Schema Metadata integration. Upstream `t8y2/dbx#10043` remains a separate production metadata prerequisite; this phase does not implement `host.getTableMetadata`, `host.schema:read`, `schemaMetadataApi`, `DbxHostSchemaMetadataProvider`, database access, or DBX Workbench packaging. A merge of #10043 does not expand Phase 1D scope. The existing `npm run build` Phase 0 `.dbxp` probe behavior is unchanged.
+CSV / JSON export does not depend on DBX Schema Metadata integration. Upstream `t8y2/dbx#10043` merged during Phase 1D; record `UPSTREAM_READY_FOR_NEXT_PHASE`. This phase does not implement `host.getTableMetadata`, `host.schema:read`, `schemaMetadataApi`, `DbxHostSchemaMetadataProvider`, database access, or DBX Workbench packaging. The upstream merge does not expand Phase 1D scope. The existing `npm run build` Phase 0 `.dbxp` probe behavior is unchanged.
 
 ## Out of scope
 
