@@ -19,6 +19,7 @@ try {
   /** @type {Map<string, { data: Buffer, mode: number }>} */
   const files = new Map();
   files.set("manifest.json", { data: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`), mode: 0o644 });
+  files.set("assets/plugin.svg", { data: await readFile(path.join(root, "assets/plugin.svg")), mode: 0o644 });
   files.set("bin/universal/schema-seed-probe", {
     data: await readFile(path.join(root, "scripts/unix-launcher.sh")),
     mode: 0o100755,

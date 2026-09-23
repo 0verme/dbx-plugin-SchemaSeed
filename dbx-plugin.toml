@@ -4,6 +4,6 @@
 schema_version = 1
 
 [package]
-include = ["backend", "src", "ui"]
+include = ["backend", "src", "ui", "assets"]
 
 [dev]

@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="40" y1="28" x2="220" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172033"/>
+      <stop offset="1" stop-color="#0B1220"/>
+    </linearGradient>
+    <linearGradient id="seed" x1="104" y1="108" x2="162" y2="188" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#86EFAC"/>
+      <stop offset="1" stop-color="#22C55E"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App tile -->
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="url(#bg)"/>
+
+  <!-- Schema card -->
+  <rect x="50" y="48" width="156" height="160" rx="28"
+        fill="#111C2F" stroke="#334155" stroke-width="4"/>
+
+  <!-- Schema rows -->
+  <circle cx="76" cy="82" r="7" fill="#94A3B8"/>
+  <path d="M94 82H176" stroke="#E2E8F0" stroke-width="10" stroke-linecap="round"/>
+
+  <circle cx="76" cy="118" r="7" fill="#94A3B8"/>
+  <path d="M94 118H154" stroke="#CBD5E1" stroke-width="10" stroke-linecap="round"/>
+
+  <circle cx="76" cy="154" r="7" fill="#94A3B8"/>
+  <path d="M94 154H116" stroke="#CBD5E1" stroke-width="10" stroke-linecap="round"/>
+  <path d="M170 154H180" stroke="#CBD5E1" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- Seed / deterministic growth -->
+  <path d="M132 184V143" stroke="url(#seed)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M132 147C119 147 107 138 103 124C119 123 130 130 134 142"
+        fill="url(#seed)"/>
+  <path d="M132 139C135 124 146 114 163 112C163 129 153 141 136 146"
+        fill="url(#seed)"/>
+
+  <!-- Seed point -->
+  <circle cx="132" cy="184" r="10" fill="#22C55E"/>
+  <circle cx="132" cy="184" r="4" fill="#DCFCE7"/>
+
+  <!-- Small seed/hash marks: deterministic generation hint -->
+  <path d="M171 176H187M179 168V184" stroke="#64748B" stroke-width="5" stroke-linecap="round"/>
+</svg>

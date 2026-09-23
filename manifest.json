@@ -5,7 +5,8 @@
   "name": "SchemaSeed",
   "version": "0.1.0",
   "publisher": "0verme",
-  "description": "SchemaSeed Phase 0 Table Context and Schema Metadata consumer probes.",
+  "description": "Development probe for DBX table context and schema metadata integration toward test data generation.",
+  "icon": "assets/plugin.svg",
   "engines": {
     "dbx": ">=0.6.19",
     "host_api": "^1.3"
@@ -36,13 +37,14 @@
       "type": "workbench",
       "id": "io.github.0verme.schema-seed.schema-metadata-probe",
       "label": "Schema Metadata Probe",
-      "description": "Inspect the public DBX Schema Metadata Host API response."
+      "description": "Inspect the public DBX Schema Metadata Host API response.",
+      "icon": "assets/plugin.svg"
     }
   ],
   "localizations": {
     "zh-CN": {
       "name": "SchemaSeed",
-      "description": "SchemaSeed Phase 0 Table Context 与 Schema Metadata consumer probe。",
+      "description": "用于验证 DBX 表上下文与 Schema Metadata 集成路径的测试数据生成开发探针。",
       "contributions": {
         "io.github.0verme.schema-seed.table-context-probe": {
           "label": "SchemaSeed：保存 Table Context",

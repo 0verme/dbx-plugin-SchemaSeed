@@ -38,13 +38,15 @@ test("manifest declares the narrow Host API contract and only the Probe Workbenc
   const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
   const config = await readFile(path.join(root, "dbx-plugin.toml"), "utf8");
   assert.equal(manifest.engines.host_api, "^1.3");
+  assert.equal(manifest.icon, "assets/plugin.svg");
   assert.deepEqual(manifest.permissions, ["host.schema:read"]);
   assert.deepEqual(manifest.entrypoints.ui, { root: "ui", entry: "ui/index.html" });
   assert.equal(manifest.entrypoints.backend.transport, "stdio-jsonl");
   assert.equal(manifest.contributions.some((entry) => entry.type === "context-menu" && entry.menu === "table"), true);
   assert.equal(manifest.contributions.some((entry) => entry.type === "workbench" && entry.id === "io.github.0verme.schema-seed.schema-metadata-probe"), true);
   assert.equal(manifest.contributions.filter((entry) => entry.type === "workbench").length, 1);
-  assert.match(config, /include\s*=\s*\["backend",\s*"src",\s*"ui"\]/);
+  assert.equal(manifest.contributions.find((entry) => entry.type === "workbench").icon, manifest.icon);
+  assert.match(config, /include\s*=\s*\["backend",\s*"src",\s*"ui",\s*"assets"\]/);
 });
 
 test("built DBXP contains the metadata consumer UI and excludes the fixture Workbench", async () => {
@@ -56,6 +58,7 @@ test("built DBXP contains the metadata consumer UI and excludes the fixture Work
   const entries = readStoredZip(await readFile(path.join(dist, names[0])));
   const expected = [
     "manifest.json",
+    "assets/plugin.svg",
     "backend/schema-seed-probe.mjs",
     "src/probe-state.mjs",
     "src/probe-protocol.mjs",
@@ -72,6 +75,11 @@ test("built DBXP contains the metadata consumer UI and excludes the fixture Work
   const sourceProbeModule = await readFile(path.join(root, "src/host/dbx-schema-metadata-probe.mjs"));
   assert.deepEqual(entries.get("ui/schema-metadata-probe.mjs"), sourceProbeModule);
   assert.equal(packagedManifest.engines.host_api, "^1.3");
+  const referencedIcons = [packagedManifest.icon, ...packagedManifest.contributions.map((entry) => entry.icon).filter(Boolean)];
+  for (const iconPath of referencedIcons) {
+    assert.equal(entries.has(iconPath), true, `package includes manifest icon ${iconPath}`);
+    assert.deepEqual(entries.get(iconPath), await readFile(path.join(root, iconPath)), `packaged icon matches ${iconPath}`);
+  }
   assert.deepEqual(packagedManifest.permissions, ["host.schema:read"]);
   assert.equal(packagedManifest.entrypoints.ui.entry, "ui/index.html");
   const checksums = JSON.parse(entries.get("checksums.json").toString("utf8")).files;
