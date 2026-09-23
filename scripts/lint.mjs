@@ -7,11 +7,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const directories = ["src", "backend", "scripts", "tests"];
 const files = [];
 
-for (const directory of directories) {
-  for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
-    if (entry.isFile() && entry.name.endsWith(".mjs")) files.push(path.join(root, directory, entry.name));
+async function collectJavaScript(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) await collectJavaScript(entryPath);
+    else if (entry.isFile() && entry.name.endsWith(".mjs")) files.push(entryPath);
   }
 }
+
+for (const directory of directories) await collectJavaScript(path.join(root, directory));
 
 for (const file of files.sort()) {
   const result = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });

@@ -1,0 +1,11 @@
+{
+  "tableIdentity": "financial_transaction",
+  "columns": [
+    { "name": "transaction_id", "dataType": "BIGINT", "nullable": false },
+    { "name": "amount", "dataType": "DECIMAL", "nullable": false, "precision": 18, "scale": 2 },
+    { "name": "tax_rate", "dataType": "DECIMAL", "nullable": true, "precision": 5, "scale": 4 },
+    { "name": "memo", "dataType": "VARCHAR", "nullable": true, "length": 256 },
+    { "name": "settled", "dataType": "BOOLEAN", "nullable": false },
+    { "name": "occurred_at", "dataType": "TIMESTAMP", "nullable": false, "precision": 6 }
+  ]
+}

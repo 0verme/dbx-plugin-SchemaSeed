@@ -1,0 +1,12 @@
+{
+  "tableIdentity": "simple_customer",
+  "columns": [
+    { "name": "customer_id", "dataType": "BIGINT", "nullable": false, "identity": { "state": "absent" }, "default": { "state": "absent" } },
+    { "name": "name", "dataType": "VARCHAR", "nullable": true, "length": 64 },
+    { "name": "age", "dataType": "INTEGER", "nullable": false },
+    { "name": "balance", "dataType": "DECIMAL", "nullable": false, "precision": 18, "scale": 2 },
+    { "name": "active", "dataType": "BOOLEAN", "nullable": false },
+    { "name": "birthday", "dataType": "DATE", "nullable": true },
+    { "name": "created_at", "dataType": "TIMESTAMP", "nullable": false, "precision": 3 }
+  ]
+}

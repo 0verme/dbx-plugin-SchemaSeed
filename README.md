@@ -2,7 +2,7 @@
 
 SchemaSeed 是一款 DBX 测试数据生成插件。
 
-当前分支只实现 **Phase 0：Table Context Consumer Probe**，不实现 Generator、Faker、Constraint Engine、Metadata Provider 或正式 Workbench。
+当前仓库包含 **Phase 0：Table Context Consumer Probe**，并推进 **Phase 1A：Fixture-driven Generation Core**。Phase 1A 只消费 SchemaSeed 内部 `TableSchema` 与本地 fixtures，不依赖 DBX metadata、数据库连接、Faker 或 Workbench。
 
 ## 当前状态
 
@@ -17,6 +17,11 @@ Schema Metadata:
 
 Overall Phase 0:
   NOT_CLOSED
+
+Phase 1A:
+  fixture Generation Core: IMPLEMENTED
+  fixture Preview: IMPLEMENTED
+  DBX Schema Metadata integration: WAITING_UPSTREAM_9917
 ```
 
 ## Probe architecture
@@ -57,16 +62,35 @@ npm run typecheck
 npm run build
 ```
 
-`npm run build` creates an unsigned `universal` `.dbxp` development candidate with the staged inputs declared in `dbx-plugin.toml`. The package uses the DBX-supported JSONL sidecar protocol and a small Unix/Windows launcher pair; the Windows launcher requires Node.js 22+ on the test machine. Enable DBX's **Allow unsigned development package** option before installing the candidate. The current DBX SDK CLI's native backend builder is Rust/Go-only, so this Node sidecar uses the repository-local deterministic packager instead of pretending to be a native backend build.
+`npm run build` creates an unsigned `universal` `.dbxp` candidate for the existing Phase 0 probe only; the Phase 1A Core is fixture-tested but is not packaged or wired into DBX. The package uses the DBX-supported JSONL sidecar protocol and a small Unix/Windows launcher pair; the Windows launcher requires Node.js 22+ on the test machine. Enable DBX's **Allow unsigned development package** option before installing the candidate. The current DBX SDK CLI's native backend builder is Rust/Go-only, so this Node sidecar uses the repository-local deterministic packager instead of pretending to be a native backend build.
+
+## Phase 1A — Generation Core + Fixture Preview（Issue #17）
+
+```text
+FixtureSchemaMetadataProvider
+   ↓
+SchemaSeed TableSchema
+   ↓ Schema Interpretation
+GenerationPlan
+   ↓
+Deterministic Generation Engine
+   ↓
+Preview Rows + Diagnostics
+```
+
+- [Phase 1A Architecture](docs/PHASE1A_ARCHITECTURE.md) 说明 domain、plan、seed、fixtures 与边界。
+- 当前唯一 metadata provider 是 `FixtureSchemaMetadataProvider`；**fixtures 不是 production metadata source**。
+- 未来 DBX Host metadata 必须在独立 adapter 中转换为 SchemaSeed domain；本次没有实现该 adapter，也不复制 upstream DTO。
 
 ## Boundaries
 
-- Depends on `t8y2/dbx#9918` table context only.
-- Does not consume `host.schema.*`, `host.metadata.*`, `getColumns`, `describeTable`, or `getTableMetadata`.
-- Does not execute `information_schema`, `pg_catalog`, `SHOW COLUMNS`, `SHOW CREATE TABLE`, or `PRAGMA table_info`.
-- Does not open PostgreSQL, MySQL, or SQLite connections.
-- Does not read DBX private Store, credentials, connection strings, private frontend modules, private Tauri commands, or undocumented APIs.
-- Metadata remains `WAITING_UPSTREAM_9917`; if #9917 becomes available during this work, this PR still does not consume it.
+- Phase 0 Probe 只消费 `t8y2/dbx#9918` table context。
+- Generation Core 与 Preview 只消费 fixture / SchemaSeed domain，不调用 DBX、Tauri 或数据库。
+- 不消费 `host.schema.*`、`host.metadata.*`、`getColumns`、`describeTable` 或任何尚未正式验证的 Host method。
+- 不执行 `information_schema`、`pg_catalog`、`SHOW COLUMNS`、`SHOW CREATE TABLE` 或 `PRAGMA table_info`。
+- 不打开 PostgreSQL、MySQL 或 SQLite 连接。
+- 不读取 DBX private Store、credentials、connection strings、private frontend modules、private Tauri commands 或 undocumented APIs。
+- 正式 DBX Schema Metadata integration 仍等待 `t8y2/dbx#9917` / upstream PR #10043 merge；该 prerequisite 不阻塞 fixture Core。
 
 ## Phase 1 design documents
 
@@ -84,7 +108,7 @@ npm run build
 - SQL / CSV / JSON export
 - Read-only by default
 
-本轮不读取 DBX 私有 Store、Credential 文件或未公开前端模块，不维护第二套数据库连接体系，也不修改 `t8y2/dbx`。只有在 Phase 0 Gate 明确后，才进入后续功能设计。
+本轮不读取 DBX 私有 Store、Credential 文件或未公开前端模块，不维护第二套数据库连接体系，也不修改 `t8y2/dbx`。Phase 0 Gate 仍是正式 DBX Metadata acquisition/integration 的前置条件；它不阻塞离线 fixture-driven Core 的实现。
 
 ## Phase 0 documents
 

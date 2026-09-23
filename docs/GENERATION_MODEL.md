@@ -12,7 +12,7 @@
 - **不承诺任何上游 API method、permission、DTO、SDK type 或 Host API version**；
 - 不包含 Generator、Faker、Constraint Engine、Relation Planner、Exporter 或 Workbench 实现。
 
-本文档的输入边界是 **normalized schema metadata**，而不是某个具体的 DBX API DTO。Schema Metadata Host API 仍依赖 `t8y2/dbx#9917` 正式落地；见 [Dependency on DBX #9917](#15-dependency-on-dbx-9917)。
+本文档的输入边界是 **SchemaSeed normalized schema facts**，而不是某个具体的 DBX API DTO。正式 DBX Schema Metadata acquisition 仍依赖 `t8y2/dbx#9917` 落地；但 Phase 1A 可先通过 fixture 构造同一内部 domain，且不因此取得任何 Host API 能力；见 [Dependency on DBX #9917](#15-dependency-on-dbx-9917)。
 
 ## Goals
 
@@ -112,7 +112,7 @@ Validation:
   generated dataset → explicit validation result and diagnostics
 ```
 
-模型只消费 normalized metadata。当前已验证的 Table Context 是 SchemaSeed 内部的 table identity consumer contract；它不能被当成 Schema Metadata API。Schema Metadata 的 Host acquisition 仍在模型外部完成，并通过 adapter 转换为本模型的 facts。
+模型只消费 SchemaSeed normalized facts。Phase 1A 的 facts 来自仓库 fixtures；未来正式 Host metadata acquisition 仍在模型外部完成，并由独立 adapter 转换为同一内部 facts。当前已验证的 Table Context 是 SchemaSeed 内部的 table identity consumer contract；它不能被当成 Schema Metadata API。
 
 ## 0. Normalized Schema Metadata Boundary
 
@@ -1118,11 +1118,23 @@ info diagnostic: group consistency disabled by user
 - `t8y2/dbx#9917` 是 Schema Metadata Host API 的上游 issue，当前仍是 SchemaSeed Phase 0 的实现前置；
 - 上游相关的 `t8y2/dbx#10043` 在本设计审计时仍是 **OPEN / 未正式 merge** 的 pull request；其当前实现内容不能被视为已接受、已冻结或 SchemaSeed 已依赖的公共契约；
 - 本文不复制 #10043 的 method name、permission、wire DTO、SDK type 或 Host API version；
-- 即使上游 PR 的方向与本模型的 normalized metadata 输入一致，也必须先经过 upstream merge/freeze、SchemaSeed Metadata Consumer Probe 和 Phase 0 Gate。
+- 正式 DBX metadata integration 即使与本模型的 normalized input 一致，也必须先经过 upstream merge/freeze、SchemaSeed Metadata Consumer Probe 和 Phase 0 Gate；这不限制纯 fixture-driven Core。
 
 ### SchemaSeed dependency boundary
 
-本 Issue 只冻结：
+Phase 1A 可独立执行以下本地链路：
+
+```text
+repository fixture
+        ↓
+SchemaSeed TableSchema
+        ↓
+GenerationPlan / GenerationEngine / Preview
+```
+
+它不读取真实 metadata、不连接 DBX，也不依赖 #10043 的 merge。fixture provider 不是 production metadata source。
+
+正式 Host integration 仍只允许沿以下 future path：
 
 ```text
 formal metadata acquisition (future)
@@ -1145,14 +1157,14 @@ SchemaSeed 不因本文获得以下权限或能力：
 
 ### Phase 0 gate
 
-进入正式 Phase 1 implementation 前仍需：
+进入正式 DBX Metadata integration / metadata-backed generation 前仍需：
 
 1. `t8y2/dbx#9917` 正式 capability 可被验证；
 2. SchemaSeed #5 Metadata Consumer Probe 只消费正式公开 Host API，并记录 normalized facts、缺失和错误模型；
 3. SchemaSeed #6 Phase 0 Gate 从 `WAITING_UPSTREAM_9917` / `BLOCKED` 进入允许实现的状态；
 4. Table Context 继续使用已验证的 SchemaSeed internal consumer contract，不将 Table Context 证据外推为 Metadata capability。
 
-如果 metadata Host API 未满足，Generation Model 设计仍可作为离线文档存在，但不应通过 workaround 开始正式 Generator implementation。
+如果 metadata Host API 未满足，不得通过 workaround 开始真实 metadata acquisition 或 metadata-backed generation。Phase 1A 的 fixture-only Generation Core 是独立实现范围，不宣称 Phase 0 已通过，也不改变未来 Host integration gate。
 
 ## Issue #12 Acceptance Checklist
 

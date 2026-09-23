@@ -1,0 +1,9 @@
+{
+  "tableIdentity": "mixed_nullable",
+  "columns": [
+    { "name": "required_integer", "dataType": "SMALLINT", "nullable": false },
+    { "name": "optional_text", "dataType": "VARCHAR", "nullable": true, "length": 24 },
+    { "name": "maybe_flag", "dataType": "BOOLEAN", "nullable": { "state": "unknown", "reason": "fixture intentionally omits nullability certainty" } },
+    { "name": "optional_date", "dataType": "DATE", "nullable": true }
+  ]
+}
