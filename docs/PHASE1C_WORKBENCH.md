@@ -26,7 +26,7 @@ Run it from the repository root with:
 npm run workbench
 ```
 
-It binds to `127.0.0.1` (default port `4173`; override with `PORT`) and serves the standalone development UI. **This is a standalone dev harness only; it is not packaged in DBX.** Current `manifest.json` and `npm run build` still describe/package the Phase 0 JSONL Table Context probe only. There is no verified public DBX Workbench UI entrypoint in the current plugin package, so this phase does not guess one or claim DBX runtime integration.
+It binds to `127.0.0.1` (default port `4173`; override with `PORT`) and serves the standalone development UI. **This fixture-driven harness remains standalone and is not packaged in DBX.** The current package separately contains a minimal Phase 0 Schema Metadata Probe Workbench using the documented UI entrypoint; this does not package or wire the fixture-driven Phase 1C UI into DBX.
 
 ## Information Architecture
 

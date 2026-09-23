@@ -65,15 +65,15 @@ The Safe Synthetic notice remains visible in the Workbench; no confirmation dial
 
 ## SQL Export — deferred
 
-SQL export is intentionally deferred. A generic `INSERT INTO table VALUES (...)` is not safe across database systems. A production-quality SQL serializer needs, at minimum, a target dialect, identifier quoting, string literal escaping, boolean/date/timestamp/NULL/decimal representation, schema/database qualification, reserved-word handling, generated/default/identity-column behavior, and batch sizing. The current fixture-driven Workbench has no reliable production database dialect. Do not add a generic SQL exporter until DBX metadata and database dialect semantics are available and separately specified.
+SQL export is intentionally deferred. A generic `INSERT INTO table VALUES (...)` is not safe across database systems. A production-quality SQL serializer needs, at minimum, a target dialect, identifier quoting, string literal escaping, boolean/date/timestamp/NULL/decimal representation, schema/database qualification, reserved-word handling, generated/default/identity-column behavior, and batch sizing. The fixture-driven Workbench still has no reliable selected production database dialect. The Host API 1.3 metadata response alone does not define safe SQL serialization; do not add a generic SQL exporter until dialect and serialization semantics are separately specified.
 
 ## DBX integration boundary
 
-CSV / JSON export does not depend on DBX Schema Metadata integration. Upstream `t8y2/dbx#10043` merged during Phase 1D; record `UPSTREAM_READY_FOR_NEXT_PHASE`. This phase does not implement `host.getTableMetadata`, `host.schema:read`, `schemaMetadataApi`, `DbxHostSchemaMetadataProvider`, database access, or DBX Workbench packaging. The upstream merge does not expand Phase 1D scope. The existing `npm run build` Phase 0 `.dbxp` probe behavior is unchanged.
+CSV / JSON export does not depend on DBX Schema Metadata integration. Upstream `t8y2/dbx#10043` merged during Phase 1D; the consumer probe is a separate Phase 0 task and does not expand Phase 1D scope. Phase 1D does not implement `host.getTableMetadata`, `host.schema:read`, `schemaMetadataApi`, `DbxHostSchemaMetadataProvider`, or database access. The current `.dbxp` includes a separate minimal Phase 0 Probe Workbench, not the fixture-driven Workbench.
 
 ## Out of scope
 
 - SQL export
-- DBX metadata adapter and Workbench packaging
+- production DBX metadata adapter and fixture-driven Workbench packaging
 - PK / UNIQUE / CHECK / FK, Relation Planner, and SCD
 - Direct database writes or a filesystem save-path picker

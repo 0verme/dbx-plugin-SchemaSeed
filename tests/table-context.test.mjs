@@ -10,7 +10,8 @@ import {
   TABLE_CONTEXT_METHOD,
   normalizeTableContextPayload,
 } from "../src/table-context.mjs";
-import { handleRpcRequest } from "../src/probe-protocol.mjs";
+import { handleRpcRequest, TAKE_TABLE_CONTEXT_METHOD } from "../src/probe-protocol.mjs";
+import { pendingTableContextStore } from "../src/probe-state.mjs";
 
 const backend = fileURLToPath(new URL("../backend/schema-seed-probe.mjs", import.meta.url));
 
@@ -91,6 +92,16 @@ describe("SchemaSeed Table Context adapter", () => {
     assert.equal(legacy.error.code, -32602);
   });
 
+  it("hands the latest normalized TableContext to the opened Workbench through public backend RPC", () => {
+    pendingTableContextStore.clear();
+    request({ table: { connectionId: "conn-1", database: "app", schema: "public", table: "first" } });
+    request({ table: { connectionId: "conn-2", table: "customer" } });
+
+    const handoff = request({}, TAKE_TABLE_CONTEXT_METHOD);
+    assert.deepEqual(handoff.result, { context: { connectionId: "conn-2", table: "customer" } });
+    assert.deepEqual(request({}, TAKE_TABLE_CONTEXT_METHOD).result, { context: null });
+  });
+
   it("refreshes A → B → C without retaining optional fields from the prior table", () => {
     const tables = [
       { connectionId: "conn-1", database: "app", schema: "public", table: "table_a" },
@@ -112,6 +123,7 @@ describe("SchemaSeed Table Context adapter", () => {
     const input = [
       JSON.stringify({ jsonrpc: "2.0", id: 1, method: "plugin/initialize", params: {} }),
       JSON.stringify({ jsonrpc: "2.0", id: 2, method: TABLE_CONTEXT_METHOD, params: { table: { connectionId: "conn-1", table: "users" } } }),
+      JSON.stringify({ jsonrpc: "2.0", id: 3, method: TAKE_TABLE_CONTEXT_METHOD, params: {} }),
     ].join("\n") + "\n";
     const result = spawnSync(process.execPath, [backend], { input, encoding: "utf8" });
 
@@ -119,5 +131,6 @@ describe("SchemaSeed Table Context adapter", () => {
     const responses = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
     assert.equal(responses[0].result.plugin.id, PLUGIN_ID);
     assert.deepEqual(responses[1].result.context, { connectionId: "conn-1", table: "users" });
+    assert.deepEqual(responses[2].result.context, { connectionId: "conn-1", table: "users" });
   });
 });

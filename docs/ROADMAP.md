@@ -15,15 +15,22 @@
 
 ```text
 Table Context:
-  source audit: VERIFIED (#9918, latest t8y2/dbx origin/main)
+  source audit: VERIFIED (#9918 public table context-menu contract)
   consumer probe: IMPLEMENTED
   real DBX manual smoke: PENDING USER VERIFICATION
 
 Schema Metadata:
-  UPSTREAM_READY_FOR_NEXT_PHASE (#10043 merged; Phase 0 Gate pending)
+  t8y2/dbx#10043: MERGED (d5a05a98840e54726bfec0c7dadabb8dc9a4c755)
+  Schema Metadata Host API: UPSTREAM_AVAILABLE (Host API 1.3)
+  consumer probe: IMPLEMENTED / READY_FOR_REAL_DBX_SMOKE
+  real DBX smoke: NOT RUN (merged API is stated to ship in the next DBX version)
 
-Overall Phase 0:
-  NOT_CLOSED
+DIRECT_CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_AVAILABLE
+Context → Workbench: public sidecar RPC + 10-minute plugin-owned in-memory handoff
+
+Issue #5: OPEN (manual smoke pending)
+Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
+Overall Phase 0: NOT_CLOSED
 ```
 
 ### Table Context path
@@ -32,12 +39,14 @@ Overall Phase 0:
 DBX Sidebar Table Node
   → `context-menu` + `menu: "table"`
   → `contextMenu/io.github.0verme.schema-seed.table-context-probe`
-  → SchemaSeed JSONL backend
-  → TableContext adapter
-  → native DBX toast
+  → JSONL backend normalizes and temporarily stores identity-only TableContext
+  → user opens the declared Schema Metadata Probe Workbench
+  → `window.dbxPlugin.invoke("schemaMetadataProbe/takeTableContext")`
+  → `window.dbxPlugin.getTableMetadata(TableContext)`
+  → normalized metadata JSON + diagnostics
 ```
 
-The adapter is the only boundary that reads the DBX raw table payload. SchemaSeed's internal consumer shape is intentionally separate from the DBX wire shape.
+DBX's public context-menu protocol returns a native toast and does not directly open a Workbench with that context (`DIRECT_CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_AVAILABLE`). The two-step handoff uses only the documented plugin backend JSONL protocol; its process is shared per plugin. The in-memory context contains only `connectionId`, optional `database`/`schema`, and `table`, expires after 10 minutes, and is consumed once. The adapter remains the only boundary that reads the DBX raw table payload.
 
 ### 审计范围
 
@@ -67,7 +76,7 @@ The adapter is the only boundary that reads the DBX raw table payload. SchemaSee
 Schema Acquisition Path
 ```
 
-当前不是 `READY`：Table Context 仍需 Windows DBX 手工验证，Schema Metadata 等待 `t8y2/dbx#9917`。
+本报告不关闭 Gate：Table Context 和 Metadata 的真实 released-DBX smoke 仍待验证；Issue #6 保持 OPEN。#10043 虽已 merge，但维护者说明将在 next DBX version 发布。
 
 ### 禁止事项
 
@@ -104,7 +113,7 @@ Preview Rows + Diagnostics
 
 ### Upstream boundary
 
-Phase 1A fixture Core 不依赖 `t8y2/dbx#10043` merge。Upstream PR #10043 已在 Phase 1D 执行期间 merge；正式 DBX Schema Metadata acquisition / adapter 仍需独立验证与 Phase 0 Gate。该状态记为 `UPSTREAM_READY_FOR_NEXT_PHASE`；本仓库不得在 Phase 1A 中提前复制 Host API / DTO 或添加 workaround。
+Phase 1A fixture Core 不依赖 `t8y2/dbx#10043`。Upstream API 已可用，但 Phase 1A 仍只消费 fixtures；正式 metadata domain adapter 需在 Phase 0 Gate 后另行实现，本阶段不复制 Host DTO 或添加 workaround。
 
 ## Phase 1B — Semantic Mapping + Person Synthetic Generation（[#19](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/19)）
 
@@ -139,27 +148,27 @@ Fixture Preview + Diagnostics
 - Fixture-driven Workbench 已实现；设计 Issue [#14](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/14) 已 Design Freeze 并关闭。
 - `WorkbenchController` 使用现有 `buildGenerationPlan()` 与 `generateRows()`；只消费 `FixtureSchemaMetadataProvider`。
 - Rows 默认 20、限制 1–100；支持 seed、same-seed Regenerate、New Seed、`zh-CN` / `en`、显式 mapping confirmation / override、Person groups、Core diagnostics 与 preview。
-- Runtime 为 standalone loopback development harness only。当前 DBX `.dbxp` build / manifest 仍只包含 Phase 0 JSONL probe；Workbench 未 packaged in DBX。
+- Runtime 为 standalone loopback development harness only。当前 DBX `.dbxp` 另含独立 Phase 0 Schema Metadata Probe UI；fixture-driven Phase 1C Workbench 本身仍未 packaged in DBX。
 - Phase 1C 完成时 Export 尚未实现；CSV / JSON 后续由 Phase 1D 单独交付。无 Direct Insert。
 
 ### Upstream boundary
 
-Upstream `t8y2/dbx#10043` 已 merge 并记录为 `UPSTREAM_READY_FOR_NEXT_PHASE`，但不扩大 Phase 1C；正式 adapter 需独立 Issue 与 Phase 0 Gate。
+Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进，production adapter 仍需后续任务。
 
 ## Phase 1D — Deterministic Export Core + Workbench Download（[#23](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/23)）
 
 ### 当前状态
 
-- Deterministic CSV / JSON Export Core 与 Workbench Download 已在 `feat/phase1d-export` 实现并完成检查，PR review pending；Export 只消费 Workbench 当前已由 Generation Core 产生的 dataset，不重复生成。
+- Deterministic CSV / JSON Export Core 与 Workbench Download 已随 PR #24 合并至 `main`（merge commit `1ce80821e41339aaca35cd813b3813d757aa8f86`）；Export 只消费 Workbench 当前已由 Generation Core 产生的 dataset，不重复生成。
 - [Phase 1D Export](PHASE1D_EXPORT.md) 记录 dataset contract、Preview / export parity、CSV escaping / spreadsheet-safe / UTF-8 BOM、JSON decimal precision、filename 与 runtime 边界。
-- `npm run build` 仍仅构建 Phase 0 `.dbxp` probe；Workbench 继续通过 `npm run workbench` 运行 standalone harness。
+- `npm run build` 构建现有 JSONL consumer 与独立的 Phase 0 Metadata Probe UI；Phase 1A–1D fixture Core / Workbench 仍只通过 `npm run workbench` standalone harness 运行，不会被整体打包进 DBX。
 
 ### 明确延期 / 边界
 
 - SQL Export deferred：fixture Workbench 没有 production database dialect；不实现 generic SQL serializer。
-- 不实现 DBX metadata adapter、DBX Workbench packaging、PK / UNIQUE / CHECK / FK、Relation Planner 或 SCD。
-- CSV / JSON 不依赖 upstream `t8y2/dbx#10043`；该 PR 在 Phase 1D 执行期间已 merge，仅记录 `UPSTREAM_READY_FOR_NEXT_PHASE`，不扩大本 Issue。
+- 不实现 production `DbxHostSchemaMetadataProvider`、Host-backed Generation、fixture Workbench packaging、PK / UNIQUE / CHECK / FK、Relation Planner 或 SCD。
+- CSV / JSON 不依赖 upstream `t8y2/dbx#10043`；该 PR 在 Phase 1D 执行期间已 merge，不扩大本 Issue。
 
 ## 后续版本规划
 
-`t8y2/dbx#10043` 已 merge；后续顺序仍为 Phase 0 Metadata Consumer Probe → Phase 0 Gate → 独立实现 `DbxHostSchemaMetadataProvider` → DBX packaged Workbench。本轮只记录 `UPSTREAM_READY_FOR_NEXT_PHASE`，不提前消费或猜测其 method、permission、SDK type 或 wire shape；该上游 merge 不影响 fixture-driven Export。
+`t8y2/dbx#10043` 已 merge，正式 contract 已由 merge 后源码与 plugin-development 文档核实。本轮只实现 Phase 0 Consumer Probe，不关闭 Issue #6，也不实现 production `DbxHostSchemaMetadataProvider`。Issue #5 仍待 next-version DBX manual smoke；Gate 与 production adapter 必须在后续独立任务中评估。该上游 merge 不影响 fixture-driven Export。

@@ -32,7 +32,16 @@ try {
     mode: 0o644,
   });
   files.set("src/table-context.mjs", { data: await readFile(path.join(root, "src/table-context.mjs")), mode: 0o644 });
+  files.set("src/probe-state.mjs", { data: await readFile(path.join(root, "src/probe-state.mjs")), mode: 0o644 });
   files.set("src/probe-protocol.mjs", { data: await readFile(path.join(root, "src/probe-protocol.mjs")), mode: 0o644 });
+
+  for (const name of ["index.html", "app.mjs", "probe.css"]) {
+    files.set(`ui/${name}`, { data: await readFile(path.join(root, "ui", name)), mode: 0o644 });
+  }
+  files.set("ui/schema-metadata-probe.mjs", {
+    data: await readFile(path.join(root, "src/host/dbx-schema-metadata-probe.mjs")),
+    mode: 0o644,
+  });
 
   const checksumFiles = Object.fromEntries(
     [...files.entries()]

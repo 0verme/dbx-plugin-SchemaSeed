@@ -1,13 +1,13 @@
 # SchemaSeed Host API Requirements
 
-> Status: Minimal Host API Consumer Contract v0.1
+> Status: Minimal Host API Consumer Contract v0.1; upstream API verified at Host API 1.3
 >
-> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约。Table Context 已按 `t8y2/dbx#9918` 的最终公开实现对齐；Schema Metadata 仍等待未合并的 `t8y2/dbx#9917`。文中的 TypeScript 形状区分 SchemaSeed 内部消费形状与 DBX wire nesting，不冻结尚未公开的 metadata method、namespace、permission、SDK package、RPC、Rust enum、版本策略或错误类型。
+> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约。Table Context 以 `t8y2/dbx#9918` 的公开实现为准；Schema Metadata 已由 `t8y2/dbx#10043`（merge commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`）正式公开。本轮 probe 已消费该 contract，但真实 release DBX smoke 与 Phase 0 Gate 仍待后续验证。文中的语义要求不扩展为 production adapter 或 Phase 1 功能。
 
 本契约基于已审计的 Phase 0 事实：
 
 - [Table Context 审计](HOST_API_AUDIT.md#table-context) 已验证 #9918：Desktop Sidebar Tree 支持 `menu: "table"`，wire payload 为 `{ table: { connectionId, database?, schema?, table } }`；Object Browser / Web UI 不从该证据外推。
-- [Schema Metadata 审计](HOST_API_AUDIT.md#schema-metadata) 的结论仍是 `NOT_PUBLICLY_SUPPORTED`：DBX 内部已有 schema core、`ColumnInfo` 及目标 driver 路径，但没有公开的 metadata Host API、permission、SDK type 或 Plugin Host bridge dispatch；严格等待 #9917。
+- [Schema Metadata contract](PHASE0_FEASIBILITY_REPORT.md#host-api-13-contract) 已由 merge 后源码与官方文档核实：`host.schema:read`、`schemaMetadataApi`、`window.dbxPlugin.getTableMetadata(...)`，要求 Host API `^1.3`。
 - DBX internal capability 不等于 Plugin Host capability。DBX 的 private store、frontend module、Tauri command、HTTP schema route 和 Object Browser state 都不是本契约允许 SchemaSeed 依赖的 API。
 
 ## Contract principles
@@ -16,13 +16,13 @@ SchemaSeed 的最小消费契约必须保持：
 
 - **Small**：只冻结 table context 和 v0.1 column metadata。
 - **DB-neutral**：表达跨 PostgreSQL、MySQL、SQLite 的共同消费语义，不把某个 driver 的内部模型冒充通用 wire shape。
-- **Evidence-backed**：每项要求都以 `HOST_API_AUDIT.md` 已确认的 DBX 内部事实和公开 API 缺口为依据。
+- **Evidence-backed**：要求与 status 以 DBX merge commit 源码、官方 plugin-development 文档和 Phase 0 feasibility report 为依据。
 - **Version-minimal**：v0.1 只需要 columns；约束、comment、identity 等能力进入后续版本矩阵。
 - **No credentials**：不需要也不得暴露 `host`、`port`、`username`、`password`、`credential` 或 `connectionString`。
 - **No private DBX dependency**：不读取 DBX private store、private frontend state、未公开 Tauri/HTTP 接口或 UI route。
 - **No second connection**：SchemaSeed 必须复用 DBX 已有 connection/session、schema abstraction 和 driver，不自行建立 PG/MySQL/SQLite 连接。
 
-本文不规定一个假想的 API 调用名。特别是，`host.metadata.getTable(...)`、`host.schema.getTable(...)` 等名称均不是本契约的正式 API。
+正式 consumer API 为 `window.dbxPlugin.getTableMetadata({ connectionId, database?, schema?, table })`。`host.metadata.getTable(...)`、`host.schema.getTable(...)` 等相似名称并非该 contract 中的公开方法。
 
 ## TableContext Contract
 
@@ -137,50 +137,47 @@ interface ColumnMetadata {
 | `database` | Optional | value exists 时消费；未提供时保持 omitted | table node 可携带 | table node 可携带 | 可能不适用同一 database 维度 | **A / VERIFIED（optional）** |
 | `schema` | Optional | value exists 时消费；未提供时保持 omitted | table node 可选 | table node 可选 | 不保证存在与 PG 相同的 schema 维度 | **A / VERIFIED（optional）** |
 | `table` | Yes | stable database object name，不是 display label | canonical `TreeNode.tableName` | canonical `TreeNode.tableName` | canonical `TreeNode.tableName` | **A / VERIFIED** |
-| `columns` | Yes | `TableMetadata.columns` 来自 DBX schema abstraction | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `NOT_PUBLICLY_SUPPORTED` |
-| column name | Yes | stable column name | internal PASS | internal PASS | internal PASS | `NOT_PUBLICLY_SUPPORTED` |
-| data type | Yes | native/general database type text；不引入 semantic type | `format_type(...)` 等 native/general path：internal PASS | `COLUMN_TYPE` 等 native/general path：internal PASS | `PRAGMA table_info.type`：internal PASS | `NOT_PUBLICLY_SUPPORTED` |
-| nullable | Yes | explicit boolean nullability | internal PASS | internal PASS | internal PASS | `NOT_PUBLICLY_SUPPORTED` |
-| length | Yes, when structured value exists | structured number 或明确 unavailable；不能用 `0` 表示 missing | internal PASS | internal PASS | structured value `MISSING`；declared type text 可能仍含信息 | `NOT_PUBLICLY_SUPPORTED` |
-| precision | Yes, when structured value exists | structured number 或明确 unavailable；不能用 `0` 表示 missing | internal PASS | internal PASS | structured value `MISSING` | `NOT_PUBLICLY_SUPPORTED` |
-| scale | Yes, when structured value exists | structured number 或明确 unavailable；不能用 `0` 表示 missing | internal PASS | internal PASS | structured value `MISSING` | `NOT_PUBLICLY_SUPPORTED` |
-| default | Yes, when a default is exposed | minimal text/expression text，并区分 absent、unsupported 和 failed | internal PASS；可能是 expression text | internal PASS；raw default text | internal PASS；`dflt_value` text | `NOT_PUBLICLY_SUPPORTED` |
+| `columns` | Yes | `PluginTableMetadata.columns` 由 Host API 1.3 返回 | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `UPSTREAM_AVAILABLE`; runtime smoke pending |
+| column name | Yes | required `name` string | internal PASS | internal PASS | internal PASS | `UPSTREAM_AVAILABLE` |
+| data type | Yes | required `dataType` string；不引入 semantic type | `format_type(...)` 等 native/general path：internal PASS | `COLUMN_TYPE` 等 native/general path：internal PASS | `PRAGMA table_info.type`：internal PASS | `UPSTREAM_AVAILABLE` |
+| nullable | Yes | required boolean `nullable` | internal PASS | internal PASS | internal PASS | `UPSTREAM_AVAILABLE` |
+| length | Yes, when structured value exists | optional integer/null；`fieldCapabilities.length` preserves provenance | internal PASS | internal PASS | structured value `MISSING`；declared type text 可能仍含信息 | `UPSTREAM_AVAILABLE`; per-provider values vary |
+| precision | Yes, when structured value exists | optional integer/null；`fieldCapabilities.precision` preserves provenance | internal PASS | internal PASS | structured value `MISSING` | `UPSTREAM_AVAILABLE`; per-provider values vary |
+| scale | Yes, when structured value exists | optional integer/null；`fieldCapabilities.scale` preserves provenance | internal PASS | internal PASS | structured value `MISSING` | `UPSTREAM_AVAILABLE`; per-provider values vary |
+| default | Yes, when a default is exposed | optional string/null；`fieldCapabilities.default` preserves provenance | internal PASS；可能是 expression text | internal PASS；raw default text | internal PASS；`dflt_value` text | `UPSTREAM_AVAILABLE`; per-provider values vary |
 
-**Matrix reading rule：** Table Context 的 `A / VERIFIED` 只适用于 DBX #9918 已公开的 Desktop Sidebar Tree payload；Metadata 的 DBX internal `PASS` 仍绝不升级为 Plugin API `PASS`。Object Browser / Web table menu 不从该矩阵外推。
+**Matrix reading rule：** Table Context 的 `A / VERIFIED` 只适用于 DBX #9918 已公开的 Desktop Sidebar Tree payload。Host API 1.3 提供窄化 Metadata response；具体 optional-field provenance 由 `fieldCapabilities` 返回，真实 released-DBX PostgreSQL / MySQL / SQLite smoke 仍待验证。Object Browser / Web table menu 不从该矩阵外推。
 
 ## Driver Differences
 
 ### PostgreSQL
 
-- DBX internal schema path 可以提供 native/general `data_type`、nullable、结构化 length、precision、scale 和 default expression text。
-- database 与 schema 都可能是有意义的命名空间，但 consumer 仍不能假设它们永远存在；缺省语义必须由 Host/driver 明确表达。
-- comment、constraints、identity 等内部能力不进入 v0.1 required contract。
-- 以上均是 DBX internal evidence；当前没有向第三方插件公开的 metadata Host boundary。
+- DBX Host API 1.3 对外返回 common `dataType`、`nullable` 与可选 structured fields；实际连接/driver 的值与 `fieldCapabilities` 必须通过 released DBX smoke 记录。
+- database 与 schema 是可选 identity scope；省略时 DBX 使用已知的配置/default scope（若可用），没有匹配已打开 session 时拒绝请求。
+- comment、constraints、identity 不在 Host API 1.3 response 中，也不进入 v0.1 required contract。
 
 ### MySQL
 
-- DBX internal schema path 可以提供 native/general type、nullable、结构化 length、precision、scale、`COLUMN_DEFAULT` 和相关 column metadata。
-- MySQL 的 database/schema 使用方式不能未经上游契约直接套用 PostgreSQL 的二层命名空间假设。
-- default 在 v0.1 保留为最小文本语义，不把 `EXTRA` 重新设计成 typed default/identity model。
-- 以上均是 DBX internal evidence；当前没有向第三方插件公开的 metadata Host boundary。
+- DBX Host API 1.3 对外返回 common `dataType`、`nullable` 与可选 structured fields；实际连接/driver 的值与 `fieldCapabilities` 必须通过 released DBX smoke 记录。
+- MySQL 的 database/schema scope 由 canonical Table Context 与 DBX 已打开的 session 解析；SchemaSeed 不重建命名空间或连接语义。
+- default 在 v0.1 保留为 Host 返回的 optional text，不把 `EXTRA` 重新设计成 typed default/identity model。
 
 ### SQLite
 
-- DBX internal path 可以提供 column name、declared type text、nullable 和 `dflt_value`。
-- 当前结构化 length、precision、scale 为 missing；declared type string 可能包含 `VARCHAR(100)` 或 `DECIMAL(18,2)` 等信息，但这不等于 DBX 已提供结构化 numeric fields。SchemaSeed 不得把 `None`、空值或 `0` 当作真实的 length/precision/scale。
+- DBX Host API 1.3 返回窄化的 column metadata；optional numeric fields 仍可能省略或为 `null`，`fieldCapabilities` 提供 upstream provenance，不能从 declared type string 自行推断数值。
 - SQLite 不提供与 PostgreSQL 相同的 server database/schema 语义；这些 context 维度可能 legitimately not applicable 或 unavailable。
-- 以上均是 DBX internal evidence；当前没有向第三方插件公开的 metadata Host boundary。
+- SQLite 的实际 metadata response 与 provenance 仍需 released DBX smoke 验证。
 
 ## Missing / Unsupported Semantics
 
-SchemaSeed 至少需要区分以下五类 consumer 语义。这里定义的是语义要求，不定义 DBX 最终 wire-level result 或 error schema：
+SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host API 1.3 response 中的 omitted/null、field provenance 与 Promise rejection 分开处理：
 
 | Semantic state | Consumer meaning | Example | Consumer behavior |
 | --- | --- | --- | --- |
 | **value exists** | Host/driver 返回了可消费的稳定值 | column `name`、PostgreSQL 的 numeric precision | 消费该值，不再从 UI 或 type text 反推 |
 | **legitimately absent / not applicable** | 该维度对当前 database model 不适用，或数据库明确没有该值 | SQLite 的 server-style schema/database 维度；没有 default 的 column | 作为正常语义处理，不当作调用失败 |
 | **driver does not expose structured value** | driver 可能有声明文本或内部线索，但没有结构化字段 | SQLite 的 length / precision / scale | 保留 unavailable 语义，不把它转成 `0`，也不要求 SchemaSeed 解析 workaround |
-| **Host API does not support capability** | DBX 内部可能有路径，但 public Plugin Host 没有该 capability | 当前 schema metadata API；Object Browser / Web table menu 也不在 #9918 范围 | 标记为 Host API gap，不读取 private DBX boundary |
+| **Host API does not support capability** | 当前宿主缺少该 Host capability，或某字段被明确标记 unsupported | `capabilities.schemaMetadataApi` 缺失/false；或 `fieldCapabilities` 为 `unsupported`。PK/FK 等字段不在 API 1.3 response | 保留 unavailable / not-exposed provenance，不读取 private DBX boundary |
 | **Host / driver call failed** | 本次获取发生调用、session 或 driver failure | 连接/session 错误或 metadata 调用失败 | 保留 failure 语义；不降级为 missing 或 legitimately absent |
 
 特别规则：
@@ -188,27 +185,27 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里定义的是�
 - `database` / `schema` 在 #9918 table context 中无值时被省略；不能从 saved connection menu 的 `connection.database` 或空字符串占位推断 table scope。
 - `length` / `precision` / `scale` 的 missing 不能简单等价于 `0`。
 - `default` 的 absent 不能与空文本、driver unsupported、Host unsupported 或调用失败混为一个 optional omission。
-- SchemaSeed 不要求上游现在采用 `null`、`undefined`、tagged union、error object 或 capability negotiation；这些表示法都是 **upstream design pending**。
+- Host API 1.3 已定义 optional values 与 `fieldCapabilities`；本 Probe 原样保留 omitted/null/unsupported/unknown。Host 调用失败仍以 Promise rejection 暴露，没有独立结构化 error-code enum。
 - Required fields (`connectionId`、`table`、column `name` / `dataType` / `nullable`) 如果无法提供，必须进入可识别的 invalid/unavailable/failure 语义，不能静默使用 display label、默认值或推断值。
 
 ## Future Capabilities
 
-以下 metadata 能力不属于 v0.1 required contract，只记录已审计的 DBX internal 状态和 roadmap 归类。它们仍没有 public Plugin Host capability；Table Context 不在此 future list 中。
+以下 metadata 能力不属于 v0.1 required contract。Host API 1.3 明确不在 response 中返回它们；本 Probe 记录为 `not_exposed`，不宣称 provider `unsupported`，也不实现消费逻辑。Table Context 不在此 future list 中。
 
-| Version | Capability | Current DBX internal fact | Consumer contract status |
+| Version | Capability | Host API 1.3 response status | Consumer scope |
 | --- | --- | --- | --- |
-| v0.2 | comment | PostgreSQL / MySQL 有内部路径；SQLite 缺少统一 comment 能力 | Future only；`NOT_PUBLICLY_SUPPORTED` |
-| v0.3 | primary key | 三个目标 driver 有一定 column/index/constraint 能力，但 composite shape 不统一 | Future only；`NOT_PUBLICLY_SUPPORTED` |
-| v0.3 | unique | `IndexInfo` 提供较好的内部基础，但 column-level / constraint-level 形状不完全统一 | Future only；`NOT_PUBLICLY_SUPPORTED` |
-| v0.3 | check | PostgreSQL 有 structured path；MySQL / SQLite 当前缺少统一 structured path | Future only；`NOT_PUBLICLY_SUPPORTED` |
-| v0.3 | identity / auto increment | 主要落在自由文本 `extra`，没有 typed cross-driver abstraction | Future only；`NOT_PUBLICLY_SUPPORTED` |
-| v0.4 | foreign key | 三类目标 driver 均有内部读取能力，但 composite FK grouping 不统一 | Future only；`NOT_PUBLICLY_SUPPORTED` |
+| v0.2 | comment | `NOT_EXPOSED_BY_HOST_API_1_3` | Future only |
+| v0.3 | primary key | `NOT_EXPOSED_BY_HOST_API_1_3` | Future only |
+| v0.3 | unique | `NOT_EXPOSED_BY_HOST_API_1_3` | Future only |
+| v0.3 | check | `NOT_EXPOSED_BY_HOST_API_1_3` | Future only |
+| v0.3 | identity / auto increment | `NOT_EXPOSED_BY_HOST_API_1_3` | Future only |
+| v0.4 | foreign key | `NOT_EXPOSED_BY_HOST_API_1_3` | Future only |
 
-本轮不为这些 future capability 设计字段、permission、API method、wire shape 或错误模型。
+本轮不为这些 future capabilities 增加 Host contract 或实现消费逻辑。
 
-## Upstream Gaps
+## Upstream Contract and Remaining Validation
 
-以下记录剩余的 metadata upstream requirement；Table Context 的 Sidebar Tree gap 已由 #9918 关闭。本轮只记录需求，不创建 `t8y2/dbx` Issue，也不预先指定 DBX 的 metadata 实现 API。
+`t8y2/dbx#9918` 与 `t8y2/dbx#10043` 均已 merge。Table Context 与 Host API 1.3 的 public source contract 已确认；没有新的 upstream API gap 被本 Probe 发现。真实 released-DBX / target-driver smoke 仍待执行。
 
 ### Table Context outcome
 
@@ -222,11 +219,11 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里定义的是�
 → `{ table: { ... } }` sidecar invocation
 ```
 
-SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。真实 Windows DBX smoke 仍待用户环境验证。
+SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。Context menu 没有正式的直接 Workbench handoff；Probe 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递。真实 released DBX smoke 仍待验证。
 
-### Gap A — Schema Metadata Host Boundary
+### Host API 1.3 — Resolved Metadata Host Boundary
 
-DBX 需要提供一个正式、公开的 metadata Host boundary，使 SchemaSeed 在已有 `TableContext` 下复用：
+`t8y2/dbx#10043` 已提供正式、公开的 metadata Host boundary，使 SchemaSeed 在已有 `TableContext` 下复用：
 
 ```text
 TableContext
@@ -247,41 +244,36 @@ TableContext
 
 该 boundary 必须：
 
-- 复用 DBX 已有 connection/session、schema core 和 driver path。
-- 将 DBX internal capability 与 public Plugin Host capability 分开，不把 Tauri command、HTTP schema route、Object Browser state 或 private frontend module 作为插件 API。
-- 保留 absent、driver structured value missing、Host unsupported 和 call failure 的可区分语义。
-- 不要求插件建立自己的 PostgreSQL、MySQL 或 SQLite connection，不执行 `information_schema`、`pg_catalog`、`PRAGMA` 等 workaround。
-- 将 error type、result shape、capability negotiation、nullability representation、permission 名称、SDK package、API namespace、RPC method 和 version policy 留给 upstream design。
+- 复用 DBX 已有 connection/session、schema core 和 driver path，不把 Tauri command、HTTP schema route、Object Browser state 或 private frontend module 作为插件 API。
+- response 通过 `fieldCapabilities` 与 omitted/null 表达 optional-field provenance；call/session failures 以 Promise rejection 返回。
+- 插件不得建立自己的 PostgreSQL、MySQL 或 SQLite connection，也不得执行 `information_schema`、`pg_catalog`、`PRAGMA` 等 workaround。
+- 正式 permission、capability、request/response 和版本策略见 [Phase 0 report](PHASE0_FEASIBILITY_REPORT.md#host-api-13-contract)。
 
 ## Explicit non-goals
 
 本契约不实现也不冻结：
 
 - Generator、Faker、Semantic Inference、SchemaModel、Constraint Engine、Relation Planner。
-- SQL / CSV / JSON exporter、Workbench、Direct Insert、Rust sidecar 或 AI。
+- SQL / CSV / JSON exporter、正式/fixture-driven Workbench、Direct Insert、Rust sidecar 或 AI；本仓库另有范围受限的 Phase 0 Probe Workbench。
 - 数据库 direct connection、第二套连接体系、credential 读取。
 - `information_schema`、`pg_catalog`、`PRAGMA`、`SHOW CREATE TABLE` 等数据库 introspection workaround。
 - DBX private store、private frontend module、未公开 Tauri/HTTP API 或 Object Browser state。
-- DBX upstream 的 method name、namespace、manifest permission、SDK package、RPC shape、Rust enum、wire representation、error model 或最终版本策略。
+- production `DbxHostSchemaMetadataProvider`、Host-backed Generation、future constraint consumption，以及正式/fixture Workbench packaging。
 
 ## Phase 0 position
 
-本文件只完成 consumer contract 收敛，不关闭 Phase 0 Gate，也不把任何假想 Metadata API 写成 DBX 已实现事实。
-
-根据已完成审计，当前应保持：
+本文件记录 consumer requirements 与已验证的正式 API contract；不关闭 Phase 0 Gate，也不把 upstream API merge 等同于真实 release smoke。
 
 ```text
-Table Context / Desktop Sidebar Tree:
-VERIFIED_SOURCE_CONTRACT
-
-Schema Metadata:
-WAITING_UPSTREAM_9917
-
-Schema Acquisition Path:
-BLOCKED BY PUBLIC HOST API GAPS
+Table Context: VERIFIED_SOURCE_CONTRACT
+Schema Metadata Host API: UPSTREAM_AVAILABLE (Host API 1.3)
+Consumer Probe: IMPLEMENTED / READY_FOR_REAL_DBX_SMOKE
+Real DBX Smoke: NOT RUN
+Issue #5: OPEN
+Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
 ```
 
-真实 Windows DBX smoke 与后续 Metadata API 仍是独立 gate；本 Probe 不消费未合并的 #9917。
+`t8y2/dbx#10043` 已 merge；真实 Host API 1.3 build 与 PostgreSQL / MySQL / SQLite smoke 仍待验证。本 Probe 不实现 production adapter。
 
 ## Evidence references
 

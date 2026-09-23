@@ -9,17 +9,20 @@ const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "
 const contribution = manifest.contributions?.find((entry) => entry.id === "io.github.0verme.schema-seed.table-context-probe");
 
 assert.equal(manifest.manifest_version, 1);
-assert.equal(manifest.engines.host_api, "^1.0");
-assert.deepEqual(manifest.permissions, []);
+assert.equal(manifest.engines.host_api, "^1.3");
+assert.deepEqual(manifest.permissions, ["host.schema:read"]);
 assert.equal(manifest.entrypoints.backend.transport, "stdio-jsonl");
+assert.deepEqual(manifest.entrypoints.ui, { root: "ui", entry: "ui/index.html" });
 assert.equal(contribution?.type, "context-menu");
 assert.equal(contribution?.menu, "table");
 assert.ok(manifest.entrypoints.backend.executable);
-assert.equal(manifest.entrypoints.workbench, undefined, "The standalone harness must not be presented as DBX-packaged UI");
+assert.equal(manifest.contributions.filter((entry) => entry.type === "workbench").length, 1);
+assert.ok(manifest.contributions.some((entry) => entry.type === "workbench" && entry.id === "io.github.0verme.schema-seed.schema-metadata-probe"));
 assert.equal(packageJson.scripts.workbench, "node scripts/workbench.mjs");
 
 const implementationFiles = [
   "src/table-context.mjs",
+  "src/probe-state.mjs",
   "src/probe-protocol.mjs",
   "backend/schema-seed-probe.mjs",
 ];
@@ -69,4 +72,15 @@ for (const relative of uiFiles) {
   }
 }
 
-console.log("SchemaSeed package, fixture-only Core, and standalone Workbench boundaries verified");
+const probeBoundaryFiles = ["src/host/dbx-schema-metadata-probe.mjs", "ui/app.mjs"];
+const forbiddenProbeAccess = /information_schema|pg_catalog|\bSHOW\s+(?:COLUMNS|CREATE\s+TABLE)|\bPRAGMA\s+table_info|connectionString|@tauri|tauri::|fetch\s*\(/i;
+for (const relative of probeBoundaryFiles) {
+  const source = await readFile(path.join(root, relative), "utf8");
+  assert.equal(forbiddenProbeAccess.test(source), false, `${relative} crosses the public Host API boundary`);
+  for (const match of source.matchAll(importPattern)) {
+    const specifier = match[1] ?? match[2];
+    assert.ok(specifier.startsWith(".") || specifier.startsWith("node:"), `${relative} imports a private or external dependency: ${specifier}`);
+  }
+}
+
+console.log("SchemaSeed package, public metadata probe, fixture-only Core, and standalone Workbench boundaries verified");
