@@ -1,0 +1,7 @@
+{
+  "tableIdentity": "precision_boundary",
+  "columns": [
+    { "name": "small_money", "dataType": "DECIMAL", "nullable": false, "precision": 4, "scale": 2 },
+    { "name": "whole_units", "dataType": "NUMERIC", "nullable": false, "precision": 5, "scale": 0 }
+  ]
+}

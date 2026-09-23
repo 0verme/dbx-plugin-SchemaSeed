@@ -76,9 +76,36 @@ Schema Acquisition Path
 - 调用 private frontend module
 - 为获取 Metadata 建立第二套数据库连接系统
 - 执行数据库 introspection workaround
-- 实现 Generator、Faker、Constraint Engine、Relation Planner 或 Exporter
+- Phase 0 Probe 不实现 Host-backed Generator、Faker、Constraint Engine、Relation Planner 或 Exporter
 - 修改 `t8y2/dbx`
+
+## Phase 1A — Generation Core + Fixture-driven Preview（[#17](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/17)）
+
+### 目标链路
+
+```text
+Fixture TableSchema
+        ↓
+Schema Interpretation
+        ↓
+GenerationPlan
+        ↓
+Deterministic Generation Engine
+        ↓
+Preview Rows + Diagnostics
+```
+
+### 实施边界
+
+- Core 只认识 SchemaSeed 内部 `TableSchema` / `ColumnSchema`，不直接认识 DBX DTO、Tauri、UI 或数据库连接。
+- 当前 `FixtureSchemaMetadataProvider` 只从仓库 fixtures 读取 schema，是 Core / Preview / Tests 的共同输入，**不是 production metadata source**。
+- 覆盖 integer、decimal、varchar/string、boolean、date、timestamp；seed 按 table / column / row / rule identity 派生，不依赖全局随机调用顺序。
+- Phase 1A 不实现 semantic person generators、constraints、relations、SCD、Workbench、export 或 database write。
+
+### Upstream boundary
+
+Phase 1A fixture Core 不依赖 `t8y2/dbx#10043` merge。正式 DBX Schema Metadata acquisition 与 adapter 仍等待 upstream PR #10043 merge、验证以及 Phase 0 Gate；本仓库不得复制其未合并 API / DTO 细节，也不得添加 workaround。
 
 ## 后续版本规划
 
-等待 `t8y2/dbx#9917` merge 后，单独设计 Metadata Host API consumer；本任务不提前消费或猜测其 method、permission、SDK type 或 wire shape。
+正式 DBX Metadata Host API consumer 需在 `t8y2/dbx#10043` merge 后单独设计 / 验证；本轮不提前消费或猜测其 method、permission、SDK type 或 wire shape。

@@ -1,0 +1,6 @@
+{
+  "tableIdentity": "long_varchar",
+  "columns": [
+    { "name": "long_value", "dataType": "VARCHAR", "nullable": false, "length": 4096 }
+  ]
+}
