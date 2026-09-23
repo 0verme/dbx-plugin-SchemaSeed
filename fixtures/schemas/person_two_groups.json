@@ -1,5 +1,11 @@
 {
   "tableIdentity": "person_two_groups",
+  "workbench": {
+    "personGroups": [
+      { "id": "customer", "columns": ["customer_name", "customer_mobile"] },
+      { "id": "contact", "columns": ["contact_name", "contact_mobile"] }
+    ]
+  },
   "columns": [
     { "name": "customer_name", "dataType": "VARCHAR", "nullable": false, "length": 64 },
     { "name": "customer_mobile", "dataType": "VARCHAR", "nullable": false, "length": 32 },

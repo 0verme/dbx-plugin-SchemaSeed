@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'">
+    <title>SchemaSeed Workbench</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.mjs"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true">S</div>
+      <div>
+        <h1>SchemaSeed <span>Workbench</span></h1>
+        <p>Fixture-driven preview · read-only</p>
+      </div>
+      <span id="status-badge" class="status-badge" role="status" aria-live="polite">加载中</span>
+    </header>
+
+    <main id="workbench" aria-busy="true">
+      <section class="panel context-panel" aria-labelledby="context-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="context-title">Table Context</h2>
+            <p id="table-identity" class="table-identity">加载 fixture…</p>
+          </div>
+          <span class="context-tag">FIXTURE</span>
+        </div>
+        <form id="dataset-controls" class="controls-grid">
+          <label>Fixture
+            <select id="fixture-select" name="fixture"></select>
+          </label>
+          <label>Rows <span class="field-hint">1–100</span>
+            <input id="rows-input" name="rowCount" type="number" min="1" max="100" value="20" required>
+          </label>
+          <label>Seed
+            <input id="seed-input" name="seed" type="text" value="demo" maxlength="128">
+          </label>
+          <label>Locale
+            <select id="locale-select" name="locale">
+              <option value="zh-CN">zh-CN</option>
+              <option value="en">en</option>
+            </select>
+          </label>
+          <div class="control-actions">
+            <button class="button primary" type="button" data-action="regenerate">Regenerate · same seed</button>
+            <button class="button" type="button" data-action="new-seed">New Seed</button>
+          </div>
+        </form>
+        <p id="action-error" class="inline-error" role="alert" hidden></p>
+      </section>
+
+      <section class="panel mapping-panel" aria-labelledby="mapping-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="mapping-title">Column Mapping</h2>
+            <p class="section-caption">检测结果、当前 generator 与 mapping 状态分开展示</p>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="mapping-table">
+            <thead>
+              <tr>
+                <th scope="col">Column</th>
+                <th scope="col">Schema Type</th>
+                <th scope="col">Detected</th>
+                <th scope="col">Confidence</th>
+                <th scope="col">Selected Mapping / Generator</th>
+                <th scope="col">Status</th>
+                <th scope="col">Evidence</th>
+              </tr>
+            </thead>
+            <tbody id="mapping-rows"></tbody>
+          </table>
+        </div>
+        <p class="mapping-footnote">自动检测只是候选；Person semantic 需显式确认或 override 后才启用。</p>
+      </section>
+
+      <section id="person-panel" class="panel" aria-labelledby="person-title" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="person-title">Person Groups</h2>
+            <p class="section-caption">仅显示当前 GenerationPlan 中已选择的字段</p>
+          </div>
+        </div>
+        <div id="person-groups" class="person-groups"></div>
+      </section>
+
+      <section class="panel diagnostics-panel" aria-labelledby="diagnostics-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="diagnostics-title">Diagnostics</h2>
+            <p class="section-caption">Severity 与 blocking 状态来自 Generation Core</p>
+          </div>
+        </div>
+        <div id="diagnostics-list" class="diagnostics-list"></div>
+      </section>
+
+      <section class="panel preview-panel" aria-labelledby="preview-title">
+        <div class="section-heading preview-heading">
+          <div>
+            <h2 id="preview-title">Preview</h2>
+            <p id="preview-summary" class="section-caption">等待 fixture</p>
+          </div>
+          <span class="read-only-tag">READ ONLY</span>
+        </div>
+        <p id="safe-synthetic-notice" class="safe-notice"></p>
+        <div id="preview-state" class="preview-state" role="status"></div>
+        <div class="table-scroll preview-scroll">
+          <table class="preview-table">
+            <thead><tr id="preview-columns"></tr></thead>
+            <tbody id="preview-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="empty-state" class="panel empty-state" hidden>
+        <h2>没有可用的 Fixture</h2>
+        <p>Workbench 仅消费 FixtureSchemaMetadataProvider；请检查 fixtures/schemas。</p>
+        <button class="button" type="button" data-action="retry">重试</button>
+      </section>
+
+      <section id="fatal-state" class="panel empty-state" hidden>
+        <h2>Workbench 无法加载</h2>
+        <p id="fatal-message"></p>
+        <button class="button" type="button" data-action="retry">重试</button>
+      </section>
+    </main>
+    <footer>Fixture-only harness · No DBX metadata · No database writes · Export is a follow-up</footer>
+  </body>
+</html>

@@ -132,6 +132,20 @@ Fixture Preview + Diagnostics
 - 稳定上下文是 seed + table + group + row + locale，每个字段使用稳定 semantic rule identity；Fixture Preview 是 GenerationPlan/Engine 的 consumer。
 - Validator-Compatible 只保留 unsupported-mode diagnostic；不实现中国身份证/checksum、真实号码验证、Workbench UI 或 exporter。
 
+## Phase 1C — Fixture-driven Workbench（[#21](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/21)）
+
+### 当前状态
+
+- Fixture-driven Workbench 已实现；设计 Issue [#14](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/14) 已 Design Freeze 并关闭。
+- `WorkbenchController` 使用现有 `buildGenerationPlan()` 与 `generateRows()`；只消费 `FixtureSchemaMetadataProvider`。
+- Rows 默认 20、限制 1–100；支持 seed、same-seed Regenerate、New Seed、`zh-CN` / `en`、显式 mapping confirmation / override、Person groups、Core diagnostics 与 preview。
+- Runtime 为 standalone loopback development harness only。当前 DBX `.dbxp` build / manifest 仍只包含 Phase 0 JSONL probe；Workbench 未 packaged in DBX。
+- Export remains a follow-up implementation；无 Direct Insert。
+
+### Upstream boundary
+
+Upstream `t8y2/dbx#10043` 是 production Schema Metadata integration prerequisite，不是 fixture-driven Workbench prerequisite。即使上游 merge，也不扩大 Phase 1C；正式 adapter 需独立 Issue 与 Phase 0 Gate。
+
 ## 后续版本规划
 
-正式 DBX Metadata Host API consumer 需在 `t8y2/dbx#10043` 正式 merge、验证且 Phase 0 Gate 满足后单独设计 / 实施；本轮不提前消费或猜测其 method、permission、SDK type 或 wire shape。`#10043` 是 metadata integration prerequisite，不是 fixture-driven Semantic / Person generation prerequisite。
+正式 DBX Metadata Host API consumer 需在 `t8y2/dbx#10043` 正式 merge、验证且 Phase 0 Gate 满足后单独设计 / 实施；本轮不提前消费或猜测其 method、permission、SDK type 或 wire shape。`#10043` 是 production metadata integration prerequisite，不是 fixture-driven Semantic / Person generation 或 Workbench prerequisite。
