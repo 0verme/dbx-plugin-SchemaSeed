@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Schema Metadata Consumer Probe</title>
+    <link rel="stylesheet" href="./probe.css" />
+    <script type="module" src="./app.mjs"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">PHASE 0 · HOST API CONSUMER PROBE</p>
+          <h1>Schema Metadata Probe</h1>
+        </div>
+        <button id="run-probe" type="button">重新读取最近选择的表</button>
+      </header>
+
+      <section aria-labelledby="host-title">
+        <h2 id="host-title">Host API</h2>
+        <dl class="facts">
+          <div><dt>Host API 要求</dt><dd>^1.3（运行时版本不由公开 Workbench API 暴露）</dd></div>
+          <div><dt>Permission</dt><dd>host.schema:read（manifest 已声明）</dd></div>
+          <div><dt>Capability</dt><dd id="capability-state">等待 DBX 初始化</dd></div>
+        </dl>
+      </section>
+
+      <section aria-labelledby="context-title">
+        <h2 id="context-title">Table Context</h2>
+        <pre id="table-context" class="json">尚未读取</pre>
+      </section>
+
+      <section aria-labelledby="metadata-title">
+        <h2 id="metadata-title">Metadata Result</h2>
+        <pre id="metadata-result" class="json">尚未读取</pre>
+      </section>
+
+      <section aria-labelledby="diagnostics-title">
+        <h2 id="diagnostics-title">Diagnostics</h2>
+        <pre id="diagnostics" class="json">等待 DBX 初始化</pre>
+      </section>
+
+      <p class="handoff-note">先在 DBX Sidebar 的 table 右键菜单保存 Table Context，再打开本 Probe Workbench。Context 仅在插件进程内暂存 10 分钟。</p>
+    </main>
+  </body>
+</html>

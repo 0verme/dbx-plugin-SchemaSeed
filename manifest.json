@@ -5,17 +5,23 @@
   "name": "SchemaSeed",
   "version": "0.1.0",
   "publisher": "0verme",
-  "description": "SchemaSeed Phase 0 Table Context consumer probe.",
+  "description": "SchemaSeed Phase 0 Table Context and Schema Metadata consumer probes.",
   "engines": {
     "dbx": ">=0.6.19",
-    "host_api": "^1.0"
+    "host_api": "^1.3"
   },
-  "permissions": [],
+  "permissions": [
+    "host.schema:read"
+  ],
   "entrypoints": {
     "backend": {
       "protocol_versions": [1],
       "transport": "stdio-jsonl",
       "executable": "bin/schema-seed-probe"
+    },
+    "ui": {
+      "root": "ui",
+      "entry": "ui/index.html"
     }
   },
   "contributions": [
@@ -23,18 +29,28 @@
       "type": "context-menu",
       "id": "io.github.0verme.schema-seed.table-context-probe",
       "label": "SchemaSeed: Show table context",
-      "description": "Display the DBX #9918 table identity received by SchemaSeed.",
+      "description": "Save the DBX #9918 table identity for the Phase 0 metadata probe.",
       "menu": "table"
+    },
+    {
+      "type": "workbench",
+      "id": "io.github.0verme.schema-seed.schema-metadata-probe",
+      "label": "Schema Metadata Probe",
+      "description": "Inspect the public DBX Schema Metadata Host API response."
     }
   ],
   "localizations": {
     "zh-CN": {
       "name": "SchemaSeed",
-      "description": "SchemaSeed Phase 0 Table Context consumer probe。",
+      "description": "SchemaSeed Phase 0 Table Context 与 Schema Metadata consumer probe。",
       "contributions": {
         "io.github.0verme.schema-seed.table-context-probe": {
-          "label": "SchemaSeed：显示 Table Context",
-          "description": "显示 SchemaSeed 从 DBX #9918 收到的 table identity。"
+          "label": "SchemaSeed：保存 Table Context",
+          "description": "为 Phase 0 metadata probe 暂存 DBX #9918 table identity。"
+        },
+        "io.github.0verme.schema-seed.schema-metadata-probe": {
+          "label": "Schema Metadata Probe",
+          "description": "查看 DBX 公开 Schema Metadata Host API 返回结果。"
         }
       }
     }

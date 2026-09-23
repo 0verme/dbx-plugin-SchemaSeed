@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const directories = ["src", "backend", "scripts", "tests", "web"];
+const directories = ["src", "backend", "scripts", "tests", "web", "ui"];
 const files = [];
 
 async function collectJavaScript(directory) {

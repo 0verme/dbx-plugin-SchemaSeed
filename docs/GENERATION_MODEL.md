@@ -14,7 +14,7 @@
 - **不承诺任何上游 API method、permission、DTO、SDK type 或 Host API version**；
 - 不包含 Generator、Faker、Constraint Engine、Relation Planner、Exporter 或 Workbench 实现。
 
-本文档的输入边界是 **SchemaSeed normalized schema facts**，而不是某个具体的 DBX API DTO。正式 DBX Schema Metadata acquisition 仍依赖 `t8y2/dbx#9917` 落地；但 Phase 1A 可先通过 fixture 构造同一内部 domain，且不因此取得任何 Host API 能力；见 [Dependency on DBX #9917](#15-dependency-on-dbx-9917)。
+本文档的输入边界是 **SchemaSeed normalized schema facts**，而不是某个具体的 DBX API DTO。原上游需求 `t8y2/dbx#9917` 已由 #10043 落地为 Host API 1.3；Phase 1A 仍只通过 fixture 构造内部 domain，不消费 DBX Host API。正式 adapter 仍受 Phase 0 Gate 约束；见本文件第 15 节。
 
 ## Goals
 
@@ -1103,7 +1103,7 @@ info diagnostic: group consistency disabled by user
 
 以下问题不改变本 Issue 已冻结的层次、precedence、intent 或诊断原则，留给实现和上游 contract 确认：
 
-1. `t8y2/dbx#9917` 正式 metadata result 如何映射到 normalized facts，以及各 driver provenance 的具体 adapter；
+1. 正式 Host API 1.3 `getTableMetadata` response 如何映射到 normalized facts，以及各 driver provenance 的 production adapter；
 2. deterministic hash/RNG 算法、canonical identity 编码和 `determinismProfile` 的兼容策略；
 3. 不同 database identifier case/collation 下 `columnIdentity` 的规范化细节；
 4. 各种 target format 对 `OMIT_USE_DEFAULT` / `OMIT_IDENTITY` 的具体表示；
@@ -1113,14 +1113,14 @@ info diagnostic: group consistency disabled by user
 
 这些是实现边界和跨 Issue 协调项，不允许通过猜测 DBX 当前未冻结的 DTO 来提前解决。
 
-## 15. Dependency on DBX #9917
+## 15. Dependency on DBX Schema Metadata (#9917 / #10043)
 
 ### Current upstream facts
 
-- `t8y2/dbx#9917` 是 Schema Metadata Host API 的上游 issue，当前仍是 SchemaSeed Phase 0 的实现前置；
-- 上游相关的 `t8y2/dbx#10043` 在本设计审计时仍是 **OPEN / 未正式 merge** 的 pull request；其当前实现内容不能被视为已接受、已冻结或 SchemaSeed 已依赖的公共契约；
-- 本文不复制 #10043 的 method name、permission、wire DTO、SDK type 或 Host API version；
-- 正式 DBX metadata integration 即使与本模型的 normalized input 一致，也必须先经过 upstream merge/freeze、SchemaSeed Metadata Consumer Probe 和 Phase 0 Gate；这不限制纯 fixture-driven Core。
+- `t8y2/dbx#9917` 是已解决的原始 Schema Metadata Host API issue；正式实现由 `t8y2/dbx#10043` 提供并已 merge，commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`。
+- Host API 1.3 contract 已公开：`host.schema:read`、`schemaMetadataApi`、`window.dbxPlugin.getTableMetadata({ connectionId, database?, schema?, table })`。
+- 本 Generation Model 不复制 Host DTO 为内部 schema model；本轮 Probe 实现与 production `DbxHostSchemaMetadataProvider` 是不同阶段。
+- 正式 DBX metadata adapter / metadata-backed generation 仍须经过 real DBX smoke 与 SchemaSeed Phase 0 Gate；这不限制纯 fixture-driven Core。
 
 ### SchemaSeed dependency boundary
 
@@ -1136,7 +1136,7 @@ Schema Interpretation / Semantic Mapping
 GenerationPlan / GenerationEngine / Preview
 ```
 
-它不读取真实 metadata、不连接 DBX，也不依赖 #10043 的 merge。fixture provider 不是 production metadata source。#10043 是正式 metadata integration prerequisite，不是 fixture-driven Semantic / Person generation prerequisite。
+它不读取真实 metadata、不连接 DBX，也不依赖 #10043 的 merge。fixture provider 不是 production metadata source。Host API 1.3 availability and the consumer probe are formal metadata integration prerequisites, not fixture-driven Semantic / Person generation prerequisites.
 
 正式 Host integration 仍只允许沿以下 future path：
 
@@ -1163,9 +1163,9 @@ SchemaSeed 不因本文获得以下权限或能力：
 
 进入正式 DBX Metadata integration / metadata-backed generation 前仍需：
 
-1. `t8y2/dbx#9917` 正式 capability 可被验证；
-2. SchemaSeed #5 Metadata Consumer Probe 只消费正式公开 Host API，并记录 normalized facts、缺失和错误模型；
-3. SchemaSeed #6 Phase 0 Gate 从 `WAITING_UPSTREAM_9917` / `BLOCKED` 进入允许实现的状态；
+1. 在包含 Host API 1.3 的 released DBX 上完成真实 metadata smoke；
+2. SchemaSeed #5 Probe 的公开 consumer path、metadata contract 与错误模型经真实 DBX 验证；
+3. 在单独任务中评估并关闭 SchemaSeed #6 Phase 0 Gate；本轮不作 Gate 决定；
 4. Table Context 继续使用已验证的 SchemaSeed internal consumer contract，不将 Table Context 证据外推为 Metadata capability。
 
 如果 metadata Host API 未满足，不得通过 workaround 开始真实 metadata acquisition 或 metadata-backed generation。Phase 1A 的 fixture-only Generation Core 是独立实现范围，不宣称 Phase 0 已通过，也不改变未来 Host integration gate。
@@ -1179,6 +1179,6 @@ SchemaSeed 不因本文获得以下权限或能力：
 - [x] 完成 user override、confirmed mapping、automatic inference、schema fallback 的 precedence，并保留 hard constraint conflict 的可解释性。
 - [x] 形成 `ColumnSchema`、`GenerationRule`、`SemanticType`、`ConstraintRule`、`GenerationPlan` 等概念说明，并明确不是 DBX SDK/wire contract。
 - [x] 明确不依赖 AI 的 deterministic baseline，以及 unknown/unsupported/invalid/generation-impossible 的 diagnostics 形态。
-- [x] 明确 #9917、#10043、Metadata Consumer Probe、Phase 0 Gate 的依赖边界，没有通过 workaround 绕过 upstream。
+- [x] 明确原始 Issue #9917、已合并 PR #10043、Metadata Consumer Probe、Phase 0 Gate 的依赖边界，没有通过 workaround 绕过 upstream。
 
 本 checklist 只表示 Issue #12 的设计交付完成；不表示 Phase 0 已关闭、Generator 已实现、PR 已合并或 DBX upstream 已冻结。

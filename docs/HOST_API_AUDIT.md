@@ -1,6 +1,24 @@
 # DBX Host API Audit
 
-本文件记录 Phase 0 的源码级 Host API 审计。`Table Context` 已按 `t8y2/dbx#9918` 的最终实现刷新；`Schema Metadata` 仍严格等待未合并的 `t8y2/dbx#9917`，本任务不消费猜测中的 API。
+本文件保留 Phase 0 的源码级审计证据。下方原始审计快照结束于 2026-09-22，早于 t8y2/dbx#10043 merge；其中 `WAITING_UPSTREAM_9917` / `NOT_PUBLICLY_SUPPORTED` 是历史结论，不代表当前状态。当前事实以本节及 [Phase 0 feasibility report](PHASE0_FEASIBILITY_REPORT.md) 为准。
+
+## Current Contract (post-#10043)
+
+```text
+t8y2/dbx#10043: MERGED
+d5a05a98840e54726bfec0c7dadabb8dc9a4c755
+Host API: 1.3
+Permission: host.schema:read
+Capability: schemaMetadataApi
+Method: window.dbxPlugin.getTableMetadata({ connectionId, database?, schema?, table })
+Consumer Probe: IMPLEMENTED / READY_FOR_REAL_DBX_SMOKE
+Real DBX Smoke: NOT RUN
+Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
+```
+
+The direct context-menu → Workbench handoff is not available. The minimal Probe uses the documented plugin sidecar RPC and a 10-minute, one-shot, in-memory plugin-owned TableContext handoff. Host API 1.3 exposes columns and `fieldCapabilities` for `length`, `precision`, `scale`, and `default`; it does not expose comment, PK, FK, UNIQUE, CHECK, or identity. The runtime response is read-only and requires an already-open DBX connection/session.
+
+## Historical Source Audit Snapshot (2026-09-22, pre-#10043)
 
 ## Baseline
 
