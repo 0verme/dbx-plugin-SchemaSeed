@@ -5,7 +5,7 @@
   "name": "SchemaSeed",
   "version": "0.1.0",
   "publisher": "0verme",
-  "description": "Development probe for DBX table context and schema metadata integration toward test data generation.",
+  "description": "Generate test data quickly from database table schemas for development, integration testing, and functional validation.",
   "icon": "assets/plugin.svg",
   "engines": {
     "dbx": ">=0.6.19",
@@ -44,7 +44,7 @@
   "localizations": {
     "zh-CN": {
       "name": "SchemaSeed",
-      "description": "用于验证 DBX 表上下文与 Schema Metadata 集成路径的测试数据生成开发探针。",
+      "description": "根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。",
       "contributions": {
         "io.github.0verme.schema-seed.table-context-probe": {
           "label": "SchemaSeed：保存 Table Context",
