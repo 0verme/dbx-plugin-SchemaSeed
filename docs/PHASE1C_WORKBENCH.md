@@ -1,5 +1,7 @@
 # Phase 1C — Fixture-driven Workbench
 
+> This document describes the standalone fixture-only Phase 1C scope. It is not the production DBX Workbench: the separate #31 implementation and its pending official-release runtime smoke are documented in [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md).
+
 ## Scope and Runtime
 
 Phase 1C closes the fixture-only product loop:

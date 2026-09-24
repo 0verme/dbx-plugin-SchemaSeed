@@ -7,21 +7,21 @@
 <p align="center"><strong>Schema-aware, deterministic test data generation for DBX.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/t8y2/dbx"><img src="https://img.shields.io/badge/DBX-%3E%3D0.6.19-4c8bf5" alt="DBX >=0.6.19"></a>
+  <a href="https://github.com/t8y2/dbx/releases"><img src="https://img.shields.io/badge/DBX-runtime%20smoke%20pending%20release-8a5a0a" alt="DBX runtime smoke pending release"></a>
   <img src="https://img.shields.io/badge/Host%20API-1.3-6b7280" alt="Host API 1.3">
   <img src="https://img.shields.io/badge/Schema--aware-generation-16875b" alt="Schema-aware generation">
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。**目前 Schema-aware generation、Workbench Preview 和 CSV / JSON Export 在本地 fixture-driven 开发 Workbench 中运行；DBX 安装包当前只包含独立的 Schema Metadata Probe，不包含生成 Workbench。** Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL runtime smoke 均 PASS；Issue #6 已由合并的 PR #33 关闭。Issue #30 已实现 production metadata adapter 与 Core contract path，但正式 DBX Generation Workbench 仍由 #31 集成。项目仍处于 early-stage / development 状态。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；**正式 DBX runtime smoke 尚未完成**。上游 `t8y2/dbx#10244` 已合并，但 DBX 最新正式版仍为 v0.6.22（该版本早于 #10244），所以当前 `.dbxp` 仅是 implementation candidate，不应安装到 v0.6.22 或发布。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
 
-> Manifest 声明的最低要求为 DBX `>=0.6.19`、Host API `^1.3`。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity；这些仍是非阻塞 follow-ups。上游 context-menu → `open-workbench` 并透传当前 context 的能力已由 `t8y2/dbx#10244` merge；包含该变更的正式 DBX release runtime smoke 由 #31 验证。Phase 0 Gate 只证明公开 Schema Acquisition Path 可行，不代表 Generation Workbench 已集成或项目 production-ready。
+> Manifest 暂保留历史 DBX floor `>=0.6.19` 与 Host API `^1.3`；该 floor **不覆盖**新增的 `context-menu.action.open-workbench` contract。DBX v0.6.22 runtime 对未知 context-menu 字段采用严格解析，会拒绝包含新 `action` 的 manifest。待上游正式 release 发布后，必须先确认实际版本、更新 floor，再做 runtime smoke；这里不猜测未发布版本号。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity，这些仍是非阻塞 follow-ups。
 
 ## 插件简介
 
 SchemaSeed 要解决的是测试数据与真实 schema 脱节的问题：测试数据需要符合字段类型与长度，常见字段还需要有明确语义；同一组输入也应能重复生成相同结果。SchemaSeed 将这些逻辑放在可检查的 schema model、mapping、generation plan 和 deterministic generator 中，并默认使用 Safe Synthetic 测试数据模式。
 
-当前实现要区分两条路径：离线 fixture 路径已经可以执行 generation、preview 与 export；#30 已提供 DBX production metadata → SchemaSeed domain → Generation Core 的 adapter contract，但该链路尚未接入正式 DBX Generation Workbench。安装包中的 Phase 0 Probe 仍独立验证 Host API 获取路径，不会把 fixture generation 伪装成 DBX 已集成能力。
+当前实现保留两条明确隔离的路径：standalone `web/` harness 只读取仓库 fixtures；正式 DBX Workbench 直接消费 DBX TableContext 与公开 metadata Host API，经 #30 provider 接入现有 Generation Core。正式 Workbench 不 fallback fixtures；Phase 0 Probe 仍是独立 contribution。
 
 ## 工作方式
 
@@ -43,19 +43,19 @@ Workbench Preview → CSV / JSON
 
 此路径使用仓库 fixtures，不读取 DBX 表或数据库。相同 schema、plan、seed 和 row identity 可重复生成相同的逻辑数据。
 
-### DBX integration path（adapter 已实现，Workbench 集成待 #31）
+### DBX production path（#31 implementation ready；runtime smoke pending release）
 
 ```text
-DBX TableContext
-    ↓
-DbxHostSchemaMetadataProvider（#30 已实现）
-    ↓
-SchemaSeed TableSchema
-    ↓
-GenerationPlan → Generator → Preview / Export
+DBX Sidebar table
+  → 右键「生成测试数据」
+  → #10244 declarative open-workbench（TableContext 本身）
+  → DbxHostSchemaMetadataProvider
+  → SchemaSeed TableSchema
+  → GenerationPlan → generateRows()
+  → Preview → CSV / JSON
 ```
 
-`getTableMetadata()` consumer probe 已进入当前 `.dbxp` candidate，并已在 DBX v0.6.21 Windows Desktop 上通过 MySQL、SQLite、PostgreSQL 实测；Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已关闭。#30 的 production metadata adapter 已实现并由 contract/integration tests 接入现有 Generation Core；正式 Workbench/runtime packaging 与 release smoke 属于 #31。
+正式 Workbench 使用公开 Host metadata API 与现有 Core。Preview / export 共用同一 dataset；A→B→C context refresh 会立即清空旧 metadata、plan 和 dataset，并丢弃迟到的旧请求。
 
 ## 当前能力
 
@@ -66,13 +66,13 @@ GenerationPlan → Generator → Preview / Export
 - **Generation preview**：本地 Workbench 可检查字段类型、mapping、evidence、diagnostics 和生成样例；只有通过确认的 mapping / override 才会作为相应语义规则使用。
 - **CSV / JSON export**：导出 Workbench 当前 preview 使用的同一份 deterministic dataset，不另行生成一份数据。
 - **Schema Metadata consumer probe**：安装包通过公开 DBX Host API 1.3 获取 table metadata；Probe 的 Table Context → Host API → columns metadata → SchemaSeed normalization 路径已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 验证通过。
-- **Production metadata adapter（#30）**：`DbxHostSchemaMetadataProvider` 将公开 Host response 映射为 SchemaSeed-owned facts，并通过 MySQL / PostgreSQL / SQLite contract tests 接入现有 `buildGenerationPlan()` → `generateRows()`；该 provider 尚未接入或打包进正式 Generation Workbench。
-
-> **Fixture-driven Workbench 不等于已打包进正式 DBX runtime。** 生成、Preview 和 CSV / JSON Export 当前只在 standalone development harness 中可用。
+- **Production metadata adapter（#30）**：`DbxHostSchemaMetadataProvider` 将公开 Host response 映射为 SchemaSeed-owned facts；现已在正式 Workbench path 中调用，并将 normalized schema 送入现有 Generation Core。
+- **正式 DBX Generation Workbench（#31）**：显示当前 database / schema / table、字段类型、generator / semantic mapping、diagnostics、Rows / Seed / Locale、Preview 与 CSV / JSON。Manifest 通过 `context-menu` 的 `open-workbench` action 直接接入 #10244。
+- **Runtime compatibility**：DBX v0.6.22 不含 #10244，且旧 runtime 严格拒绝未知 `action` 字段；正式版本 floor 与 runtime smoke 等上游正式 release 后确认。
 
 ## 当前界面 / Workbench
 
-仓库提供本地 fixture-driven Workbench，可用于选择 schema fixture、配置 row count / seed / locale、检查字段 mapping 与 diagnostics、预览数据并下载 CSV / JSON。当前没有可证明正式 DBX runtime 行为的截图，因此此处不展示伪造的 DBX 截图。DBX 包内的 UI 是独立的 Phase 0 Schema Metadata Probe UI，不是 generation Workbench。
+仓库保留独立 fixture-driven development harness；DBX `.dbxp` candidate 现已另外包含正式 Generation Workbench UI/runtime modules 与独立 Phase 0 Probe。由于 #10244 尚未出现在正式 DBX release，本仓库没有 runtime smoke 证据或截图，不展示伪造的 DBX 行为。
 
 ## 安装与当前验证方式
 
@@ -86,8 +86,8 @@ npm run build
 npm run workbench
 ```
 
-- `npm run build` 生成 unsigned universal `.dbxp` candidate；该包主要用于 Phase 0 Schema Metadata Probe，包含 probe sidecar 和 probe UI，不包含 fixture-driven Generation Workbench。
-- DBX 安装这个开发 candidate 时，需要开启允许未签名开发包的选项。它不是正式 release 安装包。
+- `npm run build` 生成 unsigned universal `.dbxp` implementation candidate，包含 Phase 0 Probe、正式 Workbench UI、production adapter / Core runtime 与 manifest contributions；内容审计会排除 `web/`、`fixtures/`、fixture provider/controller、tests 和开发 server。
+- 该 candidate 不是当前正式 DBX 的安全安装包：DBX v0.6.22 不含 #10244，且旧 runtime 会拒绝新 `action` manifest contract。不要在包含 #10244 的正式 DBX release 与 floor 更新前发布或尝试 runtime smoke。
 - `npm run workbench` 启动本地 fixture-only development harness（默认 loopback 地址 `http://127.0.0.1:4173`）；它不连接 DBX 或数据库。
 
 ## 使用方式
@@ -125,7 +125,7 @@ SQL export deferred：在没有正式 DBX metadata / dialect 集成及可靠方�
 
 ### 不直接读取数据库凭据
 
-DBX 负责连接、凭据和 Host 能力；SchemaSeed 只通过公开 Host API 消费 Table Context / Schema Metadata，不维护第二套 Connection / Credential 系统。当前 generation harness 则仅使用仓库 fixtures。
+DBX 负责连接、凭据和 Host 能力；正式 Workbench 只通过公开 Host API 消费当前 TableContext / Schema Metadata，不维护第二套 Connection / Credential 系统。standalone harness 则仅使用仓库 fixtures。
 
 ### 不用私有 introspection workaround 获取 metadata
 
@@ -137,13 +137,13 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 
 ### Read-only by default
 
-当前功能仅生成、preview 和 export，不执行 database write。Workbench 是本地开发 harness；`.dbxp` 的 Schema Metadata Probe 只获取 metadata，不写业务数据。
+当前功能仅生成、preview 和 export，不执行 database write。正式 Workbench 使用 DBX Host metadata、不读取真实行样本；独立 Probe 仅读取 metadata。
 
 ## 当前限制
 
 - Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已关闭：已验证范围是 DBX v0.6.21 Windows Desktop 上的 Probe metadata acquisition path；这不代表 SchemaSeed production-ready。
-- 当前 `.dbxp` 仍只打包 Phase 0 metadata probe；#30 adapter 在代码与 contract/integration tests 中已落地，但正式 Workbench runtime/package integration 由 #31 负责。
-- Fixture-driven Workbench 是 standalone development harness，不是正式 DBX runtime，也没有打包进 `.dbxp`。
+- `.dbxp` packaging implementation 已包含正式 Generation Workbench；由于 DBX v0.6.22 未包含 #10244，目前保持 `IMPLEMENTATION_READY_RUNTIME_SMOKE_PENDING`，不作为正式发行包。
+- Fixture-driven Workbench 仍只是独立开发 harness；production Workbench 不包含 fixture fallback 或 fixture runtime dependency。
 - SQL export deferred；当前不生成 relational datasets，不实现 PK / UNIQUE / CHECK / FK 等复杂 constraint engine。
 - `validator_compatible` 与中国身份证号校验等能力 unsupported / future；当前 Safe Synthetic 不承诺真实号码校验。
 - ambiguous / low-confidence semantic mapping 不会自动作为确定事实；需要 fallback、diagnostics 或显式确认。
@@ -158,25 +158,24 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 | Phase 1B | Implemented | Semantic Mapping + Safe Synthetic |
 | Phase 1C | Implemented | Fixture-driven standalone Workbench |
 | Phase 1D | Implemented | CSV / JSON Export |
-| Production DBX metadata adapter (#30) | Implemented | Host metadata → SchemaSeed facts → existing Generation Core; Workbench runtime integration remains #31 |
+| Production DBX metadata adapter (#30) | Implemented | Public Host metadata → SchemaSeed facts → existing Generation Core |
+| Generation Workbench (#31) | Implementation ready | Packaged production UI / runtime / direct table action; official DBX runtime smoke pending release containing #10244 |
 
-`Implemented` 表示对应阶段的代码已实现，不表示 fixture-driven Generation Workbench 已进入 DBX packaged runtime。详细进度和后续计划见 [Roadmap](docs/ROADMAP.md)。
+`Implemented` 表示代码与 package implementation 已完成，不表示 runtime smoke 或 Issue #31 acceptance 已完成。详细状态见 [Roadmap](docs/ROADMAP.md)。
 
 ## 工作原理：DBX Host integration
 
-当前 Probe 的设计路径保留 DBX 原生入口和公开 API 边界：
+正式 Generation Workbench path：
 
 ```text
-DBX Sidebar Table Node
-  → table context-menu contribution
-  → JSONL sidecar 暂存 identity-only TableContext（最多 10 分钟）
-  → 用户手动打开 Schema Metadata Probe Workbench
-  → sidecar RPC 取回 TableContext
-  → window.dbxPlugin.getTableMetadata(TableContext)
-  → Raw Host API response + normalized metadata + diagnostics
+DBX Sidebar Table
+  → context-menu: open-workbench（#10244）
+  → Workbench receives direct TableContext
+  → DbxHostSchemaMetadataProvider → TableSchema
+  → GenerationPlan → generateRows() → Preview / CSV / JSON
 ```
 
-DBX v0.6.21 的 Phase 0 Probe runtime 使用“右键表并保存 Table Context / 暂存 context，再手动打开 Probe”的两步流程。后续上游 [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) 已 merge，正式支持 context-menu → `open-workbench` 并透传当前 connection/table context，也会在复用 Workbench tab 时刷新 context；#31 可将它作为推荐的表级入口，并在包含该能力的正式 release 上完成 runtime smoke。该能力不属于本次 #30。Probe 和 #30 adapter 均消费公开 Host API，不读取 private Store、credentials、private frontend module 或 undocumented API；Phase 0 runtime evidence 不等同于正式 Generation Workbench 已完成。
+#10244 合同传给 Workbench 的是 TableContext 本身（不是 legacy `{ table: ... }` envelope）；`database` / `schema` 仍为 optional。重用 Workbench tab 时 `onContext` 刷新触发 metadata / plan / preview 失效，并保护免于迟到请求覆盖新表。Phase 0 Probe 仍保留为单独入口，历史 v0.6.21 smoke 曾使用 legacy 暂存 context 的两步流程。当前正式 DBX 仍为 v0.6.22，发布晚于 #10244 merge 前，因此 release smoke 与最终 manifest DBX floor pending next official release。两条路径均不读取 private Store、credential、private frontend/Tauri API，也不建立第二连接。
 
 ## 开发
 
@@ -186,11 +185,11 @@ DBX v0.6.21 的 Phase 0 Probe runtime 使用“右键表并保存 Table Context 
 
 ```text
 assets/          SchemaSeed 插件图标
-backend/         Phase 0 JSONL sidecar
-src/             SchemaSeed Core、semantic、export、DBX metadata adapter 与 Host probe
-ui/              打包进 .dbxp 的 Phase 0 Probe UI
-web/             fixture-driven Workbench 的 standalone UI
-fixtures/schemas/ schema fixtures（供 Generation / Workbench 使用）
+backend/         Probe 与 Workbench runtime JSONL entrypoint
+src/             Core、production provider、export、generation runtime 与 Workbench controller
+ui/              打包进 .dbxp 的 Workbench UI 与独立 Phase 0 Probe UI
+web/             fixture-driven Workbench 的 standalone UI（不打包）
+fixtures/schemas/ standalone harness / tests 使用的 fixtures（不打包）
 scripts/         build、workbench、lint 与验证脚本
 tests/           Core、Workbench、Probe 与 package contract tests
 docs/            architecture、Host API 与 roadmap 文档
@@ -206,6 +205,7 @@ dbx-plugin.toml  DBX plugin package configuration
 - [Phase 1B Architecture](docs/PHASE1B_ARCHITECTURE.md)：Semantic Mapping 与 Safe Synthetic。
 - [Phase 1C Workbench](docs/PHASE1C_WORKBENCH.md)：fixture Workbench、UI 状态与运行时边界。
 - [Phase 1D Export](docs/PHASE1D_EXPORT.md)：CSV / JSON dataset 与 Export 约定。
+- [Phase 1E Production Workbench](docs/PHASE1E_PRODUCTION_WORKBENCH.md)：DBX runtime 架构、context refresh、package 边界与 release smoke gate。
 - [Host API Audit](docs/HOST_API_AUDIT.md)：公开 Host API 能力审计。
 - [Host API Requirements](docs/HOST_API_REQUIREMENTS.md)：DBX schema metadata 集成要求。
 - [Phase 0 Feasibility Report](docs/PHASE0_FEASIBILITY_REPORT.md)：Phase 0 可行性与 Gate 边界。
@@ -213,4 +213,4 @@ dbx-plugin.toml  DBX plugin package configuration
 
 ## Roadmap
 
-SchemaSeed 的 DBX metadata integration、generation Workbench packaged runtime 与未来 constraint / relational capabilities 仍按阶段推进。路线图只代表计划，不代表已发布功能；详见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+SchemaSeed 的正式 Workbench/package implementation 已完成；包含 #10244 的正式 DBX release runtime smoke 与兼容 floor 仍 pending。后续 Column Rule Editor 由 #32 单独推进；路线图状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。

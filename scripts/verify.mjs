@@ -7,17 +7,24 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const contribution = manifest.contributions?.find((entry) => entry.id === "io.github.0verme.schema-seed.table-context-probe");
+const generationWorkbenchId = "io.github.0verme.schema-seed.generation-workbench";
+const generationAction = manifest.contributions?.find((entry) => entry.id === "io.github.0verme.schema-seed.generate-test-data");
 
 assert.equal(manifest.manifest_version, 1);
 assert.equal(manifest.engines.host_api, "^1.3");
+assert.equal(manifest.engines.dbx, ">=0.6.19", "do not guess a future DBX release number");
 assert.deepEqual(manifest.permissions, ["host.schema:read"]);
 assert.equal(manifest.entrypoints.backend.transport, "stdio-jsonl");
 assert.deepEqual(manifest.entrypoints.ui, { root: "ui", entry: "ui/index.html" });
 assert.equal(contribution?.type, "context-menu");
 assert.equal(contribution?.menu, "table");
-assert.ok(manifest.entrypoints.backend.executable);
-assert.equal(manifest.contributions.filter((entry) => entry.type === "workbench").length, 1);
+assert.equal(manifest.entrypoints.backend.executable, "bin/universal/schema-seed-runtime");
+assert.equal(manifest.contributions.filter((entry) => entry.type === "workbench").length, 2);
 assert.ok(manifest.contributions.some((entry) => entry.type === "workbench" && entry.id === "io.github.0verme.schema-seed.schema-metadata-probe"));
+assert.ok(manifest.contributions.some((entry) => entry.type === "workbench" && entry.id === generationWorkbenchId));
+assert.equal(generationAction?.type, "context-menu");
+assert.equal(generationAction?.menu, "table");
+assert.deepEqual(generationAction?.action, { type: "open-workbench", workbench: generationWorkbenchId });
 assert.equal(packageJson.scripts.workbench, "node scripts/workbench.mjs");
 
 const implementationFiles = [
@@ -49,6 +56,10 @@ const coreFiles = [
   "src/providers/fixture-schema-metadata-provider.mjs",
   "src/workbench/workbench-controller.mjs",
   "src/workbench/workbench-server.mjs",
+  "src/workbench/dbx-generation-workbench-controller.mjs",
+  "src/workbench/workbench-view-model.mjs",
+  "src/generation/generation-runtime-contract.mjs",
+  "src/generation/generation-runtime-protocol.mjs",
 ];
 const forbiddenCoreAccess = /information_schema|pg_catalog|SHOW\s+(?:COLUMNS|CREATE\s+TABLE)|PRAGMA\s+table_info|connectionString|host\.(?:schema|metadata)/i;
 const importPattern = /\bfrom\s+["']([^"']+)["']|\bimport\s*["']([^"']+)["']/g;
@@ -79,7 +90,7 @@ for (const relative of productionProviderFiles) {
   assert.equal(forbiddenProductionProvider.test(source), false, `${relative} crosses the public Host adapter boundary`);
 }
 
-const probeBoundaryFiles = ["src/host/dbx-schema-metadata-probe.mjs", "ui/app.mjs"];
+const probeBoundaryFiles = ["src/host/dbx-schema-metadata-probe.mjs", "ui/probe-app.mjs"];
 const forbiddenProbeAccess = /information_schema|pg_catalog|\bSHOW\s+(?:COLUMNS|CREATE\s+TABLE)|\bPRAGMA\s+table_info|connectionString|@tauri|tauri::|fetch\s*\(/i;
 for (const relative of probeBoundaryFiles) {
   const source = await readFile(path.join(root, relative), "utf8");
