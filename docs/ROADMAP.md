@@ -1,6 +1,6 @@
 # SchemaSeed Roadmap
 
-> 本文件只同步本任务真实进度，不提前关闭 Phase 0，也不把 DBX 未公开 API 写成已实现事实。
+> 本文件同步已验证的 Phase 0 Gate 决定和真实进度；不把 DBX 未公开 API 写成已实现事实。
 
 ## Phase 0 — Feasibility / Host API
 
@@ -29,11 +29,12 @@ Schema Metadata:
 
 CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_PRODUCTIZED
 Context → Workbench: public sidecar RPC + 10-minute plugin-owned in-memory handoff; user manually opens Probe
-Product UX follow-up: non-blocking for Issue #5 metadata feasibility
+Product UX follow-up: non-blocking for the v0.1 Schema Acquisition Path
 
-Issue #5: runtime acceptance evidence complete (PR/review pending)
-Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
-Overall Phase 0: NOT_CLOSED
+Issue #5: CLOSED (PR #28 MERGED; runtime acceptance complete)
+Issue #6: OPEN until this gate-closing PR merges (`Closes #6`)
+Phase 0 Gate: READY_WITH_FOLLOWUPS
+Overall Phase 0: READY_WITH_FOLLOWUPS
 ```
 
 ### Table Context path
@@ -79,7 +80,7 @@ DBX's public context-menu protocol returns a native toast and does not directly 
 Schema Acquisition Path
 ```
 
-Issue #5 的阻塞性 Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 完成实测；Host API 1.3 未暴露的 PK / FK / UNIQUE / CHECK / Comment / Identity 与未产品化的 context-menu → Workbench UX 作为 non-blocking follow-ups 记录。Issue #6 保持 OPEN；本报告不关闭 Gate，也不宣布 Phase 0 READY。
+Issue #5 的阻塞性 Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 完成实测（PR #28）。本 Gate 判定为 `READY_WITH_FOLLOWUPS`：Host API 1.3 未暴露的 PK / FK / UNIQUE / CHECK / Comment / Identity，以及未产品化的 context-menu → Workbench handoff，均为 non-blocking follow-ups。`not_exposed` 仅说明 Host API 未暴露该字段，不代表数据库或 driver 不支持。Issue #6 在本收口 PR 合并前仍为 OPEN；该 PR 使用 `Closes #6`。
 
 ### 禁止事项
 
@@ -174,4 +175,12 @@ Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phas
 
 ## 后续版本规划
 
-`t8y2/dbx#10043` 已 merge 并随 DBX v0.6.21 发布；Schema Acquisition Path 已在 MySQL / SQLite / PostgreSQL 真实验证并回填 Issue #5。Issue #5 PR/review 完成后，是否进入 Gate 由独立 Issue #6 评估；本次不关闭 Issue #6、不宣布 Phase 0 READY，也不实现 production `DbxHostSchemaMetadataProvider`。该上游 merge 不影响 fixture-driven Export。
+`t8y2/dbx#10043` 已 merge 并随 DBX v0.6.21 发布；Schema Acquisition Path 已在 MySQL / SQLite / PostgreSQL 真实验证并由 PR #28 回填，Issue #5 已关闭。Phase 0 Gate 判定为 `READY_WITH_FOLLOWUPS`；本收口 PR 合并前 Issue #6 仍为 OPEN。后续主线规划为：
+
+```text
+Production DBX Metadata Adapter
+→ DBX Generation Workbench
+→ Column Generation Rules
+```
+
+以上仅记录后续产品化方向，不由本 Gate 收口任务实现；约束、关系、SCD、SQL Export 与 Direct Insert 仍需各自立项。该上游 merge 不影响 fixture-driven Export。

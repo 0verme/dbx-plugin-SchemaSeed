@@ -13,9 +13,9 @@
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。**目前 Schema-aware generation、Workbench Preview 和 CSV / JSON Export 在本地 fixture-driven 开发 Workbench 中运行；DBX 安装包当前只包含独立的 Schema Metadata Probe，不包含生成 Workbench。** Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上通过 MySQL、SQLite、PostgreSQL 真实运行时验证；Phase 0 Gate 仍由独立 Issue #6 评估，因此项目仍处于 early-stage / development 状态。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。**目前 Schema-aware generation、Workbench Preview 和 CSV / JSON Export 在本地 fixture-driven 开发 Workbench 中运行；DBX 安装包当前只包含独立的 Schema Metadata Probe，不包含生成 Workbench。** Phase 0 Gate 已判定为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL runtime smoke 均 PASS。Issue #6 在本收口 PR 合并前仍为 OPEN；项目仍处于 early-stage / development 状态。
 
-> Manifest 声明的最低要求为 DBX `>=0.6.19`、Host API `^1.3`。以上真实运行时证据适用于 DBX v0.6.21 Windows Desktop 上的 Phase 0 Probe；不代表生成 Workbench 已集成，也不代表 Phase 0 Gate 已关闭。
+> Manifest 声明的最低要求为 DBX `>=0.6.19`、Host API `^1.3`。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity；context-menu → Workbench handoff 也尚未产品化，均为非阻塞 follow-ups。Gate 仅证明公开 Schema Acquisition Path 可行，不代表生成 Workbench 已集成、production metadata adapter 已实现或项目 production-ready。
 
 ## 插件简介
 
@@ -57,7 +57,7 @@ SchemaSeed TableSchema
 GenerationPlan → Generator → Preview / Export
 ```
 
-`getTableMetadata()` consumer probe 已进入当前 `.dbxp` candidate，并已在 DBX v0.6.21 Windows Desktop 上通过 MySQL、SQLite、PostgreSQL 实测；production metadata adapter 及与 generation Workbench 的连接尚未实现。Phase 0 Gate 仍未关闭，等待独立 Issue #6 评估。
+`getTableMetadata()` consumer probe 已进入当前 `.dbxp` candidate，并已在 DBX v0.6.21 Windows Desktop 上通过 MySQL、SQLite、PostgreSQL 实测；Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`。Production metadata adapter 及与 generation Workbench 的连接仍是后续实现工作。
 
 ## 当前能力
 
@@ -142,7 +142,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 
 ## 当前限制
 
-- 已验证的范围仅为 DBX v0.6.21 Windows Desktop 上 Probe metadata acquisition path；Phase 0 Gate 仍未关闭，不能称为 production-ready。
+- Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：已验证范围是 DBX v0.6.21 Windows Desktop 上的 Probe metadata acquisition path；这不代表 SchemaSeed production-ready。
 - 当前 `.dbxp` 只打包 Phase 0 metadata probe；没有 production `DbxHostSchemaMetadataProvider`，fixture generation 与 DBX metadata 尚未打通。
 - Fixture-driven Workbench 是 standalone development harness，不是正式 DBX runtime，也没有打包进 `.dbxp`。
 - SQL export deferred；当前不生成 relational datasets，不实现 PK / UNIQUE / CHECK / FK 等复杂 constraint engine。
@@ -154,7 +154,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 
 | Phase | Status | Scope |
 | --- | --- | --- |
-| Phase 0 | In progress | DBX v0.6.21 Table Context + Schema Metadata smoke：MySQL / SQLite / PostgreSQL PASS；Issue #6 Gate 待独立评估 |
+| Phase 0 | READY_WITH_FOLLOWUPS | DBX v0.6.21 Windows Desktop：MySQL / SQLite / PostgreSQL PASS；Issue #6 将由本收口 PR 关闭（合并前仍 OPEN） |
 | Phase 1A | Implemented | Generation Core + fixture Preview |
 | Phase 1B | Implemented | Semantic Mapping + Safe Synthetic |
 | Phase 1C | Implemented | Fixture-driven standalone Workbench |
@@ -176,7 +176,7 @@ DBX Sidebar Table Node
   → Raw Host API response + normalized metadata + diagnostics
 ```
 
-context-menu → Workbench 的 context handoff 尚未产品化，因此 Phase 0 Probe 使用“右键表并保存 Table Context / 暂存 context，再手动打开 Probe”的两步流程；这是后续 DBX upstream / product UX follow-up，不是 Schema Acquisition Path 技术 blocker。Probe 消费公开 Host API，不读取 private Store、credentials、private frontend module 或 undocumented API。该 runtime evidence 不代表 Phase 0 Gate 已关闭。
+context-menu → Workbench 的 context handoff 尚未产品化，因此 Phase 0 Probe 使用“右键表并保存 Table Context / 暂存 context，再手动打开 Probe”的两步流程；这是后续 DBX upstream / product UX follow-up，不是 Schema Acquisition Path 技术 blocker。Probe 消费公开 Host API，不读取 private Store、credentials、private frontend module 或 undocumented API。该 runtime evidence 支持 `READY_WITH_FOLLOWUPS` Gate 判定，但不代表 production metadata adapter 或 generation Workbench 已实现。
 
 ## 开发
 

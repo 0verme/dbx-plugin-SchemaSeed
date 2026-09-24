@@ -1,21 +1,37 @@
 # SchemaSeed Phase 0 Feasibility Report
 
-Status: NOT_CLOSED
+Status: READY_WITH_FOLLOWUPS
 
-## Current Status
+## Gate Decision and Current Status
 
 ```text
-t8y2/dbx#10043: MERGED; t8y2/dbx#9917: CLOSED
-Merge commit: d5a05a98840e54726bfec0c7dadabb8dc9a4c755
-Schema Metadata Host API: RELEASED in DBX v0.6.21 (Host API 1.3)
-Local Windows DBX runtime: v0.6.21
-Consumer Probe: IMPLEMENTED; Raw Host API response and normalized result displayed separately
-Runtime smoke: VERIFIED on MySQL, SQLite, and PostgreSQL
-Issue #5: runtime acceptance evidence complete (PR/review pending)
-Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
+Phase 0 Gate: READY_WITH_FOLLOWUPS
+Issue #6: OPEN until this gate-closing PR merges (PR uses `Closes #6`)
+Issue #5: CLOSED by merged PR #28
+Runtime:
+DBX v0.6.21 Windows Desktop (PR #28)
+Host API: ^1.3
+Permission: host.schema:read
+Method: window.dbxPlugin.getTableMetadata({ connectionId, database?, schema?, table })
+Runtime Matrix:
+MySQL PASS
+SQLite PASS
+PostgreSQL PASS
 ```
 
-Facts below were checked against the merge commit's source and official `plugin-development` documentation, not the old `WAITING_UPSTREAM_9917` notes.
+### Frozen Schema Acquisition Path
+
+```text
+DBX Table Context
+→ Public Plugin Host API
+→ getTableMetadata()
+→ columns metadata
+→ SchemaSeed normalization
+```
+
+The v0.1 blocking capabilities proven by this path are Table Context, columns, type, nullable, length, precision, scale, default, and SchemaSeed normalization. Runtime details are recorded below from PR #28; this task consumes that evidence and does not rerun the Windows DBX smoke.
+
+Facts below were checked against the merged upstream contract, official `plugin-development` documentation, and the merged PR #28 runtime evidence, not the old `WAITING_UPSTREAM_9917` notes.
 
 ## Public Table Context Contract
 
@@ -154,7 +170,9 @@ The one-shot handoff replay path is also automated: after the pending context is
 ## Phase 0 Gate
 
 ```text
-NOT_CLOSED
+READY_WITH_FOLLOWUPS
 ```
 
-Issue #6 remains OPEN. The #5 blocking acquisition path has runtime evidence for MySQL, SQLite, and PostgreSQL; this report does not close #6 or make the final Phase 0 `READY`, `READY_WITH_FOLLOWUPS`, or `BLOCKED` decision. The separately recorded Host API capability gaps and unproductized context-menu-to-Workbench UX remain non-blocking follow-ups for #5.
+The final decision is **READY_WITH_FOLLOWUPS**: the public v0.1 Schema Acquisition Path is proven end-to-end for MySQL, SQLite, and PostgreSQL. This is not `READY` because Host API 1.3 does not expose PK, FK, UNIQUE, CHECK, Comment, or Identity metadata, and the context-menu → direct Workbench handoff is not productized; these remain explicitly non-blocking follow-ups. `not_exposed` is not equivalent to provider `unsupported`; it describes the Host API exposure boundary and makes no claim about whether a database or driver supports the capability. This is not `BLOCKED` because every v0.1 blocking capability and the legal public acquisition path have runtime evidence in DBX v0.6.21 Windows Desktop.
+
+Issue #6 remains OPEN until the PR carrying this report merges; the PR uses `Closes #6`. This Gate decision means only that SchemaSeed v0.1's public, legal Schema Acquisition Path is proven feasible and production integration / productization may proceed. It does **not** mean a production `DbxHostSchemaMetadataProvider` is implemented, the Generation Workbench is in DBX runtime, Column Rules are productized, a Constraint Engine exists, or SchemaSeed is production-ready.

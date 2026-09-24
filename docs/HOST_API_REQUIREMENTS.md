@@ -2,7 +2,7 @@
 
 > Status: Minimal Host API Consumer Contract v0.1; upstream API verified at Host API 1.3
 >
-> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约。Table Context 以 `t8y2/dbx#9918` 的公开实现为准；Schema Metadata 已由 `t8y2/dbx#10043`（merge commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`）正式公开。本轮 probe 已消费该 contract，但真实 release DBX smoke 与 Phase 0 Gate 仍待后续验证。文中的语义要求不扩展为 production adapter 或 Phase 1 功能。
+> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约。Table Context 以 `t8y2/dbx#9918` 的公开实现为准；Schema Metadata 已由 `t8y2/dbx#10043`（merge commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`）正式公开。PR #28 已在 DBX v0.6.21 Windows Desktop 上完成 MySQL / SQLite / PostgreSQL runtime smoke；Phase 0 Gate 判定为 `READY_WITH_FOLLOWUPS`。文中的语义要求不扩展为 production adapter 或 Phase 1 功能。
 
 本契约基于已审计的 Phase 0 事实：
 
@@ -137,28 +137,28 @@ interface ColumnMetadata {
 | `database` | Optional | value exists 时消费；未提供时保持 omitted | table node 可携带 | table node 可携带 | 可能不适用同一 database 维度 | **A / VERIFIED（optional）** |
 | `schema` | Optional | value exists 时消费；未提供时保持 omitted | table node 可选 | table node 可选 | 不保证存在与 PG 相同的 schema 维度 | **A / VERIFIED（optional）** |
 | `table` | Yes | stable database object name，不是 display label | canonical `TreeNode.tableName` | canonical `TreeNode.tableName` | canonical `TreeNode.tableName` | **A / VERIFIED** |
-| `columns` | Yes | `PluginTableMetadata.columns` 由 Host API 1.3 返回 | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `UPSTREAM_AVAILABLE`; runtime smoke pending |
-| column name | Yes | required `name` string | internal PASS | internal PASS | internal PASS | `UPSTREAM_AVAILABLE` |
-| data type | Yes | required `dataType` string；不引入 semantic type | `format_type(...)` 等 native/general path：internal PASS | `COLUMN_TYPE` 等 native/general path：internal PASS | `PRAGMA table_info.type`：internal PASS | `UPSTREAM_AVAILABLE` |
-| nullable | Yes | required boolean `nullable` | internal PASS | internal PASS | internal PASS | `UPSTREAM_AVAILABLE` |
-| length | Yes, when structured value exists | optional integer/null；`fieldCapabilities.length` preserves provenance | internal PASS | internal PASS | structured value `MISSING`；declared type text 可能仍含信息 | `UPSTREAM_AVAILABLE`; per-provider values vary |
-| precision | Yes, when structured value exists | optional integer/null；`fieldCapabilities.precision` preserves provenance | internal PASS | internal PASS | structured value `MISSING` | `UPSTREAM_AVAILABLE`; per-provider values vary |
-| scale | Yes, when structured value exists | optional integer/null；`fieldCapabilities.scale` preserves provenance | internal PASS | internal PASS | structured value `MISSING` | `UPSTREAM_AVAILABLE`; per-provider values vary |
-| default | Yes, when a default is exposed | optional string/null；`fieldCapabilities.default` preserves provenance | internal PASS；可能是 expression text | internal PASS；raw default text | internal PASS；`dflt_value` text | `UPSTREAM_AVAILABLE`; per-provider values vary |
+| `columns` | Yes | `PluginTableMetadata.columns` 由 Host API 1.3 返回 | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `ColumnInfo` / schema core：internal PASS | `RUNTIME_VERIFIED` (PR #28) |
+| column name | Yes | required `name` string | internal PASS | internal PASS | internal PASS | `RUNTIME_VERIFIED` (PR #28) |
+| data type | Yes | required `dataType` string；不引入 semantic type | `format_type(...)` 等 native/general path：internal PASS | `COLUMN_TYPE` 等 native/general path：internal PASS | `PRAGMA table_info.type`：internal PASS | `RUNTIME_VERIFIED` (PR #28) |
+| nullable | Yes | required boolean `nullable` | internal PASS | internal PASS | internal PASS | `RUNTIME_VERIFIED` (PR #28) |
+| length | Yes, when structured value exists | optional integer/null；`fieldCapabilities.length` preserves provenance | internal PASS | internal PASS | structured value `MISSING`；declared type text 可能仍含信息 | `RUNTIME_VERIFIED`; provider values vary |
+| precision | Yes, when structured value exists | optional integer/null；`fieldCapabilities.precision` preserves provenance | internal PASS | internal PASS | structured value `MISSING` | `RUNTIME_VERIFIED`; provider values vary |
+| scale | Yes, when structured value exists | optional integer/null；`fieldCapabilities.scale` preserves provenance | internal PASS | internal PASS | structured value `MISSING` | `RUNTIME_VERIFIED`; provider values vary |
+| default | Yes, when a default is exposed | optional string/null；`fieldCapabilities.default` preserves provenance | internal PASS；可能是 expression text | internal PASS；raw default text | internal PASS；`dflt_value` text | `RUNTIME_VERIFIED`; provider values vary |
 
-**Matrix reading rule：** Table Context 的 `A / VERIFIED` 只适用于 DBX #9918 已公开的 Desktop Sidebar Tree payload。Host API 1.3 提供窄化 Metadata response；具体 optional-field provenance 由 `fieldCapabilities` 返回，真实 released-DBX PostgreSQL / MySQL / SQLite smoke 仍待验证。Object Browser / Web table menu 不从该矩阵外推。
+**Matrix reading rule：** Table Context 的 `A / VERIFIED` 只适用于 DBX #9918 已公开的 Desktop Sidebar Tree payload。Host API 1.3 提供窄化 Metadata response；具体 optional-field provenance 由 `fieldCapabilities` 返回。PR #28 已在 DBX v0.6.21 Windows Desktop 对 PostgreSQL / MySQL / SQLite 完成 smoke。Object Browser / Web table menu 不从该矩阵外推。
 
 ## Driver Differences
 
 ### PostgreSQL
 
-- DBX Host API 1.3 对外返回 common `dataType`、`nullable` 与可选 structured fields；实际连接/driver 的值与 `fieldCapabilities` 必须通过 released DBX smoke 记录。
+- DBX Host API 1.3 对外返回 common `dataType`、`nullable` 与可选 structured fields；PR #28 已在 DBX v0.6.21 Windows Desktop 的 PostgreSQL smoke 中验证调用与规范化结果。
 - database 与 schema 是可选 identity scope；省略时 DBX 使用已知的配置/default scope（若可用），没有匹配已打开 session 时拒绝请求。
 - comment、constraints、identity 不在 Host API 1.3 response 中，也不进入 v0.1 required contract。
 
 ### MySQL
 
-- DBX Host API 1.3 对外返回 common `dataType`、`nullable` 与可选 structured fields；实际连接/driver 的值与 `fieldCapabilities` 必须通过 released DBX smoke 记录。
+- DBX Host API 1.3 对外返回 common `dataType`、`nullable` 与可选 structured fields；PR #28 已在 DBX v0.6.21 Windows Desktop 的 MySQL smoke 中验证调用与规范化结果。
 - MySQL 的 database/schema scope 由 canonical Table Context 与 DBX 已打开的 session 解析；SchemaSeed 不重建命名空间或连接语义。
 - default 在 v0.1 保留为 Host 返回的 optional text，不把 `EXTRA` 重新设计成 typed default/identity model。
 
@@ -166,7 +166,7 @@ interface ColumnMetadata {
 
 - DBX Host API 1.3 返回窄化的 column metadata；optional numeric fields 仍可能省略或为 `null`，`fieldCapabilities` 提供 upstream provenance，不能从 declared type string 自行推断数值。
 - SQLite 不提供与 PostgreSQL 相同的 server database/schema 语义；这些 context 维度可能 legitimately not applicable 或 unavailable。
-- SQLite 的实际 metadata response 与 provenance 仍需 released DBX smoke 验证。
+- PR #28 已在 DBX v0.6.21 Windows Desktop 的 SQLite smoke 中验证实际 metadata response 与 provenance。
 
 ## Missing / Unsupported Semantics
 
@@ -203,9 +203,9 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host
 
 本轮不为这些 future capabilities 增加 Host contract 或实现消费逻辑。
 
-## Upstream Contract and Remaining Validation
+## Upstream Contract and Runtime Validation
 
-`t8y2/dbx#9918` 与 `t8y2/dbx#10043` 均已 merge。Table Context 与 Host API 1.3 的 public source contract 已确认；没有新的 upstream API gap 被本 Probe 发现。真实 released-DBX / target-driver smoke 仍待执行。
+`t8y2/dbx#9918` 与 `t8y2/dbx#10043` 均已 merge。Table Context 与 Host API 1.3 的 public source contract 已确认；PR #28 已在 DBX v0.6.21 Windows Desktop 对 PostgreSQL / MySQL / SQLite 完成 runtime smoke。没有新的 v0.1 blocking upstream API gap 被本 Probe 发现。
 
 ### Table Context outcome
 
@@ -219,7 +219,7 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host
 → `{ table: { ... } }` sidecar invocation
 ```
 
-SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。Context menu 没有正式的直接 Workbench handoff；Probe 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递。真实 released DBX smoke 仍待验证。
+SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。Context menu 没有正式的直接 Workbench handoff；Probe 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递。此两步路径已纳入 PR #28 的 runtime evidence；直接 Workbench handoff 仍是 non-blocking product follow-up。
 
 ### Host API 1.3 — Resolved Metadata Host Boundary
 
@@ -262,18 +262,18 @@ TableContext
 
 ## Phase 0 position
 
-本文件记录 consumer requirements 与已验证的正式 API contract；不关闭 Phase 0 Gate，也不把 upstream API merge 等同于真实 release smoke。
+本文件记录 consumer requirements 与已验证的正式 API contract；最终 Phase 0 Gate 决定见 feasibility report。Runtime evidence 来自已合并的 PR #28。
 
 ```text
 Table Context: VERIFIED_SOURCE_CONTRACT
-Schema Metadata Host API: UPSTREAM_AVAILABLE (Host API 1.3)
-Consumer Probe: IMPLEMENTED / READY_FOR_REAL_DBX_SMOKE
-Real DBX Smoke: NOT RUN
-Issue #5: OPEN
-Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
+Schema Metadata Host API: RELEASED (DBX v0.6.21, Host API 1.3)
+Consumer Probe: IMPLEMENTED / RUNTIME_VALIDATED (PR #28)
+Runtime Matrix: MySQL PASS / SQLite PASS / PostgreSQL PASS
+Issue #5: CLOSED (PR #28)
+Issue #6 / Phase 0 Gate: READY_WITH_FOLLOWUPS (Issue #6 closes when gate PR merges)
 ```
 
-`t8y2/dbx#10043` 已 merge；真实 Host API 1.3 build 与 PostgreSQL / MySQL / SQLite smoke 仍待验证。本 Probe 不实现 production adapter。
+`t8y2/dbx#10043` 已 merge；PR #28 已验证 DBX v0.6.21 Windows Desktop 上的 PostgreSQL / MySQL / SQLite 路径。本 Probe 不实现 production adapter。
 
 ## Evidence references
 
