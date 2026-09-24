@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，目标是依据表结构与字段语义生成可复现、安全的测试数据，而不是让用户手工拼接 Faker 脚本。**目前 Schema-aware generation、Workbench Preview 和 CSV / JSON Export 在本地 fixture-driven 开发 Workbench 中运行；DBX 安装包当前只包含独立的 Schema Metadata Probe，不包含生成 Workbench。** 正式 DBX metadata 集成仍待 released-DBX Host API 1.3 smoke 和 Phase 0 Gate 验证，因此项目目前处于 early-stage / development 状态。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。**目前 Schema-aware generation、Workbench Preview 和 CSV / JSON Export 在本地 fixture-driven 开发 Workbench 中运行；DBX 安装包当前只包含独立的 Schema Metadata Probe，不包含生成 Workbench。** 正式 DBX metadata 集成仍待 released-DBX Host API 1.3 smoke 和 Phase 0 Gate 验证，因此项目目前处于 early-stage / development 状态。
 
 > Manifest 声明的最低要求为 DBX `>=0.6.19`、Host API `^1.3`。这表示清单中的运行要求，不代表已完成正式 DBX 版本上的集成验证。
 
