@@ -89,10 +89,12 @@ test("metadata normalization preserves optional nulls and unsupported/unknown pr
   const result = await runDbxSchemaMetadataProbe(availableHost(async () => response), tableContext);
 
   assert.equal(result.ok, true);
+  assert.equal(result.rawHostResponse, response);
   assert.deepEqual(result.metadata, {
     columns: [{ name: "id", dataType: "integer", nullable: false, precision: null, default: null }],
     fieldCapabilities: { length: "unsupported", precision: "unknown", scale: "supported", default: "unknown" },
   });
+  assert.notEqual(result.rawHostResponse, result.metadata);
   assert.equal(Object.hasOwn(result.metadata.columns[0], "length"), false);
   for (const field of ["primaryKey", "foreignKey", "unique", "check", "comment", "identity"]) {
     assert.equal(result.futureCapabilities[field].status, "not_exposed");
@@ -114,14 +116,16 @@ test("metadata request failures distinguish connection, permission, and generic 
   }
 });
 
-test("invalid metadata response has a stable diagnostic and is never fabricated", async () => {
-  const result = await runDbxSchemaMetadataProbe(availableHost(async () => ({
+test("invalid metadata response is preserved for diagnosis but never normalized", async () => {
+  const response = {
     columns: [{ name: "id", dataType: "integer", nullable: "false" }],
     fieldCapabilities: { length: "unknown", precision: "unknown", scale: "unknown", default: "unknown" },
-  })), tableContext);
+  };
+  const result = await runDbxSchemaMetadataProbe(availableHost(async () => response), tableContext);
 
   assert.equal(result.ok, false);
   assert.equal(result.diagnostics[0].code, ERROR.INVALID_METADATA_RESPONSE);
+  assert.equal(result.rawHostResponse, response);
   assert.equal(Object.hasOwn(result, "metadata"), false);
 });
 

@@ -17,18 +17,21 @@
 Table Context:
   source audit: VERIFIED (#9918 public table context-menu contract)
   consumer probe: IMPLEMENTED
-  real DBX manual smoke: PENDING USER VERIFICATION
+  DBX runtime: v0.6.21 Windows Desktop
+  real DBX manual smoke: PASS (MySQL / SQLite / PostgreSQL)
 
 Schema Metadata:
   t8y2/dbx#10043: MERGED (d5a05a98840e54726bfec0c7dadabb8dc9a4c755)
-  Schema Metadata Host API: UPSTREAM_AVAILABLE (Host API 1.3)
-  consumer probe: IMPLEMENTED / READY_FOR_REAL_DBX_SMOKE
-  real DBX smoke: NOT RUN (merged API is stated to ship in the next DBX version)
+  Schema Metadata Host API: RELEASED in DBX v0.6.21 (Host API 1.3)
+  consumer probe: IMPLEMENTED / RUNTIME_VALIDATED
+  real DBX smoke: PASS on MySQL / SQLite / PostgreSQL
+  automated one-shot replay: missing_table_context (not manually runtime-tested)
 
-DIRECT_CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_AVAILABLE
-Context → Workbench: public sidecar RPC + 10-minute plugin-owned in-memory handoff
+CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_PRODUCTIZED
+Context → Workbench: public sidecar RPC + 10-minute plugin-owned in-memory handoff; user manually opens Probe
+Product UX follow-up: non-blocking for Issue #5 metadata feasibility
 
-Issue #5: OPEN (manual smoke pending)
+Issue #5: runtime acceptance evidence complete (PR/review pending)
 Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
 Overall Phase 0: NOT_CLOSED
 ```
@@ -43,10 +46,10 @@ DBX Sidebar Table Node
   → user opens the declared Schema Metadata Probe Workbench
   → `window.dbxPlugin.invoke("schemaMetadataProbe/takeTableContext")`
   → `window.dbxPlugin.getTableMetadata(TableContext)`
-  → normalized metadata JSON + diagnostics
+  → Raw Host API response + normalized metadata + diagnostics
 ```
 
-DBX's public context-menu protocol returns a native toast and does not directly open a Workbench with that context (`DIRECT_CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_AVAILABLE`). The two-step handoff uses only the documented plugin backend JSONL protocol; its process is shared per plugin. The in-memory context contains only `connectionId`, optional `database`/`schema`, and `table`, expires after 10 minutes, and is consumed once. The adapter remains the only boundary that reads the DBX raw table payload.
+DBX's public context-menu protocol returns a native toast and does not directly open a Workbench with that context (`CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_PRODUCTIZED`). The Phase 0 Probe therefore uses a two-step flow: save the selected table context, then manually open the Workbench. This UX remains a DBX upstream / product follow-up and is not a metadata feasibility blocker. The handoff uses only the documented plugin backend JSONL protocol; its process is shared per plugin. The in-memory context contains only `connectionId`, optional `database`/`schema`, and `table`, expires after 10 minutes, and is consumed once. The adapter remains the only boundary that reads the DBX raw table payload.
 
 ### 审计范围
 
@@ -76,7 +79,7 @@ DBX's public context-menu protocol returns a native toast and does not directly 
 Schema Acquisition Path
 ```
 
-本报告不关闭 Gate：Table Context 和 Metadata 的真实 released-DBX smoke 仍待验证；Issue #6 保持 OPEN。#10043 虽已 merge，但维护者说明将在 next DBX version 发布。
+Issue #5 的阻塞性 Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 完成实测；Host API 1.3 未暴露的 PK / FK / UNIQUE / CHECK / Comment / Identity 与未产品化的 context-menu → Workbench UX 作为 non-blocking follow-ups 记录。Issue #6 保持 OPEN；本报告不关闭 Gate，也不宣布 Phase 0 READY。
 
 ### 禁止事项
 
@@ -171,4 +174,4 @@ Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phas
 
 ## 后续版本规划
 
-`t8y2/dbx#10043` 已 merge，正式 contract 已由 merge 后源码与 plugin-development 文档核实。本轮只实现 Phase 0 Consumer Probe，不关闭 Issue #6，也不实现 production `DbxHostSchemaMetadataProvider`。Issue #5 仍待 next-version DBX manual smoke；Gate 与 production adapter 必须在后续独立任务中评估。该上游 merge 不影响 fixture-driven Export。
+`t8y2/dbx#10043` 已 merge 并随 DBX v0.6.21 发布；Schema Acquisition Path 已在 MySQL / SQLite / PostgreSQL 真实验证并回填 Issue #5。Issue #5 PR/review 完成后，是否进入 Gate 由独立 Issue #6 评估；本次不关闭 Issue #6、不宣布 Phase 0 READY，也不实现 production `DbxHostSchemaMetadataProvider`。该上游 merge 不影响 fixture-driven Export。

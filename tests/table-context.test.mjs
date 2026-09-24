@@ -12,6 +12,10 @@ import {
 } from "../src/table-context.mjs";
 import { handleRpcRequest, TAKE_TABLE_CONTEXT_METHOD } from "../src/probe-protocol.mjs";
 import { pendingTableContextStore } from "../src/probe-state.mjs";
+import {
+  runDbxSchemaMetadataProbe,
+  SCHEMA_METADATA_PROBE_ERROR_CODES as PROBE_ERROR,
+} from "../src/host/dbx-schema-metadata-probe.mjs";
 
 const backend = fileURLToPath(new URL("../backend/schema-seed-probe.mjs", import.meta.url));
 
@@ -100,6 +104,26 @@ describe("SchemaSeed Table Context adapter", () => {
     const handoff = request({}, TAKE_TABLE_CONTEXT_METHOD);
     assert.deepEqual(handoff.result, { context: { connectionId: "conn-2", table: "customer" } });
     assert.deepEqual(request({}, TAKE_TABLE_CONTEXT_METHOD).result, { context: null });
+  });
+
+  it("reports missing_table_context on a second one-shot Probe read", async () => {
+    pendingTableContextStore.clear();
+    request({ table: { connectionId: "conn-1", table: "users" } });
+    assert.deepEqual(request({}, TAKE_TABLE_CONTEXT_METHOD).result.context, {
+      connectionId: "conn-1",
+      table: "users",
+    });
+
+    const secondRead = request({}, TAKE_TABLE_CONTEXT_METHOD);
+    let metadataCalls = 0;
+    const result = await runDbxSchemaMetadataProbe({
+      capabilities: { schemaMetadataApi: true },
+      getTableMetadata: async () => { metadataCalls += 1; return {}; },
+    }, secondRead.result.context);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.diagnostics[0].code, PROBE_ERROR.MISSING_TABLE_CONTEXT);
+    assert.equal(metadataCalls, 0);
   });
 
   it("refreshes A → B → C without retaining optional fields from the prior table", () => {

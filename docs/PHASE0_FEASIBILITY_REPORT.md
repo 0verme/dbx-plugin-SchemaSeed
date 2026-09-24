@@ -5,12 +5,13 @@ Status: NOT_CLOSED
 ## Current Status
 
 ```text
-t8y2/dbx#10043: MERGED
+t8y2/dbx#10043: MERGED; t8y2/dbx#9917: CLOSED
 Merge commit: d5a05a98840e54726bfec0c7dadabb8dc9a4c755
-Schema Metadata Host API: UPSTREAM_AVAILABLE (Host API 1.3)
-Consumer Probe: IMPLEMENTED / READY_FOR_REAL_DBX_SMOKE
-Real DBX Smoke: NOT RUN (upstream says the API ships in the next DBX version)
-Issue #5: OPEN (manual smoke pending)
+Schema Metadata Host API: RELEASED in DBX v0.6.21 (Host API 1.3)
+Local Windows DBX runtime: v0.6.21
+Consumer Probe: IMPLEMENTED; Raw Host API response and normalized result displayed separately
+Runtime smoke: VERIFIED on MySQL, SQLite, and PostgreSQL
+Issue #5: runtime acceptance evidence complete (PR/review pending)
 Issue #6 / Phase 0 Gate: OPEN / NOT_CLOSED
 ```
 
@@ -31,10 +32,10 @@ DBX sends `params.table` with `connectionId`, `table`, and optional `database` /
 ## Table Context → Workbench Handoff
 
 ```text
-DIRECT_CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_AVAILABLE
+DIRECT_CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_PRODUCTIZED
 ```
 
-The documented context-menu surface invokes a backend RPC and returns a native toast; it has no documented direct "open Workbench with context" operation. `openWorkbench(id, context)` exists as a frontend Host API, but a native context-menu callback is not a Workbench iframe and cannot call it.
+In DBX v0.6.21 the Phase 0 Probe flow is: right-click a table → `SchemaSeed：保存 Table Context` → sidecar temporarily stores identity-only context → user manually opens the Schema Metadata Probe Workbench. The context-menu-to-Workbench handoff is not productized and remains a DBX upstream / product UX follow-up; this is not a Schema Acquisition Path technical blocker and does not block Issue #5.
 
 The Probe uses the narrow public two-step alternative:
 
@@ -80,8 +81,9 @@ The narrow response is `{ columns, fieldCapabilities }`:
 
 - Each column provides `name`, `dataType`, and `nullable`; `length`, `precision`, `scale`, and `default` are optional and may remain `null` or omitted.
 - `fieldCapabilities` reports `supported`, `unsupported`, or `unknown` for `length`, `precision`, `scale`, and `default`. The Probe preserves these values and preserves optional null/omitted values; it does not synthesize `false`, `0`, empty strings, or empty arrays.
-- Comments, PK, FK, UNIQUE, CHECK, credentials, driver objects, and arbitrary SQL results are not exposed by Host API 1.3. The Probe records these as `not_exposed`, not as provider `unsupported`.
-- The public response does not include database type. Actual PostgreSQL / MySQL / SQLite runtime support remains a real-DBX smoke follow-up; it is not inferred from the merge or from generic API shape.
+- PK, FK, UNIQUE, CHECK, Comment, and Identity are not exposed by the current Host API 1.3 contract. These are future capabilities, not v0.1 blocking capabilities; the Probe records exposed future-capability statuses as `not_exposed`, not as provider `unsupported`.
+- The public response does not include database type. Runtime support is established only for the separately tested DBX v0.6.21 MySQL, SQLite, and PostgreSQL cases recorded below; it is not inferred from the generic API shape.
+- The Probe retains the unmodified Host API value as `rawHostResponse`; `metadata` is the separate SchemaSeed-normalized result. The UI labels and displays both values separately. Unknown fields are visible in the raw response but discarded from the normalized result.
 
 ### Error Model
 
@@ -98,15 +100,56 @@ The connection-not-open message is documented by DBX; permission failures are id
 
 ## Probe and Packaging Boundary
 
-The packaged Probe Workbench displays Host API requirement, capability, Table Context, normalized Host response, future-field exposure status, and diagnostics. The fixture-driven Phase 1A–1D Workbench is not packaged. The `.dbxp` includes only the existing sidecar, the Probe UI, and the minimal consumer module.
+The packaged Probe Workbench displays Host API requirement, capability, Table Context, Raw Host API response, SchemaSeed normalized result, future-field exposure status, and diagnostics. The fixture-driven Phase 1A–1D Workbench is not packaged. The `.dbxp` includes only the existing sidecar, the Probe UI, and the minimal consumer module.
 
 No production `DbxHostSchemaMetadataProvider`, Generator changes, Constraint / Relation / SCD behavior, SQL Export, second database connection, system-catalog query, `SHOW`, or `PRAGMA` workaround is included.
 
-## Validation and Manual Smoke
+Build artifact (local ignored output; unsigned development package):
 
-Automated tests cover capability gating, required/optional TableContext fields, successful API request, metadata errors, connection/permission failures, normalization, provenance preservation, one public API call only, static boundary checks, Manifest contract, and actual `.dbxp` resource/checksum contents.
+```text
+Path: dist/io.github.0verme.schema-seed-0.1.0-universal.dbxp
+SHA-256: 971e21344684c792f0fc9bc73dd14957e17b6c3a88837c09ffb71f37b0d4459a
+Size: 30,984 bytes
+```
 
-Upstream maintainer comment on PR #10043 says the merge will be released in the next DBX version. The latest published DBX release found during this task is v0.6.20 (2026-09-22), before the merge; no DBX executable/runtime is available in this workspace. Therefore no real DBX smoke is claimed. Record the smoke as `READY_FOR_REAL_DBX_SMOKE`, not `VERIFIED`, until a released Host API 1.3 build is tested against PostgreSQL, MySQL, and SQLite.
+The package contract test verifies Manifest permissions/Host API requirement, the separate Raw/normalized UI labels, included Probe resources, excluded fixture Workbench resources, and SHA-256 checksums for packaged files.
+
+## Runtime Baseline and Database Status
+
+- Runtime baseline: DBX v0.6.21, Windows desktop. The local executable's FileVersion and ProductVersion both report `0.6.21`; a running process was observed. This verifies the installed release baseline only, not the Probe UI/API behavior.
+- Upstream source: PR #10043 (merge commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`); release notes for v0.6.21 list the read-only schema metadata Host API.
+- API: `window.dbxPlugin.getTableMetadata({ connectionId, database?, schema?, table })`; manifest declares Host API `^1.3` and permission `host.schema:read`; runtime capability gate is `capabilities.schemaMetadataApi`.
+- Context path: DBX table `context-menu` contribution (`menu: "table"`) → sidecar `contextMenu/<contribution-id>` → identity-only context staged for 10 minutes → Probe Workbench sidecar `invoke("schemaMetadataProbe/takeTableContext")` → public `getTableMetadata` call.
+
+## v0.1 Blocking Capabilities
+
+The blocking Schema Acquisition Path has been observed end-to-end on DBX v0.6.21 Windows Desktop:
+
+```text
+Table Context
+→ Public Plugin Host API
+→ getTableMetadata()
+→ columns metadata
+→ SchemaSeed normalization
+```
+
+| Database | Result | Runtime evidence |
+|---|---|---|
+| MySQL | PASS | Table Context obtained; `schemaMetadataApi = available`; raw response contained `columns` and `fieldCapabilities`; normalized result generated; `Diagnostics = []`. Observed column: `{ "name": "abc", "dataType": "varchar(255)", "nullable": true, "length": 255 }`. `length`, `precision`, `scale`, and `default`: `supported`. |
+| SQLite | PASS | Database/schema/table: `main` / `main` / `abc`; full Table Context → metadata → normalization path completed; `Diagnostics = []`. `length`, `precision`, and `scale`: `unsupported`; `default`: `supported`. Normalized future statuses observed: `unique`, `check`, `comment`, `identity` = `not_exposed`. |
+| PostgreSQL | PASS | Database/schema/table: `test` / `dwp` / `audit_results`; Table Context obtained; `schemaMetadataApi = available`; raw response contained fields; normalized result generated; `Diagnostics = []`. Observed columns include `id bigint NOT NULL`, `task_id bigint NOT NULL`, and `category text NOT NULL`. `length`, `precision`, `scale`, and `default`: `supported`. |
+
+The SQLite `unsupported` capability values are provider capability declarations, not failures. No additional runtime behavior is inferred beyond these observations.
+
+## Future Capabilities / Non-blocking Gaps
+
+The current Host API 1.3 does not expose PK, FK, UNIQUE, CHECK, Comment, or Identity metadata. These are future capabilities and do not block the v0.1 acquisition path. Where returned in the normalized future-capability status, they are represented as `not_exposed`, not provider `unsupported`.
+
+## Automated Coverage and Exception Path
+
+Automated tests cover capability gating, required/optional TableContext fields, successful API request, metadata errors, connection/permission failures, Raw Host response preservation, normalization/provenance, one public API call only, static boundary checks, Manifest contract, and `.dbxp` resource/checksum contents. Unsupported capability and permission-denied behavior are automated contract coverage, not claims of live DBX permission manipulation.
+
+The one-shot handoff replay path is also automated: after the pending context is consumed, another read returns no context; the Probe returns `missing_table_context` without requesting metadata. The UI renders this returned diagnostic through its normal error-result path. The supplied manual runtime evidence does not include a second-read/replay observation, so this is **automated coverage only**, not a manual runtime PASS. Likewise, no manual permission-denied or closed-connection failure is claimed.
 
 ## Phase 0 Gate
 
@@ -114,4 +157,4 @@ Upstream maintainer comment on PR #10043 says the merge will be released in the 
 NOT_CLOSED
 ```
 
-Issue #6 remains OPEN. This report records Issue #5 implementation and its remaining manual-smoke condition; it does not make the final Phase 0 `READY`, `READY_WITH_FOLLOWUPS`, or `BLOCKED` decision.
+Issue #6 remains OPEN. The #5 blocking acquisition path has runtime evidence for MySQL, SQLite, and PostgreSQL; this report does not close #6 or make the final Phase 0 `READY`, `READY_WITH_FOLLOWUPS`, or `BLOCKED` decision. The separately recorded Host API capability gaps and unproductized context-menu-to-Workbench UX remain non-blocking follow-ups for #5.

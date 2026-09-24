@@ -70,6 +70,11 @@ test("built DBXP contains the metadata consumer UI and excludes the fixture Work
   ];
   for (const name of expected) assert.equal(entries.has(name), true, `package includes ${name}`);
   assert.equal([...entries.keys()].some((name) => name.startsWith("web/") || name.startsWith("src/workbench/")), false);
+  const packagedUi = entries.get("ui/index.html").toString("utf8");
+  assert.match(packagedUi, /Raw Host API response/);
+  assert.match(packagedUi, /SchemaSeed normalized result/);
+  assert.match(packagedUi, /id="raw-host-response"/);
+  assert.match(packagedUi, /id="normalized-result"/);
 
   const packagedManifest = JSON.parse(entries.get("manifest.json").toString("utf8"));
   const sourceProbeModule = await readFile(path.join(root, "src/host/dbx-schema-metadata-probe.mjs"));

@@ -62,6 +62,7 @@ export async function runDbxSchemaMetadataProbe(host, tableContext) {
       hostApi,
       capability,
       context,
+      rawHostResponse: response,
     });
   }
 
@@ -70,6 +71,7 @@ export async function runDbxSchemaMetadataProbe(host, tableContext) {
     hostApi,
     capability,
     context,
+    rawHostResponse: response,
     metadata: normalized.metadata,
     futureCapabilities: Object.fromEntries(
       NOT_EXPOSED_FIELDS.map((field) => [field, {
