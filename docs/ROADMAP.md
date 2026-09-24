@@ -27,12 +27,13 @@ Schema Metadata:
   real DBX smoke: PASS on MySQL / SQLite / PostgreSQL
   automated one-shot replay: missing_table_context (not manually runtime-tested)
 
-CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_PRODUCTIZED
-Context → Workbench: public sidecar RPC + 10-minute plugin-owned in-memory handoff; user manually opens Probe
-Product UX follow-up: non-blocking for the v0.1 Schema Acquisition Path
+CONTEXT_MENU_TO_WORKBENCH_HANDOFF: UPSTREAM_MERGED (#10244)
+DBX v0.6.21 Probe runtime: public sidecar RPC + 10-minute in-memory handoff; user manually opens Probe
+Current contract: table/connection context-menu → `open-workbench` passes context and refreshes reused tabs
+Runtime smoke for a release containing #10244: #31
 
 Issue #5: CLOSED (PR #28 MERGED; runtime acceptance complete)
-Issue #6: OPEN until this gate-closing PR merges (`Closes #6`)
+Issue #6: CLOSED (PR #33 MERGED)
 Phase 0 Gate: READY_WITH_FOLLOWUPS
 Overall Phase 0: READY_WITH_FOLLOWUPS
 ```
@@ -50,7 +51,7 @@ DBX Sidebar Table Node
   → Raw Host API response + normalized metadata + diagnostics
 ```
 
-DBX's public context-menu protocol returns a native toast and does not directly open a Workbench with that context (`CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_PRODUCTIZED`). The Phase 0 Probe therefore uses a two-step flow: save the selected table context, then manually open the Workbench. This UX remains a DBX upstream / product follow-up and is not a metadata feasibility blocker. The handoff uses only the documented plugin backend JSONL protocol; its process is shared per plugin. The in-memory context contains only `connectionId`, optional `database`/`schema`, and `table`, expires after 10 minutes, and is consumed once. The adapter remains the only boundary that reads the DBX raw table payload.
+The DBX v0.6.21 Phase 0 Probe runtime used a two-step flow: save the selected table context, then manually open the Workbench. That is historical runtime evidence, not the current upstream contract. Upstream [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) is merged and now supports table/connection context-menu → `open-workbench`, passes the current context, and refreshes context when reusing a Workbench tab. A DBX release containing this change has not yet been runtime-smoked by SchemaSeed; #31 owns that validation and may use the direct table-level entry. #30 does not implement a Workbench UI or manifest contribution. The Phase 0 Probe continues to use the documented sidecar flow and identity-only context.
 
 ### 审计范围
 
@@ -80,7 +81,7 @@ DBX's public context-menu protocol returns a native toast and does not directly 
 Schema Acquisition Path
 ```
 
-Issue #5 的阻塞性 Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 完成实测（PR #28）。本 Gate 判定为 `READY_WITH_FOLLOWUPS`：Host API 1.3 未暴露的 PK / FK / UNIQUE / CHECK / Comment / Identity，以及未产品化的 context-menu → Workbench handoff，均为 non-blocking follow-ups。`not_exposed` 仅说明 Host API 未暴露该字段，不代表数据库或 driver 不支持。Issue #6 在本收口 PR 合并前仍为 OPEN；该 PR 使用 `Closes #6`。
+Issue #5 的阻塞性 Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 完成实测（PR #28）。本 Gate 判定为 `READY_WITH_FOLLOWUPS`：Host API 1.3 未暴露的 PK / FK / UNIQUE / CHECK / Comment / Identity 仍为 non-blocking follow-ups。`not_exposed` 仅说明 Host API 未暴露该字段，不代表数据库或 driver 不支持。context-menu → Workbench handoff 已由上游 #10244 merge；#6 已由 PR #33 合并关闭。
 
 ### 禁止事项
 
@@ -117,7 +118,7 @@ Preview Rows + Diagnostics
 
 ### Upstream boundary
 
-Phase 1A fixture Core 不依赖 `t8y2/dbx#10043`。Upstream API 已可用，但 Phase 1A 仍只消费 fixtures；正式 metadata domain adapter 需在 Phase 0 Gate 后另行实现，本阶段不复制 Host DTO 或添加 workaround。
+Phase 1A 的实现保持 fixture-only，不依赖 `t8y2/dbx#10043`；#30 随后新增的 production metadata adapter 将真实 Host schema 映射到同一 SchemaSeed domain，不改变 Phase 1A 的原始范围或 Core 边界。
 
 ## Phase 1B — Semantic Mapping + Person Synthetic Generation（[#19](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/19)）
 
@@ -157,7 +158,7 @@ Fixture Preview + Diagnostics
 
 ### Upstream boundary
 
-Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进，production adapter 仍需后续任务。
+Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进。Production adapter 由 #30 单独交付，正式 Workbench integration 由 #31 完成。
 
 ## Phase 1D — Deterministic Export Core + Workbench Download（[#23](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/23)）
 
@@ -170,17 +171,23 @@ Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phas
 ### 明确延期 / 边界
 
 - SQL Export deferred：fixture Workbench 没有 production database dialect；不实现 generic SQL serializer。
-- 不实现 production `DbxHostSchemaMetadataProvider`、Host-backed Generation、fixture Workbench packaging、PK / UNIQUE / CHECK / FK、Relation Planner 或 SCD。
+- Phase 1D 当时未实现 production `DbxHostSchemaMetadataProvider` / Host-backed Generation；#30 后续另行完成。fixture Workbench packaging、PK / UNIQUE / CHECK / FK、Relation Planner 或 SCD 仍不在 Phase 1D 范围。
 - CSV / JSON 不依赖 upstream `t8y2/dbx#10043`；该 PR 在 Phase 1D 执行期间已 merge，不扩大本 Issue。
+
+## Production DBX Metadata Adapter — #30
+
+- `DbxHostSchemaMetadataProvider` 是唯一 production DTO → SchemaSeed domain adapter；它复用公开 `getTableMetadata()` contract，将 DBX columns 与 `fieldCapabilities` 映射为现有 `TableSchema` / `ColumnSchema` facts，并保留 optional-field 状态与 provenance。
+- Contract tests 覆盖 MySQL、PostgreSQL、SQLite，以及 TableContext → provider → TableSchema → `buildGenerationPlan()` → `generateRows()`。SQLite 未暴露的 structured length / precision / scale 保持 `unsupported`，不会伪造 0；获取失败返回 actionable diagnostic，不 fallback 到 fixtures。
+- `FixtureSchemaMetadataProvider` 仍只属于 tests / standalone development harness。#30 不把 fixture Workbench 打包进 DBX，也不新增 Workbench UI 或 context-menu contribution；正式 runtime consumer / smoke 由 #31 负责。
 
 ## 后续版本规划
 
-`t8y2/dbx#10043` 已 merge 并随 DBX v0.6.21 发布；Schema Acquisition Path 已在 MySQL / SQLite / PostgreSQL 真实验证并由 PR #28 回填，Issue #5 已关闭。Phase 0 Gate 判定为 `READY_WITH_FOLLOWUPS`；本收口 PR 合并前 Issue #6 仍为 OPEN。后续主线规划为：
+`t8y2/dbx#10043` 已 merge 并随 DBX v0.6.21 发布；Schema Acquisition Path 已在 MySQL / SQLite / PostgreSQL 真实验证并由 PR #28 回填，Issue #5 已关闭。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已由 PR #33 合并关闭。#30 已实现 production metadata adapter 与 Generation Core contract path；#10244 已 merge，后续 #31 可在 DBX release runtime 中集成并 smoke 正式 Workbench。后续主线为：
 
 ```text
-Production DBX Metadata Adapter
-→ DBX Generation Workbench
-→ Column Generation Rules
+Production DBX Metadata Adapter (#30 implemented)
+→ DBX Generation Workbench (#31; may consume #10244 context handoff)
+→ Column Generation Rules (#32)
 ```
 
-以上仅记录后续产品化方向，不由本 Gate 收口任务实现；约束、关系、SCD、SQL Export 与 Direct Insert 仍需各自立项。该上游 merge 不影响 fixture-driven Export。
+#31 Workbench 与 #32 Column Rules 是后续产品化任务；约束、关系、SCD、SQL Export 与 Direct Insert 仍需各自立项。上游 #10244 的 merge 不影响既有 fixture-driven Export 范围。

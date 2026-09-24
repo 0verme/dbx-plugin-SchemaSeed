@@ -5,6 +5,8 @@
 **Design Freeze for Issue #12 — Phase 1 implementation input**
 
 > 本文是分层与职责的设计模型；Phase 1B 的实际 Semantic / Person contract 由 [PHASE1B_ARCHITECTURE.md](PHASE1B_ARCHITECTURE.md) 具体化。Issue #13 已完成 Design Freeze，implementation 单独由 #19 跟踪。
+>
+> Current integration status: Phase 0 #6 is CLOSED; production metadata adapter #30 is implemented. The adapter maps into this SchemaSeed-owned model, while the Core remains unaware of DBX DTOs and runtime APIs. #31 owns the packaged Generation Workbench and its runtime smoke.
 
 本文档冻结 SchemaSeed 的最小 Generation Model 语义与职责边界。它是 SchemaSeed 的 **Conceptual / Internal Draft**：
 
@@ -14,7 +16,7 @@
 - **不承诺任何上游 API method、permission、DTO、SDK type 或 Host API version**；
 - 不包含 Generator、Faker、Constraint Engine、Relation Planner、Exporter 或 Workbench 实现。
 
-本文档的输入边界是 **SchemaSeed normalized schema facts**，而不是某个具体的 DBX API DTO。原上游需求 `t8y2/dbx#9917` 已由 #10043 落地为 Host API 1.3；Phase 1A 仍只通过 fixture 构造内部 domain，不消费 DBX Host API。正式 adapter 仍受 Phase 0 Gate 约束；见本文件第 15 节。
+本文档的输入边界是 **SchemaSeed normalized schema facts**，而不是某个具体的 DBX API DTO。原上游需求 `t8y2/dbx#9917` 已由 #10043 落地为 Host API 1.3；Phase 1A 的实现保持 fixture-only。当前 Phase 0 Gate 已由 PR #33 关闭，production `DbxHostSchemaMetadataProvider` 已由 #30 实现并将 Host DTO 映射为本模型的 domain facts；详见第 15 节。
 
 ## Goals
 
@@ -1103,7 +1105,7 @@ info diagnostic: group consistency disabled by user
 
 以下问题不改变本 Issue 已冻结的层次、precedence、intent 或诊断原则，留给实现和上游 contract 确认：
 
-1. 正式 Host API 1.3 `getTableMetadata` response 如何映射到 normalized facts，以及各 driver provenance 的 production adapter；
+1. #30 已实现 Host API 1.3 `getTableMetadata` 到 normalized facts 的 adapter 与 MySQL / PostgreSQL / SQLite contract tests；在包含 upstream #10244 的正式 DBX release 上完成 Workbench runtime smoke 由 #31 验证；
 2. deterministic hash/RNG 算法、canonical identity 编码和 `determinismProfile` 的兼容策略；
 3. 不同 database identifier case/collation 下 `columnIdentity` 的规范化细节；
 4. 各种 target format 对 `OMIT_USE_DEFAULT` / `OMIT_IDENTITY` 的具体表示；
@@ -1119,8 +1121,8 @@ info diagnostic: group consistency disabled by user
 
 - `t8y2/dbx#9917` 是已解决的原始 Schema Metadata Host API issue；正式实现由 `t8y2/dbx#10043` 提供并已 merge，commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`。
 - Host API 1.3 contract 已公开：`host.schema:read`、`schemaMetadataApi`、`window.dbxPlugin.getTableMetadata({ connectionId, database?, schema?, table })`。
-- 本 Generation Model 不复制 Host DTO 为内部 schema model；本轮 Probe 实现与 production `DbxHostSchemaMetadataProvider` 是不同阶段。
-- 正式 DBX metadata adapter / metadata-backed generation 仍须经过 real DBX smoke 与 SchemaSeed Phase 0 Gate；这不限制纯 fixture-driven Core。
+- 本 Generation Model 不复制 Host DTO 为内部 schema model；Phase 0 Probe 与 production `DbxHostSchemaMetadataProvider` 是职责分离的 consumer 和 adapter。
+- production adapter / Core contract path 已由 #30 实现；Phase 0 #6 已关闭。正式 Generation Workbench 与包含 upstream #10244 的 DBX release runtime smoke 由 #31 完成；这不改变纯 fixture-driven Core 的既有范围。
 
 ### SchemaSeed dependency boundary
 
@@ -1138,14 +1140,14 @@ GenerationPlan / GenerationEngine / Preview
 
 它不读取真实 metadata、不连接 DBX，也不依赖 #10043 的 merge。fixture provider 不是 production metadata source。Host API 1.3 availability and the consumer probe are formal metadata integration prerequisites, not fixture-driven Semantic / Person generation prerequisites.
 
-正式 Host integration 仍只允许沿以下 future path：
+正式 Host integration 沿以下 path 进入 Generation Model；#30 已实现前两个箭头，Core 只消费 normalized facts：
 
 ```text
-formal metadata acquisition (future)
+DBX Host API 1.3 metadata DTO
         ↓
-SchemaSeed normalization adapter
+DbxHostSchemaMetadataProvider (#30)
         ↓
-normalized schema facts
+SchemaSeed TableSchema / normalized schema facts
         ↓
 Generation Model
 ```
@@ -1161,12 +1163,12 @@ SchemaSeed 不因本文获得以下权限或能力：
 
 ### Phase 0 gate
 
-进入正式 DBX Metadata integration / metadata-backed generation 前仍需：
+已完成与仍待验证的边界如下：
 
-1. 在包含 Host API 1.3 的 released DBX 上完成真实 metadata smoke；
-2. SchemaSeed #5 Probe 的公开 consumer path、metadata contract 与错误模型经真实 DBX 验证；
-3. 在单独任务中评估并关闭 SchemaSeed #6 Phase 0 Gate；本轮不作 Gate 决定；
-4. Table Context 继续使用已验证的 SchemaSeed internal consumer contract，不将 Table Context 证据外推为 Metadata capability。
+1. DBX v0.6.21 已包含 Host API 1.3；#28 已对 MySQL / SQLite / PostgreSQL 完成真实 metadata Probe smoke；
+2. #5 的公开 consumer path、metadata contract 与错误模型已由 PR #28 验证；
+3. SchemaSeed #6 Phase 0 Gate 已由合并 PR #33 关闭；#30 production adapter 与 Core contract path 已实现；
+4. Upstream #10244 已 merge，正式 Workbench/runtime 的 context handoff smoke 留给 #31 在包含该变更的 DBX release 上完成；Table Context 证据不替代 Metadata capability。
 
 如果 metadata Host API 未满足，不得通过 workaround 开始真实 metadata acquisition 或 metadata-backed generation。Phase 1A 的 fixture-only Generation Core 是独立实现范围，不宣称 Phase 0 已通过，也不改变未来 Host integration gate。
 
@@ -1181,4 +1183,4 @@ SchemaSeed 不因本文获得以下权限或能力：
 - [x] 明确不依赖 AI 的 deterministic baseline，以及 unknown/unsupported/invalid/generation-impossible 的 diagnostics 形态。
 - [x] 明确原始 Issue #9917、已合并 PR #10043、Metadata Consumer Probe、Phase 0 Gate 的依赖边界，没有通过 workaround 绕过 upstream。
 
-本 checklist 只表示 Issue #12 的设计交付完成；不表示 Phase 0 已关闭、Generator 已实现、PR 已合并或 DBX upstream 已冻结。
+本 checklist 只表示 Issue #12 的设计交付完成；它本身不证明 Phase 0 Gate、Generator 实现或 DBX upstream 状态。当前 Phase 0 #6 已由 PR #33 关闭，Generation Core 已由 Phase 1 实现，production metadata adapter 由 #30 交付。

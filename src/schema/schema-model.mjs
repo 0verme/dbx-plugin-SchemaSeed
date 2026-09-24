@@ -14,7 +14,7 @@ const factStateSet = new Set(FACT_STATES);
  * SchemaSeed-owned schema facts. Scalar fixture values are normalized to
  * `{ state: "known", value }`; omitted values remain `unknown`.
  *
- * @typedef {{ state: "known", value: unknown } | { state: "absent" | "not_applicable" | "unknown" | "unavailable" | "unsupported" | "failed", reason?: string }} SchemaFact
+ * @typedef {{ state: "known", value: unknown, provenance?: string } | { state: "absent" | "not_applicable" | "unknown" | "unavailable" | "unsupported" | "failed", reason?: string, provenance?: string }} SchemaFact
  * @typedef {Object} ColumnSchema
  * @property {string} name
  * @property {SchemaFact} dataType
@@ -48,9 +48,17 @@ export function schemaFact(raw) {
       if (!Object.hasOwn(raw, "value")) {
         return Object.freeze({ state: "unsupported", reason: "Known metadata fact has no value" });
       }
-      return Object.freeze({ state: "known", value: raw.value });
+      return Object.freeze({
+        state: "known",
+        value: raw.value,
+        ...(typeof raw.provenance === "string" ? { provenance: raw.provenance } : {}),
+      });
     }
-    return Object.freeze({ state: raw.state, ...(typeof raw.reason === "string" ? { reason: raw.reason } : {}) });
+    return Object.freeze({
+      state: raw.state,
+      ...(typeof raw.reason === "string" ? { reason: raw.reason } : {}),
+      ...(typeof raw.provenance === "string" ? { provenance: raw.provenance } : {}),
+    });
   }
 
   return Object.freeze({ state: "known", value: raw });
