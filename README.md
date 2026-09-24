@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，目标是依据表结构与字段语义生成可复现、安全的测试数据，而不是让用户手工拼接 Faker 脚本。**目前 Schema-aware generation、Workbench Preview 和 CSV / JSON Export 在本地 fixture-driven 开发 Workbench 中运行；DBX 安装包当前只包含独立的 Schema Metadata Probe，不包含生成 Workbench。** Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上通过 MySQL、SQLite、PostgreSQL 真实运行时验证；Phase 0 Gate 仍由独立 Issue #6 评估，因此项目仍处于 early-stage / development 状态。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。**目前 Schema-aware generation、Workbench Preview 和 CSV / JSON Export 在本地 fixture-driven 开发 Workbench 中运行；DBX 安装包当前只包含独立的 Schema Metadata Probe，不包含生成 Workbench。** Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上通过 MySQL、SQLite、PostgreSQL 真实运行时验证；Phase 0 Gate 仍由独立 Issue #6 评估，因此项目仍处于 early-stage / development 状态。
 
 > Manifest 声明的最低要求为 DBX `>=0.6.19`、Host API `^1.3`。以上真实运行时证据适用于 DBX v0.6.21 Windows Desktop 上的 Phase 0 Probe；不代表生成 Workbench 已集成，也不代表 Phase 0 Gate 已关闭。
 
@@ -154,7 +154,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 
 | Phase | Status | Scope |
 | --- | --- | --- |
-| Phase 0 | In progress | DBX Table Context + Schema Metadata integration；released-DBX smoke / Gate 待完成 |
+| Phase 0 | In progress | DBX v0.6.21 Table Context + Schema Metadata smoke：MySQL / SQLite / PostgreSQL PASS；Issue #6 Gate 待独立评估 |
 | Phase 1A | Implemented | Generation Core + fixture Preview |
 | Phase 1B | Implemented | Semantic Mapping + Safe Synthetic |
 | Phase 1C | Implemented | Fixture-driven standalone Workbench |
@@ -173,7 +173,7 @@ DBX Sidebar Table Node
   → 用户手动打开 Schema Metadata Probe Workbench
   → sidecar RPC 取回 TableContext
   → window.dbxPlugin.getTableMetadata(TableContext)
-  → normalized metadata + diagnostics
+  → Raw Host API response + normalized metadata + diagnostics
 ```
 
 context-menu → Workbench 的 context handoff 尚未产品化，因此 Phase 0 Probe 使用“右键表并保存 Table Context / 暂存 context，再手动打开 Probe”的两步流程；这是后续 DBX upstream / product UX follow-up，不是 Schema Acquisition Path 技术 blocker。Probe 消费公开 Host API，不读取 private Store、credentials、private frontend module 或 undocumented API。该 runtime evidence 不代表 Phase 0 Gate 已关闭。
