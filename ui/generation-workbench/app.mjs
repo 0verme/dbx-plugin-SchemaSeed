@@ -27,8 +27,8 @@ const WORKBENCH_MARKUP = `
 
       <section class="sswb-panel" aria-labelledby="sswb-columns-title">
         <div class="sswb-heading"><div><h2 id="sswb-columns-title">字段与当前生成策略</h2><p class="sswb-caption">Generator、Semantic Mapping 与 evidence 来自现有 GenerationPlan</p></div></div>
-        <div class="sswb-scroll"><table class="sswb-mapping"><thead><tr><th>字段名</th><th>Schema Type</th><th>当前 generator / semantic mapping</th><th>Mapping 状态</th><th>Diagnostics / Evidence</th></tr></thead><tbody id="sswb-columns"></tbody></table></div>
-        <div class="sswb-rule-slot"><strong>Rule Editor integration slot · Issue #32</strong><span>本 Workbench 仅展示当前 mapping；完整规则编辑器不属于 Issue #31。</span></div>
+        <div class="sswb-scroll"><table class="sswb-mapping"><thead><tr><th>字段名</th><th>Schema Type</th><th>当前 generator / Semantic Mapping</th><th>Mapping 状态</th><th>Rule Editor / Diagnostics</th></tr></thead><tbody id="sswb-columns"></tbody></table></div>
+        <div id="sswb-rule-state" class="sswb-rule-slot" role="status">规则仅保存在当前表的 Workbench session；修改后需重新 Generate。</div>
       </section>
 
       <section class="sswb-panel" aria-labelledby="sswb-diagnostics-title">
@@ -81,6 +81,20 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
           locale: element("sswb-locale").value,
         },
       });
+      return;
+    }
+    if (target.matches("[data-rule-selector]")) {
+      const column = viewColumn(target.dataset.ruleColumn, controller);
+      const choice = column?.ruleChoices.find((entry) => entry.kind === target.value);
+      if (column && choice) void controller.dispatch({ type: "update-rule", column: column.column, rule: choice.draft });
+      return;
+    }
+    if (target.matches("[data-rule-field]")) {
+      const column = viewColumn(target.dataset.ruleColumn, controller);
+      if (!column) return;
+      const rule = structuredClone(column.generationRule);
+      rule[target.dataset.ruleField] = readRuleField(target);
+      void controller.dispatch({ type: "update-rule", column: column.column, rule });
     }
   }
 
@@ -125,7 +139,11 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
     if (document.activeElement !== rowInput) rowInput.value = String(viewModel.controls.rowCount);
     if (document.activeElement !== seedInput) seedInput.value = viewModel.controls.seed;
     if (document.activeElement !== localeInput) localeInput.value = viewModel.controls.locale;
-    for (const control of root.querySelectorAll("button, input, select")) control.disabled = viewModel.status === "loading";
+    for (const control of root.querySelectorAll("button, input, select, textarea")) control.disabled = viewModel.status === "loading";
+    for (const control of root.querySelectorAll('[data-sswb-action="generate"], [data-sswb-action="regenerate-same-seed"], [data-sswb-action="new-seed"]')) {
+      control.disabled = viewModel.status === "loading" || viewModel.status === "blocked";
+    }
+    element("sswb-rule-state").textContent = ruleStateMessage(viewModel);
     renderColumns(viewModel.columns);
     renderDiagnostics(viewModel.diagnostics);
     renderPreview(viewModel);
@@ -158,9 +176,21 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
       const detail = document.createElement("small");
       detail.textContent = `${column.rule.source.replaceAll("_", " ")} · detected ${column.detected} (${column.confidence})`;
       strategy.append(generator, detail);
+      strategy.append(renderRuleEditor(column));
       row.append(strategy);
       row.append(textCell(column.mappingStatus, "sswb-mapping-status"));
       const detailsCell = document.createElement("td");
+      if (column.ruleDiagnostics.length > 0) {
+        const diagnostics = document.createElement("ul");
+        diagnostics.className = "sswb-rule-diagnostics";
+        for (const entry of column.ruleDiagnostics) {
+          const item = document.createElement("li");
+          item.dataset.severity = entry.severity;
+          item.textContent = `${entry.code}: ${entry.reason}`;
+          diagnostics.append(item);
+        }
+        detailsCell.append(diagnostics);
+      }
       if (column.evidence.length > 0) {
         const details = document.createElement("details");
         const summary = document.createElement("summary");
@@ -173,7 +203,7 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
         }
         details.append(summary, list);
         detailsCell.append(details);
-      } else detailsCell.textContent = "—";
+      } else if (column.ruleDiagnostics.length === 0) detailsCell.append(document.createTextNode("—"));
       row.append(detailsCell);
       body.append(row);
     }
@@ -243,8 +273,97 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
   };
 }
 
+function renderRuleEditor(column) {
+  const editor = document.createElement("div");
+  editor.className = "sswb-rule-editor";
+  const selector = document.createElement("select");
+  selector.setAttribute("aria-label", `${column.column} generation rule`);
+  selector.dataset.ruleSelector = "true";
+  selector.dataset.ruleColumn = column.column;
+  for (const choice of column.ruleChoices) {
+    const option = document.createElement("option");
+    option.value = choice.kind;
+    option.textContent = choice.label;
+    selector.append(option);
+  }
+  selector.value = column.generationRule.kind;
+  editor.append(selector);
+
+  const fields = document.createElement("div");
+  fields.className = "sswb-rule-fields";
+  for (const field of column.ruleFields) {
+    const label = document.createElement("label");
+    label.textContent = field.label;
+    let input;
+    if (field.editor === "semantic") {
+      input = document.createElement("select");
+      const values = [...column.semanticTypes];
+      if (field.value && !values.includes(field.value)) values.unshift(field.value);
+      for (const value of values) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        input.append(option);
+      }
+      input.value = String(field.value ?? "");
+    } else if (field.editor === "json") {
+      input = document.createElement("textarea");
+      input.rows = field.key === "values" ? 2 : 1;
+      input.value = field.value === undefined ? "" : JSON.stringify(field.value);
+    } else {
+      input = document.createElement("input");
+      input.type = field.editor === "integer" || field.editor === "ratio" ? "number" : "text";
+      if (field.editor === "integer") input.step = "1";
+      if (field.editor === "ratio") {
+        input.min = "0";
+        input.max = "1";
+        input.step = "any";
+      }
+      if (field.editor === "decimal") input.inputMode = "decimal";
+      input.value = field.value === undefined || field.value === null ? "" : String(field.value);
+    }
+    input.dataset.ruleField = field.key;
+    input.dataset.ruleEditor = field.editor;
+    input.dataset.ruleColumn = column.column;
+    label.append(input);
+    fields.append(label);
+  }
+  editor.append(fields);
+  return editor;
+}
+
+function viewColumn(name, controller) {
+  return controller.getViewModel().columns.find((column) => column.column === name);
+}
+
+function readRuleField(input) {
+  if (input.dataset.ruleEditor === "integer" || input.dataset.ruleEditor === "ratio") {
+    return input.value.trim() === "" ? null : Number(input.value);
+  }
+  if (input.dataset.ruleEditor === "json") {
+    try {
+      return JSON.parse(input.value);
+    } catch {
+      return input.value;
+    }
+  }
+  return input.value;
+}
+
+function ruleStateMessage(viewModel) {
+  if (viewModel.ruleEditor.state === "loading") return "Load a DBX table schema before editing generation rules.";
+  if (viewModel.ruleEditor.state === "validating") return "Core is validating the updated rule; Preview and Export remain invalidated.";
+  if (viewModel.ruleEditor.state === "generating") return "GenerationPlan and dataset are being rebuilt…";
+  if (viewModel.ruleEditor.state === "error") return "Rule Editor is unavailable because the Host or runtime request failed.";
+  if (viewModel.ruleEditor.state === "dirty") return "Rules are validated; preview is stale. Generate to create a dataset.";
+  if (viewModel.ruleEditor.state === "blocked") return "A rule or schema diagnostic blocks generation; fix it before Generate or Export.";
+  if (viewModel.ruleEditor.state === "warning") return "Rules are ready with Core warnings; Preview remains available.";
+  return "Rules are scoped to this table session. Editing any rule invalidates Preview and Export.";
+}
+
 function statusLabel(viewModel) {
   if (viewModel.status === "loading") return viewModel.stage === "metadata" ? "Loading metadata" : "Generating";
+  if (viewModel.status === "dirty") return "Rules changed · Generate required";
   if (viewModel.status === "ready") return "Ready";
   if (viewModel.status === "warning") return "Warning · preview ready";
   if (viewModel.status === "blocked") return "Blocked";
@@ -252,6 +371,7 @@ function statusLabel(viewModel) {
 }
 
 function stateMessage(viewModel) {
+  if (viewModel.status === "dirty") return "规则已更新，旧 Preview / Export 已失效；点击 Generate 生成当前规则的数据。";
   if (viewModel.status === "loading") return viewModel.stage === "metadata"
     ? "正在通过 DBX Host API 读取当前表 metadata…"
     : "正在构建 GenerationPlan 并生成 preview…";

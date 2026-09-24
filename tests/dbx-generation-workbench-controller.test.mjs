@@ -85,12 +85,14 @@ describe("DBX Generation Workbench production controller", () => {
     assert.deepEqual(view.context, context);
     assert.deepEqual(view.table, { database: null, schema: "public", table: "customer" });
     assert.equal(view.plan.rowCount, 20);
+    assert.equal(view.columns[0].generationRule.kind, "auto");
+    assert.ok(view.columns[0].ruleChoices.some((choice) => choice.kind === "sequence"));
     assert.equal(view.preview.rows.length, 20);
     assert.deepEqual(view.preview.columns, ["customer_id", "display_name"]);
     assert.equal(view.export.enabled, true);
     assert.equal(view.columns[0].column, "customer_id");
     assert.equal(view.columns[0].rule.kind, "integer");
-    assert.equal(view.ruleEditorSlot.issue, 32);
+    assert.equal(view.ruleEditor.issue, 32);
     assert.equal(Object.hasOwn(calls[0], "table"), true, "provider receives TableContext itself, not a { table: ... } envelope");
   });
 
@@ -181,6 +183,75 @@ describe("DBX Generation Workbench production controller", () => {
     assert.deepEqual(JSON.parse(controller.prepareExport("json").content), view.preview.rows);
   });
 
+  it("invalidates Preview/Export on rule edits, validates through Core, and Generate uses the current rules", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    let view = await controller.setContext(BASE_CONTEXT);
+    const before = view.preview.rows;
+    assert.equal(view.columns[0].ruleChoices.some((choice) => choice.kind === "sequence"), true);
+
+    view = await controller.dispatch({
+      type: "update-rule",
+      column: "customer_id",
+      rule: { kind: "sequence", start: 40, step: 2 },
+    });
+    assert.equal(view.status, "dirty");
+    assert.equal(view.ruleEditor.state, "dirty");
+    assert.equal(view.export.enabled, false);
+    assert.deepEqual(view.preview.rows, []);
+    assert.notDeepEqual(view.preview.rows, before);
+    assert.equal(calls.at(-1).options.validateOnly, true);
+    assert.deepEqual(calls.at(-1).options.rules.customer_id, { kind: "sequence", start: 40, step: 2 });
+    assert.equal(Object.hasOwn(view.columns[0].generationRule, "identity"), false, "editor values stay within the tagged config contract");
+    view = await controller.dispatch({
+      type: "update-rule",
+      column: "customer_id",
+      rule: { ...view.columns[0].generationRule, step: 3 },
+    });
+    assert.equal(view.status, "dirty");
+    assert.deepEqual(calls.at(-1).options.rules.customer_id, { kind: "sequence", start: 40, step: 3 });
+    assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_no_dataset");
+
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "warning", "the unrelated inferred display_name candidate retains its Core warning");
+    assert.deepEqual(view.preview.rows.map((row) => row.customer_id), Array.from({ length: 20 }, (_v, index) => 40 + index * 3));
+    const generated = structuredClone(view.preview.rows);
+    const exported = JSON.parse(controller.prepareExport("json").content);
+    assert.deepEqual(exported, generated);
+    view = await controller.dispatch({ type: "regenerate-same-seed" });
+    assert.deepEqual(view.preview.rows, generated);
+  });
+
+  it("keeps invalid rule diagnostics visible and blocks Generate/Export without falling back", async () => {
+    const controller = createController();
+    await controller.setContext(BASE_CONTEXT);
+    const view = await controller.dispatch({
+      type: "update-rule",
+      column: "customer_id",
+      rule: { kind: "random_integer", min: 0, max: Number.MAX_SAFE_INTEGER },
+    });
+    assert.equal(view.status, "blocked");
+    assert.equal(view.ruleEditor.state, "blocked");
+    assert.equal(view.export.enabled, false);
+    assert.deepEqual(view.preview.rows, []);
+    assert.ok(view.diagnostics.some((entry) => entry.code === "generation_rule_incompatible"));
+    assert.equal(view.columns[0].generationRule.kind, "random_integer");
+    assert.throws(() => controller.prepareExport("csv"), (error) => error.code === "export_blocked_plan");
+  });
+
+  it("clears table-session rules on context refresh", async () => {
+    const controller = createController();
+    await controller.setContext({ connectionId: "conn", table: "alpha" });
+    await controller.dispatch({ type: "update-rule", column: "alpha_id", rule: { kind: "sequence", start: 4, step: 3 } });
+    await controller.dispatch({ type: "generate" });
+    assert.equal(controller.rules.alpha_id.kind, "sequence");
+    const view = await controller.setContext({ connectionId: "conn", table: "beta" });
+    assert.deepEqual(controller.rules, {});
+    assert.equal(view.columns[0].generationRule.kind, "auto");
+    assert.ok(view.preview.rows.every((row) => Object.hasOwn(row, "beta_id")));
+    assert.equal(view.export.enabled, true);
+  });
+
   it("represents invalid direct context and unavailable metadata as blocked, with provider diagnostics", async () => {
     const controller = createController();
     let view = await controller.setContext({ table: "customer" });
@@ -214,6 +285,7 @@ describe("DBX Generation Workbench production controller", () => {
     };
     let view = await createController({ provider: failedProvider }).setContext(BASE_CONTEXT);
     assert.equal(view.status, "error");
+    assert.equal(view.ruleEditor.state, "error");
     assert.equal(view.diagnostics[0].code, "metadata_request_failed");
 
     const blockedProvider = productionProvider({

@@ -5,7 +5,7 @@ import { GENERATION_PREVIEW_METHOD } from "./generation-runtime-contract.mjs";
 export { GENERATION_PREVIEW_METHOD } from "./generation-runtime-contract.mjs";
 export const GENERATION_RUNTIME_JSON_RPC_VERSION = "2.0";
 const MAX_PREVIEW_ROWS = 100;
-const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "semanticOverrides", "semanticMappings"]);
+const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "validateOnly", "semanticOverrides", "semanticMappings"]);
 
 /**
  * Build and execute an existing Core GenerationPlan for the packaged Workbench.
@@ -22,8 +22,11 @@ export function handleGenerationRuntimeRequest(request) {
 
   try {
     const { schema, options } = validateParams(request.params);
-    const plan = buildGenerationPlan(schema, options);
-    const generated = generateRows(plan);
+    const { validateOnly = false, ...generationOptions } = options;
+    const plan = buildGenerationPlan(schema, generationOptions);
+    const generated = validateOnly
+      ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+      : generateRows(plan);
     return { jsonrpc: GENERATION_RUNTIME_JSON_RPC_VERSION, id, result: { plan, generated } };
   } catch (error) {
     return {
@@ -51,6 +54,9 @@ function validateParams(params) {
     throw new RangeError(`Workbench preview rows must be from 1 to ${MAX_PREVIEW_ROWS}`);
   }
   if (typeof params.options.seed !== "string") throw new TypeError("Workbench preview seed must be text");
+  if (params.options.validateOnly !== undefined && typeof params.options.validateOnly !== "boolean") {
+    throw new TypeError("validateOnly must be a boolean when provided");
+  }
   if (params.options.locale !== "zh-CN" && params.options.locale !== "en") {
     throw new RangeError("Workbench preview locale must be zh-CN or en");
   }

@@ -32,6 +32,30 @@ test("production runtime builds the existing GenerationPlan and generates determ
   assert.deepEqual(first.result.generated.rows, replay.result.generated.rows);
 });
 
+test("runtime transports canonical GenerationRules and supports validation-only requests", () => {
+  const optionsWithRules = {
+    ...options,
+    rules: { customer_id: { kind: "sequence", start: 5, step: 3 } },
+  };
+  const preview = handleRuntimeRpcRequest(request({ schema, options: optionsWithRules }));
+  assert.equal(preview.result.plan.columns[0].generationRule.kind, "sequence");
+  assert.deepEqual(preview.result.generated.rows.map((row) => row.customer_id), [5, 8, 11, 14, 17]);
+
+  const validation = handleRuntimeRpcRequest(request({ schema, options: { ...optionsWithRules, validateOnly: true } }));
+  assert.equal(validation.error, undefined);
+  assert.equal(validation.result.plan.status, "ready");
+  assert.deepEqual(validation.result.generated.rows, []);
+  assert.equal(validation.result.generated.status, "ready");
+
+  const invalid = handleRuntimeRpcRequest(request({
+    schema,
+    options: { ...options, rules: { customer_id: { kind: "random_integer", min: 0, max: Number.MAX_SAFE_INTEGER } } },
+  }));
+  assert.equal(invalid.result.plan.status, "blocked");
+  assert.deepEqual(invalid.result.generated.rows, []);
+  assert.ok(invalid.result.generated.diagnostics.some((entry) => entry.code === "generation_rule_incompatible"));
+});
+
 test("runtime rejects oversized or malformed preview input without generating rows", () => {
   const tooManyRows = handleRuntimeRpcRequest(request({ schema, options: { ...options, rowCount: 101 } }));
   assert.equal(tooManyRows.error.code, -32602);

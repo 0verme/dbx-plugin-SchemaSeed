@@ -200,7 +200,7 @@ DBX Sidebar table
 - Context change synchronously invalidates old metadata, plan, preview and export dataset. `A → B → C` calls are revision-guarded so late responses cannot replace C.
 - UI states distinguish `loading`, `ready`, `warning`, `blocked` and `error`; provider/Core diagnostics remain the single diagnostic source.
 - `ui/` includes both the production Workbench UI and separate Phase 0 Probe. The `.dbxp` package explicitly excludes `web/`, `fixtures/`, fixture providers/controllers, tests and standalone harness server.
-- Rule Editor remains an integration slot only. Constant/Sequence/Random/etc. GenerationRule editor work remains #32.
+- Issue #32 implements the frozen 13-rule v0.1 Core contract and production Rule Editor; see [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md). Runtime E2E remains gated on an official DBX release containing #10244.
 
 ### DBX release compatibility decision
 
@@ -209,6 +209,14 @@ DBX Sidebar table
 - `manifest.json` keeps the previous `engines.dbx: ">=0.6.19"` floor without guessing a future version. This is not a valid release floor for the new action. Treat current `.dbxp` as an implementation-only unsigned candidate; do not install/release against v0.6.22.
 - Final DBX floor and runtime smoke remain pending until the official release containing #10244 is published. Then set the floor to that verified release and smoke table launch, metadata, Preview / exports and reused-workbench context refresh. Do not compile DBX locally for this gate.
 
+### Issue #32 — Column Generation Rules v0.1 and Rule Editor
+
+- Exactly 13 tagged rules are frozen, Core-validated and available through existing GenerationPlan diagnostics. Plan and generator reuse existing deterministic cell/row identity; no parallel RNG engine is introduced.
+- Rule availability and config fields are Core-provided. The production Workbench Rule Editor edits table-session state, uses validation-only calls, invalidates the old Preview/Export immediately, and blocks invalid rules rather than falling back.
+- Existing `generation/preview` RPC carries rules and validation-only options; package allowlist/contract tests include the Core module while preserving fixture-free production runtime boundaries.
+- Focused and full local Node tests validate tagged contracts, schema bounds, exact decimal arithmetic, UTC ranges, stable identities, controller invalidation, RPC and `.dbxp` packaging. These are not DBX runtime E2E evidence.
+- State: `IMPLEMENTATION_READY_RUNTIME_E2E_PENDING`. Keep Issue #32 open until an official DBX release contains #10244 and the formal Workbench + rules flow passes runtime validation. No release fabrication or local upstream compilation.
+
 ### Current status / next step
 
-`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; official runtime smoke and acceptance-based Issue closure remain pending the upstream release containing #10244. #32 owns the future Rule Editor. PK / UNIQUE / CHECK, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.
+`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; official runtime smoke and acceptance-based Issue closure remain pending the upstream release containing #10244. `#32` Core + production Rule Editor implementation is ready; runtime E2E is gated on the same upstream release. PK / UNIQUE / CHECK, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.

@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；**正式 DBX runtime smoke 尚未完成**。上游 `t8y2/dbx#10244` 已合并，但 DBX 最新正式版仍为 v0.6.22（该版本早于 #10244），所以当前 `.dbxp` 仅是 implementation candidate，不应安装到 v0.6.22 或发布。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成，**正式 DBX runtime smoke 尚未完成**。截至 2026-09-24，DBX 最新正式版为 v0.6.22（09:14 UTC 发布）；上游 `t8y2/dbx#10244` 于 11:14 UTC merge，尚未进入该 release。因此当前 `.dbxp` 仅是 implementation candidate，不应安装到 v0.6.22 或发布。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
 
 > Manifest 暂保留历史 DBX floor `>=0.6.19` 与 Host API `^1.3`；该 floor **不覆盖**新增的 `context-menu.action.open-workbench` contract。DBX v0.6.22 runtime 对未知 context-menu 字段采用严格解析，会拒绝包含新 `action` 的 manifest。待上游正式 release 发布后，必须先确认实际版本、更新 floor，再做 runtime smoke；这里不猜测未发布版本号。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity，这些仍是非阻塞 follow-ups。
 
@@ -51,8 +51,8 @@ DBX Sidebar table
   → #10244 declarative open-workbench（TableContext 本身）
   → DbxHostSchemaMetadataProvider
   → SchemaSeed TableSchema
-  → GenerationPlan → generateRows()
-  → Preview → CSV / JSON
+  → Core GenerationPlan + per-column GenerationRules
+  → generateRows() → Preview → CSV / JSON
 ```
 
 正式 Workbench 使用公开 Host metadata API 与现有 Core。Preview / export 共用同一 dataset；A→B→C context refresh 会立即清空旧 metadata、plan 和 dataset，并丢弃迟到的旧请求。
@@ -68,6 +68,7 @@ DBX Sidebar table
 - **Schema Metadata consumer probe**：安装包通过公开 DBX Host API 1.3 获取 table metadata；Probe 的 Table Context → Host API → columns metadata → SchemaSeed normalization 路径已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 验证通过。
 - **Production metadata adapter（#30）**：`DbxHostSchemaMetadataProvider` 将公开 Host response 映射为 SchemaSeed-owned facts；现已在正式 Workbench path 中调用，并将 normalized schema 送入现有 Generation Core。
 - **正式 DBX Generation Workbench（#31）**：显示当前 database / schema / table、字段类型、generator / semantic mapping、diagnostics、Rows / Seed / Locale、Preview 与 CSV / JSON。Manifest 通过 `context-menu` 的 `open-workbench` action 直接接入 #10244。
+- **Column Generation Rules v0.1（#32 implementation ready）**：Core 与正式 Rule Editor 支持冻结的 13 种 tagged rules、统一 schema/诊断 validation、deterministic per-column identity；修改规则立即失效旧 Preview / Export，禁止规则无效时生成或导出。规则定义见 [Column Generation Rules](docs/COLUMN_GENERATION_RULES.md)。
 - **Runtime compatibility**：DBX v0.6.22 不含 #10244，且旧 runtime 严格拒绝未知 `action` 字段；正式版本 floor 与 runtime smoke 等上游正式 release 后确认。
 
 ## 当前界面 / Workbench
@@ -159,9 +160,10 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 | Phase 1C | Implemented | Fixture-driven standalone Workbench |
 | Phase 1D | Implemented | CSV / JSON Export |
 | Production DBX metadata adapter (#30) | Implemented | Public Host metadata → SchemaSeed facts → existing Generation Core |
-| Generation Workbench (#31) | Implementation ready | Packaged production UI / runtime / direct table action; official DBX runtime smoke pending release containing #10244 |
+| Generation Workbench (#31) | IMPLEMENTATION_READY_RUNTIME_SMOKE_PENDING | Packaged production UI / runtime / direct table action; official DBX runtime smoke pending release containing #10244 |
+| Column Generation Rules (#32) | IMPLEMENTATION_READY_RUNTIME_E2E_PENDING | Frozen 13-rule Core + production Rule Editor + package contract; no runtime E2E until an official DBX release contains #10244 |
 
-`Implemented` 表示代码与 package implementation 已完成，不表示 runtime smoke 或 Issue #31 acceptance 已完成。详细状态见 [Roadmap](docs/ROADMAP.md)。
+`Implemented` 表示代码与 package implementation 已完成，不表示 runtime smoke、Issue #31 acceptance 或 Issue #32 runtime E2E 已完成。#32 保持独立 open Issue；不因本地测试通过或 PR 创建而关闭。详细状态见 [Roadmap](docs/ROADMAP.md)。
 
 ## 工作原理：DBX Host integration
 
@@ -201,6 +203,7 @@ dbx-plugin.toml  DBX plugin package configuration
 
 - [Roadmap](docs/ROADMAP.md)：阶段状态、Gate 与后续方向。
 - [Generation Model](docs/GENERATION_MODEL.md)：schema / semantic / constraints / deterministic seed 的模型边界。
+- [Column Generation Rules v0.1](docs/COLUMN_GENERATION_RULES.md)：冻结的 13-rule 配置、兼容性、边界验证、deterministic identity 与 Rule Editor 状态契约。
 - [Phase 1A Architecture](docs/PHASE1A_ARCHITECTURE.md)：Generation Core 与 fixture Preview。
 - [Phase 1B Architecture](docs/PHASE1B_ARCHITECTURE.md)：Semantic Mapping 与 Safe Synthetic。
 - [Phase 1C Workbench](docs/PHASE1C_WORKBENCH.md)：fixture Workbench、UI 状态与运行时边界。
@@ -213,4 +216,4 @@ dbx-plugin.toml  DBX plugin package configuration
 
 ## Roadmap
 
-SchemaSeed 的正式 Workbench/package implementation 已完成；包含 #10244 的正式 DBX release runtime smoke 与兼容 floor 仍 pending。后续 Column Rule Editor 由 #32 单独推进；路线图状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+SchemaSeed 的正式 Workbench/package implementation 与 Column Generation Rules v0.1 / Rule Editor implementation 已完成；包含 #10244 的正式 DBX release runtime smoke 与兼容 floor 仍 pending。#32 不会因实现或 PR 创建而自动关闭；路线图状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。

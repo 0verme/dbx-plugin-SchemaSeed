@@ -15,13 +15,13 @@ DBX Sidebar table
   → direct TableContext (not `{ table: TableContext }`)
   → DbxHostSchemaMetadataProvider
   → SchemaSeed TableSchema / ColumnSchema
-  → GenerationPlan (existing Core, via local sidecar RPC)
+  → GenerationPlan + per-column GenerationRules (existing Core, via local sidecar RPC)
   → generateRows() (existing deterministic Core)
   → ExportDataset
   → Preview / CSV / JSON
 ```
 
-The browser Workbench invokes the public `window.dbxPlugin.getTableMetadata()` bridge through `DbxHostSchemaMetadataProvider`. It passes the normalized SchemaSeed-owned schema and generation settings to the package's local JSONL runtime; that runtime calls the existing `buildGenerationPlan()` and `generateRows()`. It performs no network request, database access, credential lookup, or second connection. The Phase 0 Probe remains a separate UI surface and RPC method on the same plugin process; neither path is used as a fallback for the other.
+The browser Workbench invokes the public `window.dbxPlugin.getTableMetadata()` bridge through `DbxHostSchemaMetadataProvider`. It passes the normalized SchemaSeed-owned schema, column rules and generation settings to the package's local JSONL runtime; that runtime calls the existing `buildGenerationPlan()` and `generateRows()`. Rule validation-only calls reuse the `generation/preview` RPC contract and return Core plan diagnostics without rows. It performs no network request, database access, credential lookup, or second connection. The Phase 0 Probe remains a separate UI surface and RPC method on the same plugin process; neither path is used as a fallback for the other.
 
 ### TableContext and refresh
 
@@ -42,9 +42,9 @@ The Workbench subscribes to Host `onContext`. A changed context immediately clea
 
 ### UI and state
 
-The production UI displays database / schema / table, column name, normalized schema type, current Core generator / semantic mapping, evidence / diagnostics, Rows, Seed, Locale, Generate, Regenerate Same Seed, New Seed, Preview and CSV / JSON export. It exposes only a labeled Rule Editor integration slot for #32; it does not implement a Column Rule Editor.
+The production UI displays database / schema / table, column name, normalized schema type, current Core generator / semantic mapping, evidence / diagnostics, Rows, Seed, Locale, Generate, Regenerate Same Seed, New Seed, Preview and CSV / JSON export. Issue #32 replaces the prior Rule Editor integration slot with one Core-driven per-column editor for the frozen 13 tagged GenerationRules. Core compatibility choices, field descriptors and diagnostics are rendered without a duplicate UI schema; rules remain table-session state and are cleared on context refresh. Any edit immediately invalidates Preview and Export until the current rule plan is validated and generated; invalid rules block Generate/Export and never fall back silently. See [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md) for the full contract.
 
-UI state is `loading`, `ready`, `warning`, `blocked`, or `error`. Provider errors retain the provider's actionable diagnostic; planning/generation diagnostics come from existing Core APIs. Metadata capability unavailable and invalid context are blocked states; Host request/runtime failures are errors; Core warning plans remain previewable/exportable; blocked plans cannot produce or export a dataset.
+UI state includes `loading`, `dirty`, `ready`, `warning`, `blocked`, and `error`. Provider errors retain the provider's actionable diagnostic; planning/generation diagnostics come from existing Core APIs. Metadata capability unavailable and invalid context are blocked states; Host request/runtime failures are errors; Core warning plans remain previewable/exportable; blocked plans cannot produce or export a dataset.
 
 ### Preview / Export
 
@@ -68,9 +68,9 @@ DBX v0.6.22 was the newest release at implementation time and does **not** conta
 
 The manifest's existing `engines.dbx: ">=0.6.19"` remains unchanged rather than guessing an unpublished version number. It is the historical floor and is not sufficient for this new action. Do not release the candidate until the official #10244-containing release is identified; then set the verified floor and perform runtime smoke. No upstream DBX compilation is part of this work.
 
-## #32 boundary / non-goals
+## #32 implementation / non-goals
 
-#31 displays existing Core mapping and generator decisions but does not implement Constant, Sequence, random rules, enum/boolean ratios, date/timestamp ranges, UUID, Null Ratio or a semantic Rule Editor. It also does not implement constraints, relational datasets, Direct Insert, SQL Export, AI rules, production masking or real-data sampling.
+Issue #32 implements the frozen 13-rule v0.1 model and Rule Editor in the existing Core, production Workbench, RPC and `.dbxp` package. It does not add a second generator, DBX connection, rule persistence/profile, constraints, relational datasets, Direct Insert, SQL Export, AI rules, production masking or real-data sampling. Runtime E2E remains gated on the official DBX release containing #10244.
 
 ## Runtime smoke gate
 
@@ -82,4 +82,4 @@ When the official DBX release containing #10244 is published, install the update
 4. opening table B while table A's Workbench is reused refreshes context, metadata, plan, preview and exports;
 5. repeat table switch (A→B→C) and confirm no stale response survives.
 
-Until then, status remains `IMPLEMENTATION_READY_RUNTIME_SMOKE_PENDING`; do not close #31 based solely on package/tests or claim runtime validation.
+Until then, status remains `IMPLEMENTATION_READY_RUNTIME_SMOKE_PENDING` for #31 and `IMPLEMENTATION_READY_RUNTIME_E2E_PENDING` for #32; do not close either Issue based solely on package/tests or claim runtime validation.

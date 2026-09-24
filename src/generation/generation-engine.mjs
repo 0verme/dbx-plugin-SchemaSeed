@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
+import { formatDecimalUnits, formatTimestamp, parseTimestamp } from "./generation-rules.mjs";
 import { generatePersonSyntheticValue } from "./person-synthetic.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -11,8 +12,8 @@ const DEFAULT_TIMESTAMP_MIN = Date.parse("2000-01-01T00:00:00.000Z");
 const DEFAULT_TIMESTAMP_MAX = Date.parse("2035-12-31T23:59:59.999Z");
 
 /**
- * Execute a frozen plan using random-access, per-cell SHA-256 identities. No
- * module-level RNG state or generation call order participates in a value.
+ * Execute an inspectable plan using random-access, per-cell SHA-256 identities.
+ * No global RNG state, iteration order, or shared random stream participates.
  * @param {import("./generation-plan.mjs").GenerationPlan} plan
  * @returns {{ rows: Array<Record<string, unknown>>, diagnostics: import("../diagnostics.mjs").GenerationDiagnostic[], status: string }}
  */
@@ -46,7 +47,7 @@ export function generateRows(plan) {
           entries.push([schema.name, null]);
           continue;
         }
-        entries.push([schema.name, generateValue(rule, identity, schema, plan.locale)]);
+        entries.push([schema.name, generateValue(rule, identity, schema, plan.locale, rowIndex)]);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -71,12 +72,45 @@ export function generateRows(plan) {
   return { rows, diagnostics: [...plan.diagnostics], status: planStatus(plan.diagnostics) };
 }
 
-function generateValue(rule, identity, column, locale) {
+function generateValue(rule, identity, column, locale, rowIndex) {
   const parameters = rule.parameters;
   if (rule.kind.startsWith("semantic:")) {
     return generatePersonSyntheticValue(rule.kind.slice("semantic:".length), identity, locale);
   }
   switch (rule.kind) {
+    case "constant":
+      return parameters.value;
+    case "sequence": {
+      if (parameters.numericKind === "decimal") {
+        const value = BigInt(parameters.startUnits) + BigInt(parameters.stepUnits) * BigInt(rowIndex);
+        return formatDecimalUnits(value, parameters.scale);
+      }
+      const value = BigInt(parameters.start) + BigInt(parameters.step) * BigInt(rowIndex);
+      const numeric = Number(value);
+      if (!Number.isSafeInteger(numeric)) throw new Error("Integer Sequence exceeded safe numeric representation");
+      return numeric;
+    }
+    case "random_integer":
+      return Number(randomBigIntBelowUniform(BigInt(parameters.max) - BigInt(parameters.min) + 1n, [...identity, "random-integer"]) + BigInt(parameters.min));
+    case "random_decimal": {
+      const min = BigInt(parameters.minUnits);
+      const max = BigInt(parameters.maxUnits);
+      const units = min + randomBigIntBelowUniform(max - min + 1n, [...identity, "random-decimal"]);
+      return formatDecimalUnits(units, parameters.scale);
+    }
+    case "random_string":
+      return randomString(parameters.length, identity, true);
+    case "enum":
+      return parameters.values[Number(randomBigIntBelowUniform(BigInt(parameters.values.length), [...identity, "enum-choice"]))];
+    case "boolean_ratio":
+      return parameters.trueRatio === 1
+        || (parameters.trueRatio !== 0 && randomUnit([...identity, "boolean-ratio"]) < parameters.trueRatio);
+    case "date_range":
+      return randomDate(parameters.start, parameters.end, identity);
+    case "timestamp_range":
+      return randomTimestamp(parameters.start, parameters.end, column, identity);
+    case "uuid":
+      return deterministicUuid(identity);
     case "integer": {
       const min = Number.isSafeInteger(parameters.min) ? parameters.min : parameters.defaultMin;
       const max = Number.isSafeInteger(parameters.max) ? parameters.max : parameters.defaultMax;
@@ -86,19 +120,12 @@ function generateValue(rule, identity, column, locale) {
       const precision = parameters.precision;
       const scale = parameters.scale;
       const units = randomBigIntBelow(10n ** BigInt(precision), [...identity, "decimal"]);
-      return formatDecimal(units, scale);
+      return formatDecimalUnits(units, scale);
     }
     case "varchar": {
       const schemaMax = parameters.schemaMaxLength;
       const maxLength = Math.min(parameters.maxLength ?? 16, schemaMax ?? 16);
-      const length = Number(randomBigIntBelow(BigInt(maxLength), [...identity, "string-length"])) + 1;
-      let output = "";
-      for (let index = 0; index < length; index += 1) {
-        const slot = [...identity, `character-${index}`];
-        const charIndex = Number(randomBigIntBelow(BigInt(STRING_ALPHABET.length), slot));
-        output += STRING_ALPHABET[charIndex];
-      }
-      return output;
+      return randomString(Number(randomBigIntBelow(BigInt(maxLength), [...identity, "string-length"])) + 1, identity);
     }
     case "boolean":
       return randomBigIntBelow(2n, [...identity, "boolean"]) === 1n;
@@ -116,17 +143,50 @@ function generateValue(rule, identity, column, locale) {
       const quantum = precision < 3 ? 10 ** (3 - precision) : 1;
       const slots = Math.floor((max - min) / quantum) + 1;
       const value = min + Number(randomBigIntBelow(BigInt(slots), [...identity, "timestamp"])) * quantum;
-      return formatTimestamp(value, precision);
+      return formatTimestamp(BigInt(value) * 1_000_000n, precision);
     }
     default:
       throw new Error(`No generator is available for rule ${rule.kind}`);
   }
 }
 
-function formatDecimal(units, scale) {
-  if (scale === 0) return units.toString();
-  const digits = units.toString().padStart(scale + 1, "0");
-  return `${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
+function randomString(length, identity, uniform = false) {
+  let output = "";
+  for (let index = 0; index < length; index += 1) {
+    const address = [...identity, `character-${index}`];
+    const charIndex = Number(uniform
+      ? randomBigIntBelowUniform(BigInt(STRING_ALPHABET.length), address)
+      : randomBigIntBelow(BigInt(STRING_ALPHABET.length), address));
+    output += STRING_ALPHABET[charIndex];
+  }
+  return output;
+}
+
+function randomDate(start, end, identity) {
+  const min = Date.parse(`${start}T00:00:00.000Z`);
+  const max = Date.parse(`${end}T00:00:00.000Z`);
+  const days = BigInt(Math.floor((max - min) / DAY_MS) + 1);
+  const value = min + Number(randomBigIntBelowUniform(days, [...identity, "date-range"])) * DAY_MS;
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function randomTimestamp(start, end, column, identity) {
+  const minimum = parseTimestamp(start);
+  const maximum = parseTimestamp(end);
+  if (!minimum || !maximum) throw new Error("Invalid Timestamp Range in GenerationPlan");
+  const precision = column.precision.state === "known" ? column.precision.value : 3;
+  const quantum = 10n ** BigInt(9 - precision);
+  const slots = (maximum.nanoseconds - minimum.nanoseconds) / quantum + 1n;
+  const value = minimum.nanoseconds + randomBigIntBelowUniform(slots, [...identity, "timestamp-range"]) * quantum;
+  return formatTimestamp(value, precision);
+}
+
+function deterministicUuid(identity) {
+  const bytes = Buffer.from(digestFor([...identity, "uuid-v4"]).subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function parseDateBound(value, fallback) {
@@ -141,13 +201,6 @@ function parseTimestampBound(value, fallback) {
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) throw new Error(`Invalid timestamp bound ${String(value)}`);
   return parsed;
-}
-
-function formatTimestamp(value, precision) {
-  const iso = new Date(value).toISOString();
-  if (precision >= 3) return iso;
-  if (precision === 0) return iso.replace(/\.\d{3}Z$/, "Z");
-  return iso.replace(/\.(\d{3})Z$/, (_match, fraction) => `.${fraction.slice(0, precision)}Z`);
 }
 
 function randomUnit(identity) {
@@ -169,6 +222,25 @@ function randomBigIntBelow(exclusiveMax, identity) {
   }
   const candidate = BigInt(`0x${bytes.subarray(0, byteCount).toString("hex")}`) & mask;
   return candidate % exclusiveMax;
+}
+
+function randomBigIntBelowUniform(exclusiveMax, identity) {
+  if (exclusiveMax <= 0n) throw new Error("Random range must have a positive width");
+  if (exclusiveMax === 1n) return 0n;
+  const bitCount = (exclusiveMax - 1n).toString(2).length;
+  const byteCount = Math.ceil(bitCount / 8);
+  const mask = (1n << BigInt(bitCount)) - 1n;
+  for (let attempt = 0; ; attempt += 1) {
+    const parts = [];
+    let length = 0;
+    for (let block = 0; length < byteCount; block += 1) {
+      const part = digestFor([...identity, `candidate-${attempt}`, `block-${block}`]);
+      parts.push(part);
+      length += part.length;
+    }
+    const candidate = BigInt(`0x${Buffer.concat(parts).subarray(0, byteCount).toString("hex")}`) & mask;
+    if (candidate < exclusiveMax) return candidate;
+  }
 }
 
 function digestFor(identity) {
