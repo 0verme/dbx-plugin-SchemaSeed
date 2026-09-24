@@ -4,7 +4,8 @@ const elements = {
   button: document.querySelector("#run-probe"),
   capability: document.querySelector("#capability-state"),
   context: document.querySelector("#table-context"),
-  metadata: document.querySelector("#metadata-result"),
+  rawMetadata: document.querySelector("#raw-host-response"),
+  normalizedMetadata: document.querySelector("#normalized-result"),
   diagnostics: document.querySelector("#diagnostics"),
 };
 
@@ -39,7 +40,8 @@ async function runProbe() {
   elements.button.disabled = true;
   elements.capability.textContent = "检查 schemaMetadataApi…";
   elements.context.textContent = "读取插件暂存的 Table Context…";
-  elements.metadata.textContent = "等待 metadata 请求";
+  elements.rawMetadata.textContent = "等待 Host API 响应";
+  elements.normalizedMetadata.textContent = "等待 metadata 请求";
   elements.diagnostics.textContent = "[]";
 
   try {
@@ -53,19 +55,23 @@ async function runProbe() {
     }, context);
 
     elements.capability.textContent = result.capability.available ? "available" : "unavailable";
+    if (result.rawHostResponse !== undefined) showJson(elements.rawMetadata, result.rawHostResponse);
+    else elements.rawMetadata.textContent = "未收到 Raw Host API response";
+
     if (result.ok) {
-      showJson(elements.metadata, {
-        hostResponse: result.metadata,
+      showJson(elements.normalizedMetadata, {
+        metadata: result.metadata,
         notExposedByHostApi: result.futureCapabilities,
       });
       showDiagnostics(result.diagnostics);
     } else {
-      elements.metadata.textContent = "未取得有效 metadata";
+      elements.normalizedMetadata.textContent = "未生成 SchemaSeed normalized result";
       showDiagnostics(result.diagnostics);
     }
   } catch (error) {
     elements.capability.textContent = "尚未确认";
-    elements.metadata.textContent = "未取得 metadata";
+    elements.rawMetadata.textContent = "Host API 未返回响应";
+    elements.normalizedMetadata.textContent = "未生成 SchemaSeed normalized result";
     showDiagnostics([{ code: "metadata_request_failed", message: errorText(error) }]);
   } finally {
     elements.button.disabled = false;
@@ -85,6 +91,8 @@ async function start() {
     await runProbe();
   } catch (error) {
     elements.capability.textContent = "初始化失败";
+    elements.rawMetadata.textContent = "Host bridge 初始化失败";
+    elements.normalizedMetadata.textContent = "未生成 SchemaSeed normalized result";
     showDiagnostics([{ code: "metadata_request_failed", message: errorText(error) }]);
     elements.button.disabled = false;
   }
