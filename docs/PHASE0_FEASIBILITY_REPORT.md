@@ -6,7 +6,7 @@ Status: READY_WITH_FOLLOWUPS
 
 ```text
 Phase 0 Gate: READY_WITH_FOLLOWUPS
-Issue #6: OPEN until this gate-closing PR merges (PR uses `Closes #6`)
+Issue #6: CLOSED by merged PR #33 (the original gate-closing PR used `Closes #6`)
 Issue #5: CLOSED by merged PR #28
 Runtime:
 DBX v0.6.21 Windows Desktop (PR #28)
@@ -17,6 +17,11 @@ Runtime Matrix:
 MySQL PASS
 SQLite PASS
 PostgreSQL PASS
+
+Current follow-up status:
+Issue #6: CLOSED by merged PR #33
+Production adapter: implemented in Issue #30; DBX Workbench integration remains #31
+Upstream TableContext → Workbench handoff: t8y2/dbx#10244 MERGED
 ```
 
 ### Frozen Schema Acquisition Path
@@ -48,10 +53,11 @@ DBX sends `params.table` with `connectionId`, `table`, and optional `database` /
 ## Table Context → Workbench Handoff
 
 ```text
-DIRECT_CONTEXT_MENU_TO_WORKBENCH_HANDOFF: NOT_PRODUCTIZED
+DBX v0.6.21 Phase 0 Probe runtime: TWO_STEP_HANDOFF
+Current upstream contract: t8y2/dbx#10244 MERGED
 ```
 
-In DBX v0.6.21 the Phase 0 Probe flow is: right-click a table → `SchemaSeed：保存 Table Context` → sidecar temporarily stores identity-only context → user manually opens the Schema Metadata Probe Workbench. The context-menu-to-Workbench handoff is not productized and remains a DBX upstream / product UX follow-up; this is not a Schema Acquisition Path technical blocker and does not block Issue #5.
+The DBX v0.6.21 runtime evidence remains the historical two-step Phase 0 Probe flow: right-click a table → `SchemaSeed：保存 Table Context` → sidecar temporarily stores identity-only context → user manually opens the Schema Metadata Probe Workbench. Separately, upstream PR [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) has now merged the direct `context-menu → open-workbench` handoff, passing the current connection/table context and refreshing it when a Workbench tab is reused. This newer upstream contract is intended for #31; it is not part of #30 and does not block the provider. Runtime smoke for a DBX release containing #10244 belongs to #31.
 
 The Probe uses the narrow public two-step alternative:
 
@@ -173,6 +179,6 @@ The one-shot handoff replay path is also automated: after the pending context is
 READY_WITH_FOLLOWUPS
 ```
 
-The final decision is **READY_WITH_FOLLOWUPS**: the public v0.1 Schema Acquisition Path is proven end-to-end for MySQL, SQLite, and PostgreSQL. This is not `READY` because Host API 1.3 does not expose PK, FK, UNIQUE, CHECK, Comment, or Identity metadata, and the context-menu → direct Workbench handoff is not productized; these remain explicitly non-blocking follow-ups. `not_exposed` is not equivalent to provider `unsupported`; it describes the Host API exposure boundary and makes no claim about whether a database or driver supports the capability. This is not `BLOCKED` because every v0.1 blocking capability and the legal public acquisition path have runtime evidence in DBX v0.6.21 Windows Desktop.
+The original Gate decision was **READY_WITH_FOLLOWUPS**: the public v0.1 Schema Acquisition Path was proven end-to-end for MySQL, SQLite, and PostgreSQL. At that decision point, Host API 1.3 did not expose PK, FK, UNIQUE, CHECK, Comment, or Identity metadata, and the direct context-menu → Workbench handoff was not yet merged; those gaps were non-blocking. Upstream #10244 has since merged the handoff contract, while the future metadata fields remain unexposed. `not_exposed` is not equivalent to provider `unsupported`; it describes the Host API exposure boundary and makes no claim about whether a database or driver supports the capability. This was not `BLOCKED` because every v0.1 blocking capability and the legal public acquisition path had runtime evidence in DBX v0.6.21 Windows Desktop.
 
-Issue #6 remains OPEN until the PR carrying this report merges; the PR uses `Closes #6`. This Gate decision means only that SchemaSeed v0.1's public, legal Schema Acquisition Path is proven feasible and production integration / productization may proceed. It does **not** mean a production `DbxHostSchemaMetadataProvider` is implemented, the Generation Workbench is in DBX runtime, Column Rules are productized, a Constraint Engine exists, or SchemaSeed is production-ready.
+The original Gate-closing PR used `Closes #6`; Issue #6 is now CLOSED by merged PR #33. This Gate decision means only that SchemaSeed v0.1's public, legal Schema Acquisition Path is proven feasible and production integration / productization may proceed. At the time of that Gate decision it did not mean that a production `DbxHostSchemaMetadataProvider` or Generation Workbench existed. Current follow-up status: #30 implements the production metadata adapter and its Core contract path; #31 still owns the packaged DBX Generation Workbench/runtime integration, and Column Rules / Constraint Engine remain separate scope.

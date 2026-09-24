@@ -17,13 +17,14 @@ const STRUCTURED_FIELDS = ["length", "precision", "scale", "default"];
 const NOT_EXPOSED_FIELDS = ["primaryKey", "foreignKey", "unique", "check", "comment", "identity"];
 
 /**
- * Consume the documented DBX 1.3 schema metadata Host API. This is a Phase 0
- * probe boundary, not the production SchemaMetadataProvider adapter.
+ * Consume and validate the documented DBX 1.3 metadata Host contract. The
+ * probe and production SchemaMetadataProvider share this DTO boundary; only
+ * the provider maps the validated response into SchemaSeed domain facts.
  *
  * @param {{ capabilities?: unknown, getTableMetadata?: (context: object) => Promise<unknown> }} host
  * @param {unknown} tableContext
  */
-export async function runDbxSchemaMetadataProbe(host, tableContext) {
+export async function requestDbxTableMetadata(host, tableContext) {
   const context = normalizeTableContext(tableContext);
   const capabilityAvailable = isRecord(host?.capabilities)
     && host.capabilities[SCHEMA_METADATA_CAPABILITY] === true
@@ -81,6 +82,11 @@ export async function runDbxSchemaMetadataProbe(host, tableContext) {
     ),
     diagnostics: [],
   };
+}
+
+/** @param {{ capabilities?: unknown, getTableMetadata?: (context: object) => Promise<unknown> }} host @param {unknown} tableContext */
+export function runDbxSchemaMetadataProbe(host, tableContext) {
+  return requestDbxTableMetadata(host, tableContext);
 }
 
 /** @param {unknown} value */

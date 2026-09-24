@@ -2,7 +2,7 @@
 
 > Status: Minimal Host API Consumer Contract v0.1; upstream API verified at Host API 1.3
 >
-> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约。Table Context 以 `t8y2/dbx#9918` 的公开实现为准；Schema Metadata 已由 `t8y2/dbx#10043`（merge commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`）正式公开。PR #28 已在 DBX v0.6.21 Windows Desktop 上完成 MySQL / SQLite / PostgreSQL runtime smoke；Phase 0 Gate 判定为 `READY_WITH_FOLLOWUPS`。文中的语义要求不扩展为 production adapter 或 Phase 1 功能。
+> 本文件定义 SchemaSeed 作为 **consumer** 所需要的最小语义契约。Table Context 以 `t8y2/dbx#9918` 的公开实现为准；Schema Metadata 已由 `t8y2/dbx#10043`（merge commit `d5a05a98840e54726bfec0c7dadabb8dc9a4c755`）正式公开。PR #28 已在 DBX v0.6.21 Windows Desktop 上完成 MySQL / SQLite / PostgreSQL runtime smoke；Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已由 PR #33 关闭。Production `DbxHostSchemaMetadataProvider` 及其 Core contract/integration tests 已由 #30 实现；本文件仍仅定义 consumer contract，不扩大为 Workbench / Phase 1 UI 规格。
 
 本契约基于已审计的 Phase 0 事实：
 
@@ -185,7 +185,8 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host
 - `database` / `schema` 在 #9918 table context 中无值时被省略；不能从 saved connection menu 的 `connection.database` 或空字符串占位推断 table scope。
 - `length` / `precision` / `scale` 的 missing 不能简单等价于 `0`。
 - `default` 的 absent 不能与空文本、driver unsupported、Host unsupported 或调用失败混为一个 optional omission。
-- Host API 1.3 已定义 optional values 与 `fieldCapabilities`；本 Probe 原样保留 omitted/null/unsupported/unknown。Host 调用失败仍以 Promise rejection 暴露，没有独立结构化 error-code enum。
+- Host API 1.3 已定义 optional values 与 `fieldCapabilities`。Probe 保留 DTO 的 omitted/null；#30 adapter 映射 `supported + value → known`、`supported + null → absent`、`supported + omitted → unavailable`、`unknown → unknown`、`unsupported → unsupported`，并在 domain fact 上保留 capability provenance。`unknown` 下的显式非空值仍保留为 known，同时记录 unknown provenance；不会凭 omission 推断 `not_applicable`。
+- Host 调用失败仍以 Promise rejection 暴露，没有独立结构化 error-code enum；#30 将其转换为带 actionable diagnostic 的 provider error，不返回空 schema 或 fixture。
 - Required fields (`connectionId`、`table`、column `name` / `dataType` / `nullable`) 如果无法提供，必须进入可识别的 invalid/unavailable/failure 语义，不能静默使用 display label、默认值或推断值。
 
 ## Future Capabilities
@@ -219,11 +220,11 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host
 → `{ table: { ... } }` sidecar invocation
 ```
 
-SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。Context menu 没有正式的直接 Workbench handoff；Probe 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递。此两步路径已纳入 PR #28 的 runtime evidence；直接 Workbench handoff 仍是 non-blocking product follow-up。
+SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。DBX v0.6.21 Probe runtime 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递，该路径已纳入 PR #28 runtime evidence。之后上游 #10244 已 merge，正式提供 context-menu → `open-workbench` handoff；正式 release runtime smoke 属于 #31。
 
 ### Host API 1.3 — Resolved Metadata Host Boundary
 
-`t8y2/dbx#10043` 已提供正式、公开的 metadata Host boundary，使 SchemaSeed 在已有 `TableContext` 下复用：
+`t8y2/dbx#10043` 已提供正式、公开的 metadata Host boundary，使 SchemaSeed 在已有 `TableContext` 下复用；#30 的 production adapter 已按此契约将返回 DTO 映射到 SchemaSeed-owned facts：
 
 ```text
 TableContext
@@ -245,35 +246,52 @@ TableContext
 该 boundary 必须：
 
 - 复用 DBX 已有 connection/session、schema core 和 driver path，不把 Tauri command、HTTP schema route、Object Browser state 或 private frontend module 作为插件 API。
-- response 通过 `fieldCapabilities` 与 omitted/null 表达 optional-field provenance；call/session failures 以 Promise rejection 返回。
+- response 通过 `fieldCapabilities` 与 omitted/null 表达 optional-field provenance；call/session failures 以 Promise rejection 返回。#30 将上述状态保留在 SchemaSeed facts 与 provider diagnostic 中，不伪造数字、布尔值或空文本。
 - 插件不得建立自己的 PostgreSQL、MySQL 或 SQLite connection，也不得执行 `information_schema`、`pg_catalog`、`PRAGMA` 等 workaround。
 - 正式 permission、capability、request/response 和版本策略见 [Phase 0 report](PHASE0_FEASIBILITY_REPORT.md#host-api-13-contract)。
 
+### #30 adapter mapping status
+
+```text
+fieldCapabilities = supported + concrete value  → known
+fieldCapabilities = supported + explicit null   → absent
+fieldCapabilities = supported + omitted         → unavailable
+fieldCapabilities = unknown                     → unknown (non-null returned value remains known)
+fieldCapabilities = unsupported                 → unsupported
+identity not present in Host API 1.3             → unknown, provenance=not_exposed
+Host/API failure                                → typed provider error + blocking diagnostic
+```
+
+`not_exposed` 是来源 / 暴露边界，不转换成 `unsupported`；该 adapter 不从数据库类型文本推导缺失的结构化字段，也不把缺失字段标为 `not_applicable`。
+
 ## Explicit non-goals
 
-本契约不实现也不冻结：
+本契约文档不实现也不冻结：
 
 - Generator、Faker、Semantic Inference、SchemaModel、Constraint Engine、Relation Planner。
 - SQL / CSV / JSON exporter、正式/fixture-driven Workbench、Direct Insert、Rust sidecar 或 AI；本仓库另有范围受限的 Phase 0 Probe Workbench。
 - 数据库 direct connection、第二套连接体系、credential 读取。
 - `information_schema`、`pg_catalog`、`PRAGMA`、`SHOW CREATE TABLE` 等数据库 introspection workaround。
 - DBX private store、private frontend module、未公开 Tauri/HTTP API 或 Object Browser state。
-- production `DbxHostSchemaMetadataProvider`、Host-backed Generation、future constraint consumption，以及正式/fixture Workbench packaging。
+- 在本契约中定义 production adapter / Host-backed Generation、future constraint consumption，以及正式/fixture Workbench packaging；production adapter 与 Core contract path 由 #30 实现，正式 Workbench/package integration 由 #31 负责。
 
 ## Phase 0 position
 
-本文件记录 consumer requirements 与已验证的正式 API contract；最终 Phase 0 Gate 决定见 feasibility report。Runtime evidence 来自已合并的 PR #28。
+本文件记录 consumer requirements 与已验证的正式 API contract；Phase 0 Gate 决定见 feasibility report。Runtime evidence 来自已合并的 PR #28。
 
 ```text
 Table Context: VERIFIED_SOURCE_CONTRACT
 Schema Metadata Host API: RELEASED (DBX v0.6.21, Host API 1.3)
 Consumer Probe: IMPLEMENTED / RUNTIME_VALIDATED (PR #28)
-Runtime Matrix: MySQL PASS / SQLite PASS / PostgreSQL PASS
+Production metadata adapter: IMPLEMENTED (#30)
+Runtime Matrix: MySQL PASS / SQLite PASS / PostgreSQL PASS (Probe, DBX v0.6.21)
 Issue #5: CLOSED (PR #28)
-Issue #6 / Phase 0 Gate: READY_WITH_FOLLOWUPS (Issue #6 closes when gate PR merges)
+Issue #6: CLOSED (PR #33)
+Phase 0 Gate: READY_WITH_FOLLOWUPS
+Upstream context-menu → open-workbench: MERGED (t8y2/dbx#10244)
 ```
 
-`t8y2/dbx#10043` 已 merge；PR #28 已验证 DBX v0.6.21 Windows Desktop 上的 PostgreSQL / MySQL / SQLite 路径。本 Probe 不实现 production adapter。
+`t8y2/dbx#10043` 已 merge；PR #28 验证了 DBX v0.6.21 Windows Desktop 上的 PostgreSQL / MySQL / SQLite Probe 路径。#30 实现 production adapter 与 Generation Core contract tests，但没有将 Workbench 打包进 DBX；#31 负责正式 Workbench integration，并在含 #10244 的正式 DBX release 上完成 runtime smoke。
 
 ## Evidence references
 

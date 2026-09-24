@@ -1,5 +1,5 @@
 /**
- * @typedef {{ tableIdentity: string }} TableSchemaRequest
+ * @typedef {{ tableIdentity: string } | { tableContext: import("../table-context.mjs").TableContext }} TableSchemaRequest
  * @typedef {{ getTableMetadata(request: TableSchemaRequest): Promise<import("./schema-model.mjs").TableSchema> }} SchemaMetadataProvider
  */
 

@@ -72,6 +72,13 @@ for (const relative of uiFiles) {
   }
 }
 
+const productionProviderFiles = ["src/providers/dbx-host-schema-metadata-provider.mjs"];
+const forbiddenProductionProvider = /information_schema|pg_catalog|SHOW\s+(?:COLUMNS|CREATE\s+TABLE)|PRAGMA\s+table_info|connectionString|credential|password|username|private\s+store|private\s+frontend|new\s+(?:Pool|Client|Connection)\b|createConnection\s*\(|@tauri|tauri::|fetch\s*\(|window\.dbxPlugin|FixtureSchemaMetadataProvider/i;
+for (const relative of productionProviderFiles) {
+  const source = await readFile(path.join(root, relative), "utf8");
+  assert.equal(forbiddenProductionProvider.test(source), false, `${relative} crosses the public Host adapter boundary`);
+}
+
 const probeBoundaryFiles = ["src/host/dbx-schema-metadata-probe.mjs", "ui/app.mjs"];
 const forbiddenProbeAccess = /information_schema|pg_catalog|\bSHOW\s+(?:COLUMNS|CREATE\s+TABLE)|\bPRAGMA\s+table_info|connectionString|@tauri|tauri::|fetch\s*\(/i;
 for (const relative of probeBoundaryFiles) {
