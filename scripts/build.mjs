@@ -7,42 +7,73 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
 const target = "universal";
-const buildRoot = await fsMkdtemp(path.join(os.tmpdir(), "schema-seed-probe-"));
+const buildRoot = await fsMkdtemp(path.join(os.tmpdir(), "schema-seed-workbench-"));
 
 try {
   const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
   const packageName = `${manifest.id}-${manifest.version}-${target}.dbxp`;
   const packagePath = path.join(dist, packageName);
   const metadataPath = packagePath.replace(/\.dbxp$/, ".artifact.json");
-  manifest.entrypoints.backend.executable = `bin/${target}/schema-seed-probe`;
+  manifest.entrypoints.backend.executable = `bin/${target}/schema-seed-runtime`;
 
   /** @type {Map<string, { data: Buffer, mode: number }>} */
   const files = new Map();
   files.set("manifest.json", { data: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`), mode: 0o644 });
   files.set("assets/plugin.svg", { data: await readFile(path.join(root, "assets/plugin.svg")), mode: 0o644 });
-  files.set("bin/universal/schema-seed-probe", {
+  files.set(`bin/${target}/schema-seed-runtime`, {
     data: await readFile(path.join(root, "scripts/unix-launcher.sh")),
     mode: 0o100755,
   });
-  files.set("bin/universal/schema-seed-probe.bat", {
+  files.set(`bin/${target}/schema-seed-runtime.bat`, {
     data: await readFile(path.join(root, "scripts/windows-launcher.bat")),
     mode: 0o644,
   });
-  files.set("backend/schema-seed-probe.mjs", {
-    data: await readFile(path.join(root, "backend/schema-seed-probe.mjs")),
-    mode: 0o644,
-  });
-  files.set("src/table-context.mjs", { data: await readFile(path.join(root, "src/table-context.mjs")), mode: 0o644 });
-  files.set("src/probe-state.mjs", { data: await readFile(path.join(root, "src/probe-state.mjs")), mode: 0o644 });
-  files.set("src/probe-protocol.mjs", { data: await readFile(path.join(root, "src/probe-protocol.mjs")), mode: 0o644 });
 
-  for (const name of ["index.html", "app.mjs", "probe.css"]) {
-    files.set(`ui/${name}`, { data: await readFile(path.join(root, "ui", name)), mode: 0o644 });
+  const runtimeModules = [
+    "backend/schema-seed-runtime.mjs",
+    "src/diagnostics.mjs",
+    "src/export/csv-exporter.mjs",
+    "src/export/export-dataset.mjs",
+    "src/export/json-exporter.mjs",
+    "src/generation/generation-engine.mjs",
+    "src/generation/generation-plan.mjs",
+    "src/generation/generation-runtime-contract.mjs",
+    "src/generation/generation-runtime-protocol.mjs",
+    "src/generation/person-synthetic.mjs",
+    "src/host/dbx-schema-metadata-probe.mjs",
+    "src/probe-protocol.mjs",
+    "src/probe-state.mjs",
+    "src/providers/dbx-host-schema-metadata-provider.mjs",
+    "src/schema/schema-interpreter.mjs",
+    "src/schema/schema-metadata-provider.mjs",
+    "src/schema/schema-model.mjs",
+    "src/semantic/person-groups.mjs",
+    "src/semantic/semantic-inference.mjs",
+    "src/table-context.mjs",
+    "src/workbench/dbx-generation-workbench-controller.mjs",
+    "src/workbench/workbench-view-model.mjs",
+    "ui/app.mjs",
+    "ui/generation-workbench/app.mjs",
+    "ui/generation-workbench/styles.css",
+    "ui/index.html",
+    "ui/probe-app.mjs",
+    "ui/probe.css",
+  ];
+  for (const relative of runtimeModules) {
+    files.set(relative, { data: await readFile(path.join(root, relative)), mode: 0o644 });
   }
   files.set("ui/schema-metadata-probe.mjs", {
     data: await readFile(path.join(root, "src/host/dbx-schema-metadata-probe.mjs")),
     mode: 0o644,
   });
+  const forbiddenRuntimeFiles = [...files.keys()].filter((name) =>
+    /^(?:fixtures|web|tests)\//.test(name)
+    || /fixture-schema-metadata-provider|fixture-preview/.test(name)
+    || name === "src/workbench/workbench-server.mjs"
+    || name === "src/workbench/workbench-controller.mjs");
+  if (forbiddenRuntimeFiles.length > 0) {
+    throw new Error(`Fixture/development resources entered the production package: ${forbiddenRuntimeFiles.join(", ")}`);
+  }
 
   const checksumFiles = Object.fromEntries(
     [...files.entries()]

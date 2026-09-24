@@ -18,7 +18,7 @@
     "backend": {
       "protocol_versions": [1],
       "transport": "stdio-jsonl",
-      "executable": "bin/schema-seed-probe"
+      "executable": "bin/universal/schema-seed-runtime"
     },
     "ui": {
       "root": "ui",
@@ -30,7 +30,7 @@
       "type": "context-menu",
       "id": "io.github.0verme.schema-seed.table-context-probe",
       "label": "SchemaSeed: Show table context",
-      "description": "Save the DBX #9918 table identity for the Phase 0 metadata probe.",
+      "description": "Save the DBX table identity for the separate Phase 0 metadata probe.",
       "menu": "table"
     },
     {
@@ -39,6 +39,24 @@
       "label": "Schema Metadata Probe",
       "description": "Inspect the public DBX Schema Metadata Host API response.",
       "icon": "assets/plugin.svg"
+    },
+    {
+      "type": "workbench",
+      "id": "io.github.0verme.schema-seed.generation-workbench",
+      "label": "SchemaSeed Generation Workbench",
+      "description": "Generate and preview deterministic synthetic data from the current DBX table.",
+      "icon": "assets/plugin.svg"
+    },
+    {
+      "type": "context-menu",
+      "id": "io.github.0verme.schema-seed.generate-test-data",
+      "label": "生成测试数据",
+      "description": "为当前 DBX 表生成可预览、可导出的 synthetic test data。",
+      "menu": "table",
+      "action": {
+        "type": "open-workbench",
+        "workbench": "io.github.0verme.schema-seed.generation-workbench"
+      }
     }
   ],
   "localizations": {
@@ -53,6 +71,14 @@
         "io.github.0verme.schema-seed.schema-metadata-probe": {
           "label": "Schema Metadata Probe",
           "description": "查看 DBX 公开 Schema Metadata Host API 返回结果。"
+        },
+        "io.github.0verme.schema-seed.generation-workbench": {
+          "label": "SchemaSeed 生成工作台",
+          "description": "根据当前 DBX 表生成并预览确定性的 synthetic 测试数据。"
+        },
+        "io.github.0verme.schema-seed.generate-test-data": {
+          "label": "生成测试数据",
+          "description": "为当前 DBX 表生成可预览、可导出的 synthetic 测试数据。"
         }
       }
     }

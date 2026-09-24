@@ -1,102 +1,42 @@
-import { runDbxSchemaMetadataProbe } from "./schema-metadata-probe.mjs";
+const GENERATION_WORKBENCH_ID = "io.github.0verme.schema-seed.generation-workbench";
+const PHASE0_WORKBENCH_ID = "io.github.0verme.schema-seed.schema-metadata-probe";
+let latestInit = null;
 
-const elements = {
-  button: document.querySelector("#run-probe"),
-  capability: document.querySelector("#capability-state"),
-  context: document.querySelector("#table-context"),
-  rawMetadata: document.querySelector("#raw-host-response"),
-  normalizedMetadata: document.querySelector("#normalized-result"),
-  diagnostics: document.querySelector("#diagnostics"),
-};
-
-const HANDOFF_METHOD = "schemaMetadataProbe/takeTableContext";
-const HOST_API_ERROR_CODES = new Set([
-  "capability_unavailable",
-  "permission_denied",
-  "missing_table_context",
-  "connection_not_open",
-  "metadata_request_failed",
-  "invalid_metadata_response",
-]);
-
-function showJson(element, value) {
-  element.textContent = JSON.stringify(value, null, 2);
-}
-
-function errorText(error) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function showDiagnostics(diagnostics) {
-  const safeDiagnostics = diagnostics.map((diagnostic) => ({
-    code: HOST_API_ERROR_CODES.has(diagnostic.code) ? diagnostic.code : "metadata_request_failed",
-    message: diagnostic.message,
-  }));
-  showJson(elements.diagnostics, safeDiagnostics);
-}
-
-async function runProbe() {
-  const host = window.dbxPlugin;
-  elements.button.disabled = true;
-  elements.capability.textContent = "检查 schemaMetadataApi…";
-  elements.context.textContent = "读取插件暂存的 Table Context…";
-  elements.rawMetadata.textContent = "等待 Host API 响应";
-  elements.normalizedMetadata.textContent = "等待 metadata 请求";
-  elements.diagnostics.textContent = "[]";
-
-  try {
-    const handoff = await host.invoke(HANDOFF_METHOD, {}, { timeoutMs: 5000 });
-    const context = handoff && typeof handoff === "object" ? handoff.context : null;
-    showJson(elements.context, context);
-
-    const result = await runDbxSchemaMetadataProbe({
-      capabilities: host.capabilities,
-      getTableMetadata: (tableContext) => host.getTableMetadata(tableContext),
-    }, context);
-
-    elements.capability.textContent = result.capability.available ? "available" : "unavailable";
-    if (result.rawHostResponse !== undefined) showJson(elements.rawMetadata, result.rawHostResponse);
-    else elements.rawMetadata.textContent = "未收到 Raw Host API response";
-
-    if (result.ok) {
-      showJson(elements.normalizedMetadata, {
-        metadata: result.metadata,
-        notExposedByHostApi: result.futureCapabilities,
-      });
-      showDiagnostics(result.diagnostics);
-    } else {
-      elements.normalizedMetadata.textContent = "未生成 SchemaSeed normalized result";
-      showDiagnostics(result.diagnostics);
-    }
-  } catch (error) {
-    elements.capability.textContent = "尚未确认";
-    elements.rawMetadata.textContent = "Host API 未返回响应";
-    elements.normalizedMetadata.textContent = "未生成 SchemaSeed normalized result";
-    showDiagnostics([{ code: "metadata_request_failed", message: errorText(error) }]);
-  } finally {
-    elements.button.disabled = false;
-  }
-}
+document.addEventListener("dbx-plugin-init", (event) => {
+  latestInit = event.detail;
+}, { once: true });
 
 async function start() {
   const host = window.dbxPlugin;
+  const boot = document.getElementById("boot-state");
   if (!host) {
-    elements.capability.textContent = "unavailable";
-    elements.diagnostics.textContent = "DBX Plugin Host bridge 不可用。";
-    elements.button.disabled = true;
+    boot.textContent = "DBX Plugin Host bridge 不可用。";
     return;
   }
   try {
     await host.ready;
-    await runProbe();
+    const context = host.context;
+    const contributionId = latestInit?.contributionId;
+    if (contributionId === GENERATION_WORKBENCH_ID || (contributionId !== PHASE0_WORKBENCH_ID && isTableContext(context))) {
+      document.getElementById("phase0-probe").hidden = true;
+      const root = document.getElementById("generation-workbench-root");
+      root.hidden = false;
+      boot.hidden = true;
+      const { mountGenerationWorkbench } = await import("./generation-workbench/app.mjs");
+      await mountGenerationWorkbench(root, host, context);
+      return;
+    }
+    document.getElementById("phase0-probe").hidden = false;
+    boot.hidden = true;
+    await import("./probe-app.mjs");
   } catch (error) {
-    elements.capability.textContent = "初始化失败";
-    elements.rawMetadata.textContent = "Host bridge 初始化失败";
-    elements.normalizedMetadata.textContent = "未生成 SchemaSeed normalized result";
-    showDiagnostics([{ code: "metadata_request_failed", message: errorText(error) }]);
-    elements.button.disabled = false;
+    boot.textContent = `SchemaSeed 初始化失败：${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
-elements.button.addEventListener("click", () => void runProbe());
+function isTableContext(value) {
+  return value !== null && typeof value === "object"
+    && typeof value.connectionId === "string" && typeof value.table === "string";
+}
+
 void start();

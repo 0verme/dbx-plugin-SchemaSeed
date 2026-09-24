@@ -1,9 +1,29 @@
-# SchemaSeed uses a dependency-free Node.js JSONL sidecar. The DBX SDK CLI's
-# native backend builder currently targets Rust/Go, so scripts/build.mjs stages
-# this universal launcher and calls the same unsigned `.dbxp` packager contract.
+# Production package inputs are explicit so fixture providers, the standalone
+# web harness, fixtures, tests, and dev-only workbench server stay out of .dbxp.
 schema_version = 1
 
 [package]
-include = ["backend", "src", "ui", "assets"]
+include = [
+  "assets/plugin.svg",
+  "backend/schema-seed-runtime.mjs",
+  "src/diagnostics.mjs",
+  "src/export",
+  "src/generation",
+  "src/host/dbx-schema-metadata-probe.mjs",
+  "src/probe-protocol.mjs",
+  "src/probe-state.mjs",
+  "src/providers/dbx-host-schema-metadata-provider.mjs",
+  "src/schema",
+  "src/semantic",
+  "src/table-context.mjs",
+  "src/workbench/dbx-generation-workbench-controller.mjs",
+  "src/workbench/workbench-view-model.mjs",
+  "ui/app.mjs",
+  "ui/generation-workbench",
+  "ui/index.html",
+  "ui/probe-app.mjs",
+  "ui/probe.css",
+  "ui/schema-metadata-probe.mjs",
+]
 
 [dev]

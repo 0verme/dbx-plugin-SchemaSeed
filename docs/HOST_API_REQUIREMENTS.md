@@ -273,7 +273,7 @@ Host/API failure                                → typed provider error + block
 - 数据库 direct connection、第二套连接体系、credential 读取。
 - `information_schema`、`pg_catalog`、`PRAGMA`、`SHOW CREATE TABLE` 等数据库 introspection workaround。
 - DBX private store、private frontend module、未公开 Tauri/HTTP API 或 Object Browser state。
-- 在本契约中定义 production adapter / Host-backed Generation、future constraint consumption，以及正式/fixture Workbench packaging；production adapter 与 Core contract path 由 #30 实现，正式 Workbench/package integration 由 #31 负责。
+- 在本契约中定义 production adapter / Host-backed Generation、future constraint consumption，以及正式/fixture Workbench packaging；production adapter / Core contract path 由 #30 实现，正式 Workbench/package 实现由 #31 交付（参见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md)）。
 
 ## Phase 0 position
 
@@ -291,7 +291,7 @@ Phase 0 Gate: READY_WITH_FOLLOWUPS
 Upstream context-menu → open-workbench: MERGED (t8y2/dbx#10244)
 ```
 
-`t8y2/dbx#10043` 已 merge；PR #28 验证了 DBX v0.6.21 Windows Desktop 上的 PostgreSQL / MySQL / SQLite Probe 路径。#30 实现 production adapter 与 Generation Core contract tests，但没有将 Workbench 打包进 DBX；#31 负责正式 Workbench integration，并在含 #10244 的正式 DBX release 上完成 runtime smoke。
+`t8y2/dbx#10043` 已 merge；PR #28 验证了 DBX v0.6.21 Windows Desktop 上的 PostgreSQL / MySQL / SQLite Probe 路径。#30 实现 production adapter 与 Generation Core contract tests；#31 已完成正式 Workbench integration/package implementation。DBX v0.6.22 未包含 #10244，正式 runtime smoke 与最终 manifest DBX floor pending 下一正式 release，详见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md)。
 
 ## Evidence references
 

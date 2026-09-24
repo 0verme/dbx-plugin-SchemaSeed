@@ -153,12 +153,12 @@ Fixture Preview + Diagnostics
 - Fixture-driven Workbench 已实现；设计 Issue [#14](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/14) 已 Design Freeze 并关闭。
 - `WorkbenchController` 使用现有 `buildGenerationPlan()` 与 `generateRows()`；只消费 `FixtureSchemaMetadataProvider`。
 - Rows 默认 20、限制 1–100；支持 seed、same-seed Regenerate、New Seed、`zh-CN` / `en`、显式 mapping confirmation / override、Person groups、Core diagnostics 与 preview。
-- Runtime 为 standalone loopback development harness only。当前 DBX `.dbxp` 另含独立 Phase 0 Schema Metadata Probe UI；fixture-driven Phase 1C Workbench 本身仍未 packaged in DBX。
+- Runtime 为 standalone loopback development harness only。Phase 1C fixture-driven Workbench 本身仍未 packaged in DBX；#31 的正式 DBX Workbench 是独立生产 consumer，不依赖此 fixture UI。
 - Phase 1C 完成时 Export 尚未实现；CSV / JSON 后续由 Phase 1D 单独交付。无 Direct Insert。
 
 ### Upstream boundary
 
-Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进。Production adapter 由 #30 单独交付，正式 Workbench integration 由 #31 完成。
+Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进。Production adapter 由 #30 单独交付，正式 Workbench implementation/package 由 #31 完成；含 #10244 的正式 DBX release runtime smoke 仍 pending。
 
 ## Phase 1D — Deterministic Export Core + Workbench Download（[#23](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/23)）
 
@@ -166,7 +166,7 @@ Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phas
 
 - Deterministic CSV / JSON Export Core 与 Workbench Download 已随 PR #24 合并至 `main`（merge commit `1ce80821e41339aaca35cd813b3813d757aa8f86`）；Export 只消费 Workbench 当前已由 Generation Core 产生的 dataset，不重复生成。
 - [Phase 1D Export](PHASE1D_EXPORT.md) 记录 dataset contract、Preview / export parity、CSV escaping / spreadsheet-safe / UTF-8 BOM、JSON decimal precision、filename 与 runtime 边界。
-- `npm run build` 构建现有 JSONL consumer 与独立的 Phase 0 Metadata Probe UI；Phase 1A–1D fixture Core / Workbench 仍只通过 `npm run workbench` standalone harness 运行，不会被整体打包进 DBX。
+- Phase 1D 原始实现只通过 `npm run workbench` standalone harness 使用；#31 后 `.dbxp` 选择性打包 production Core / provider / Workbench UI。Phase 1C fixture Workbench、fixture providers 与 fixtures 仍不进入 production package。
 
 ### 明确延期 / 边界
 
@@ -178,16 +178,37 @@ Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phas
 
 - `DbxHostSchemaMetadataProvider` 是唯一 production DTO → SchemaSeed domain adapter；它复用公开 `getTableMetadata()` contract，将 DBX columns 与 `fieldCapabilities` 映射为现有 `TableSchema` / `ColumnSchema` facts，并保留 optional-field 状态与 provenance。
 - Contract tests 覆盖 MySQL、PostgreSQL、SQLite，以及 TableContext → provider → TableSchema → `buildGenerationPlan()` → `generateRows()`。SQLite 未暴露的 structured length / precision / scale 保持 `unsupported`，不会伪造 0；获取失败返回 actionable diagnostic，不 fallback 到 fixtures。
-- `FixtureSchemaMetadataProvider` 仍只属于 tests / standalone development harness。#30 不把 fixture Workbench 打包进 DBX，也不新增 Workbench UI 或 context-menu contribution；正式 runtime consumer / smoke 由 #31 负责。
+- `FixtureSchemaMetadataProvider` 仍只属于 tests / standalone development harness。#30 不包含 Workbench UI / context-menu contribution；#31 负责正式 consumer、package contribution 与 runtime smoke。
 
-## 后续版本规划
+## Phase 1E — Production DBX Generation Workbench（#31）
 
-`t8y2/dbx#10043` 已 merge 并随 DBX v0.6.21 发布；Schema Acquisition Path 已在 MySQL / SQLite / PostgreSQL 真实验证并由 PR #28 回填，Issue #5 已关闭。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已由 PR #33 合并关闭。#30 已实现 production metadata adapter 与 Generation Core contract path；#10244 已 merge，后续 #31 可在 DBX release runtime 中集成并 smoke 正式 Workbench。后续主线为：
+### Production path
 
 ```text
-Production DBX Metadata Adapter (#30 implemented)
-→ DBX Generation Workbench (#31; may consume #10244 context handoff)
-→ Column Generation Rules (#32)
+DBX Sidebar table
+  → context-menu “生成测试数据”
+  → declarative `open-workbench` (#10244)
+  → direct TableContext (not legacy `{ table: ... }` envelope)
+  → DbxHostSchemaMetadataProvider
+  → SchemaSeed TableSchema
+  → GenerationPlan → generateRows()
+  → Preview → CSV / JSON
 ```
 
-#31 Workbench 与 #32 Column Rules 是后续产品化任务；约束、关系、SCD、SQL Export 与 Direct Insert 仍需各自立项。上游 #10244 的 merge 不影响既有 fixture-driven Export 范围。
+- Formal Workbench obtains TableContext directly from DBX and calls the public `getTableMetadata()` provider; `database` / `schema` remain optional.
+- The current dataset is created from the same Core generation result used by Preview. Export serializes only that dataset and never calls `generateRows()` again.
+- Context change synchronously invalidates old metadata, plan, preview and export dataset. `A → B → C` calls are revision-guarded so late responses cannot replace C.
+- UI states distinguish `loading`, `ready`, `warning`, `blocked` and `error`; provider/Core diagnostics remain the single diagnostic source.
+- `ui/` includes both the production Workbench UI and separate Phase 0 Probe. The `.dbxp` package explicitly excludes `web/`, `fixtures/`, fixture providers/controllers, tests and standalone harness server.
+- Rule Editor remains an integration slot only. Constant/Sequence/Random/etc. GenerationRule editor work remains #32.
+
+### DBX release compatibility decision
+
+- Latest official DBX release audited: `v0.6.22`, published before `t8y2/dbx#10244` merged; the PR says it will be available in the next release, whose version is not yet known.
+- v0.6.22 manifest parser denies unknown fields on context-menu contributions. It therefore rejects a manifest containing `context-menu.action.open-workbench`; it does not silently ignore the action or provide a safe legacy fallback.
+- `manifest.json` keeps the previous `engines.dbx: ">=0.6.19"` floor without guessing a future version. This is not a valid release floor for the new action. Treat current `.dbxp` as an implementation-only unsigned candidate; do not install/release against v0.6.22.
+- Final DBX floor and runtime smoke remain pending until the official release containing #10244 is published. Then set the floor to that verified release and smoke table launch, metadata, Preview / exports and reused-workbench context refresh. Do not compile DBX locally for this gate.
+
+### Current status / next step
+
+`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; official runtime smoke and acceptance-based Issue closure remain pending the upstream release containing #10244. #32 owns the future Rule Editor. PK / UNIQUE / CHECK, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.
