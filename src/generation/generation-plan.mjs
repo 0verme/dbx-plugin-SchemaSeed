@@ -1,5 +1,17 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
+import {
+  createGenerationRuleDraft,
+  generationRuleIdentity,
+  GENERATION_RULE_KINDS,
+  GENERATION_RULE_LABELS,
+  getCompatibleGenerationRules,
+  getCompatibleSemanticTypes,
+  getGenerationRuleEditorFields,
+  isUuidType,
+  parseDecimalUnits,
+  validateGenerationRule,
+} from "./generation-rules.mjs";
 import { normalizeTableSchema } from "../schema/schema-model.mjs";
 import { checkSemanticCompatibility, inferSemanticType, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
 import { resolvePersonGroups } from "../semantic/person-groups.mjs";
@@ -27,6 +39,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * @property {SemanticMapping} semanticMapping
  * @property {Record<string, unknown>} inference
  * @property {GenerationRule} rule
+ * @property {{ kind: string, [key: string]: unknown }} generationRule
  * @property {string | null} personGroupIdentity
  * @property {number} nullProbability
  * @typedef {Object} GenerationPlan
@@ -46,7 +59,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * Convert normalized schema facts, semantic mappings, groups, and user rules
  * into an inspectable plan. No provider, UI, Faker, or database is called.
  * @param {unknown} tableInput
- * @param {{ seed?: string | number, rowCount?: number, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string }} options
+ * @param {{ seed?: string | number, rowCount?: number, rules?: Record<string, unknown>, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string }} options
  * @returns {GenerationPlan}
  */
 export function buildGenerationPlan(tableInput, options = {}) {
@@ -65,6 +78,7 @@ export function buildGenerationPlan(tableInput, options = {}) {
   const locale = normalizeLocale(options.locale, schema.tableIdentity, diagnostics);
   const mode = normalizeMode(options.mode, schema.tableIdentity, diagnostics);
   const overrides = normalizeOverrides(options.overrides, schema.tableIdentity, diagnostics);
+  const rawRules = normalizeGenerationRules(options.rules, schema.tableIdentity, diagnostics);
   const semanticOverrides = normalizeSemanticMappings(options.semanticOverrides, "explicit-user-semantic-override", schema.tableIdentity, diagnostics);
   const confirmedMappings = normalizeSemanticMappings(options.semanticMappings, "confirmed-semantic-mapping", schema.tableIdentity, diagnostics);
   const seenColumns = new Set();
@@ -81,6 +95,46 @@ export function buildGenerationPlan(tableInput, options = {}) {
     }
     seenColumns.add(column.name);
     const inference = inferSemanticType(column, locale);
+    const hasRule = rawRules.has(column.name);
+    const rawRule = rawRules.get(column.name);
+    const validation = validateGenerationRule(column, hasRule ? rawRule : { kind: "auto" }, {
+      tableIdentity: schema.tableIdentity,
+      rowCount,
+    });
+    diagnostics.push(...validation.diagnostics);
+    let generationRule = validation.rule ?? {
+      kind: "invalid",
+      identity: generationRuleIdentity({ kind: "invalid", requested: rawRule?.kind ?? "unknown" }),
+    };
+    const displayGenerationRule = (validation.rule && safeRuleForDisplay(validation.rule))
+      ?? safeRuleForDisplay(rawRule)
+      ?? { kind: "invalid" };
+    if (overrides.has(column.name) && hasRule) {
+      diagnostics.push(makeDiagnostic({
+        severity: "error",
+        code: "generation_rule_conflict",
+        table: schema.tableIdentity,
+        column: column.name,
+        rule: generationRule.identity,
+        reason: "Use either the GenerationRule model or the legacy overrides input for a column, not both",
+      }));
+      generationRule = { kind: "invalid", identity: generationRule.identity };
+    }
+    if (generationRule.kind === "semantic") {
+      for (const mappings of [semanticOverrides, confirmedMappings]) {
+        if (mappings.has(column.name) && mappings.get(column.name) !== generationRule.semanticType) {
+          diagnostics.push(makeDiagnostic({
+            severity: "error",
+            code: "generation_rule_conflict",
+            table: schema.tableIdentity,
+            column: column.name,
+            rule: generationRule.identity,
+            reason: `Semantic GenerationRule ${generationRule.semanticType} conflicts with an existing semantic mapping ${String(mappings.get(column.name))}`,
+          }));
+        }
+      }
+      semanticOverrides.set(column.name, generationRule.semanticType);
+    }
     const semanticMapping = resolveSemanticMapping(
       schema.tableIdentity,
       column,
@@ -90,19 +144,33 @@ export function buildGenerationPlan(tableInput, options = {}) {
       locale,
       diagnostics,
     );
-    return planColumn(schema.tableIdentity, column, overrides.get(column.name), semanticMapping, inference, locale, mode, diagnostics);
+    const planned = planColumn(schema.tableIdentity, column, overrides.get(column.name), semanticMapping, inference, locale, mode, diagnostics, generationRule, displayGenerationRule, validation.diagnostics);
+    const ruleKinds = getCompatibleGenerationRules(column);
+    if (!ruleKinds.includes(displayGenerationRule.kind)) ruleKinds.push(displayGenerationRule.kind);
+    return {
+      ...planned,
+      ruleChoices: ruleKinds.map((kind) => ({
+        kind,
+        label: GENERATION_RULE_LABELS[kind] ?? kind.replaceAll("_", " "),
+        draft: createGenerationRuleDraft(column, kind),
+      })),
+      semanticTypes: getCompatibleSemanticTypes(column),
+      ruleFields: getGenerationRuleEditorFields(column, displayGenerationRule),
+    };
   });
 
-  for (const [mappingSet, rule] of [[overrides, "explicit-user-rule"], [semanticOverrides, "semantic-user-override"], [confirmedMappings, "confirmed-semantic-mapping"]]) {
+  for (const [mappingSet, rule] of [[overrides, "explicit-user-rule"], [rawRules, "explicit-generation-rule"], [semanticOverrides, "semantic-user-override"], [confirmedMappings, "confirmed-semantic-mapping"]]) {
     for (const columnName of mappingSet.keys()) {
       if (!seenColumns.has(columnName)) {
         diagnostics.push(makeDiagnostic({
           severity: "error",
-          code: rule === "explicit-user-rule" ? "invalid_override" : "semantic_override_invalid",
+          code: rule === "explicit-user-rule" ? "invalid_override"
+            : rule === "explicit-generation-rule" ? "generation_rule_invalid"
+              : "semantic_override_invalid",
           table: schema.tableIdentity,
           column: columnName,
           rule,
-          reason: "Mapping refers to a column that does not exist in the table schema",
+          reason: "Rule or mapping refers to a column that does not exist in the table schema",
         }));
       }
     }
@@ -114,6 +182,13 @@ export function buildGenerationPlan(tableInput, options = {}) {
     semanticMapping: Object.freeze({ ...column.semanticMapping, evidence: Object.freeze([...column.semanticMapping.evidence]) }),
     inference: Object.freeze({ ...column.inference, evidence: Object.freeze([...column.inference.evidence]), candidates: Object.freeze([...column.inference.candidates]) }),
     rule: Object.freeze({ ...column.rule, parameters: Object.freeze({ ...column.rule.parameters }) }),
+    generationRule: Object.freeze({ ...column.generationRule, ...(Array.isArray(column.generationRule.values) ? { values: Object.freeze([...column.generationRule.values]) } : {}) }),
+    ruleChoices: Object.freeze(column.ruleChoices.map((choice) => Object.freeze({
+      ...choice,
+      draft: Object.freeze({ ...choice.draft, ...(Array.isArray(choice.draft.values) ? { values: Object.freeze([...choice.draft.values]) } : {}) }),
+    }))),
+    semanticTypes: Object.freeze([...column.semanticTypes]),
+    ruleFields: Object.freeze(column.ruleFields.map((field) => Object.freeze({ ...field }))),
   }));
   const frozenDiagnostics = Object.freeze(diagnostics);
   return Object.freeze({
@@ -273,9 +348,26 @@ function mappingFromInference(inference, status, selected) {
   };
 }
 
-function planColumn(tableIdentity, column, override, semanticMapping, inference, locale, mode, diagnostics) {
+function planColumn(tableIdentity, column, override, semanticMapping, inference, locale, mode, diagnostics, generationRule, displayGenerationRule, ruleDiagnostics) {
   const interpreted = interpretColumnType(column);
   const schemaRuleId = `schema:${column.name}`;
+  if (!interpreted && isUuidType(column)
+    && (generationRule.kind === "uuid" || generationRule.kind === "null_ratio")) {
+    return {
+      schema: column,
+      semanticMapping,
+      inference,
+      rule: {
+        identity: generationRule.identity,
+        kind: "uuid",
+        source: "explicit_user_rule",
+        parameters: { nullProbability: generationRule.kind === "null_ratio" ? generationRule.ratio : 0 },
+      },
+      generationRule: displayGenerationRule,
+      nullProbability: generationRule.kind === "null_ratio" ? generationRule.ratio : 0,
+      personGroupIdentity: null,
+    };
+  }
   if (!interpreted) {
     const knownType = column.dataType.state === "known" ? String(column.dataType.value) : column.dataType.state;
     diagnostics.push(makeDiagnostic({
@@ -293,6 +385,7 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
       semanticMapping,
       inference,
       rule: { identity: schemaRuleId, kind: "unsupported", source: "schema_type_fallback", parameters: {} },
+      generationRule: displayGenerationRule,
       nullProbability: 0,
       personGroupIdentity: null,
     };
@@ -304,12 +397,23 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
     baseParameters.defaultMin = Math.max(0, baseParameters.schemaMin);
     baseParameters.defaultMax = Math.max(baseParameters.defaultMin, Math.min(baseParameters.schemaMax, 1_000_000));
   }
-  validateTypeMetadata(tableIdentity, column, ruleKind, baseParameters, schemaRuleId, diagnostics);
+  validateTypeMetadata(tableIdentity, column, ruleKind, baseParameters, schemaRuleId, diagnostics, generationRule.kind, ruleDiagnostics);
   let nullProbability = defaultNullProbability(column, tableIdentity, diagnostics);
   let rule;
   let finalSemanticMapping = semanticMapping;
 
-  if (override !== undefined) {
+  if (generationRule.kind === "invalid") {
+    rule = { identity: generationRule.identity, kind: "unsupported", source: "explicit_user_rule", parameters: {} };
+  } else if (generationRule.kind !== "auto") {
+    const explicit = resolveExplicitGenerationRule(generationRule, column, ruleKind, baseParameters, semanticMapping, locale, mode, diagnostics);
+    if (explicit) {
+      rule = explicit.rule;
+      nullProbability = explicit.nullProbability;
+      if (semanticMapping.selected && generationRule.kind !== "semantic" && generationRule.kind !== "null_ratio") {
+        finalSemanticMapping = { ...semanticMapping, status: "overridden_by_explicit_user_rule", selected: false };
+      }
+    }
+  } else if (override !== undefined) {
     const valid = validateOverride(tableIdentity, column, ruleKind, override, baseParameters, nullProbability, diagnostics);
     if (valid) {
       nullProbability = valid.nullProbability;
@@ -345,16 +449,86 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
     semanticMapping: finalSemanticMapping,
     inference,
     rule: { ...rule, parameters: { ...rule.parameters } },
+    generationRule: displayGenerationRule,
     nullProbability,
     personGroupIdentity: null,
   };
 }
 
-function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdentity, diagnostics) {
+function resolveExplicitGenerationRule(selection, column, schemaKind, baseParameters, semanticMapping, locale, mode) {
+  const source = "explicit_user_rule";
+  const explicit = (kind, parameters = {}) => ({
+    rule: { identity: selection.identity, kind, source, parameters },
+    nullProbability: 0,
+  });
+  switch (selection.kind) {
+    case "constant":
+      return explicit("constant", { value: selection.value });
+    case "sequence": {
+      if (schemaKind === "decimal") {
+        const scale = column.scale.value;
+        return explicit("sequence", {
+          numericKind: "decimal",
+          startUnits: String(parseDecimalUnits(selection.start, scale)),
+          stepUnits: String(parseDecimalUnits(selection.step, scale)),
+          scale,
+        });
+      }
+      return explicit("sequence", { numericKind: "integer", start: selection.start, step: selection.step });
+    }
+    case "random_integer":
+      return explicit("random_integer", { min: selection.min, max: selection.max });
+    case "random_decimal": {
+      const scale = column.scale.value;
+      return explicit("random_decimal", {
+        minUnits: String(parseDecimalUnits(selection.min, scale)),
+        maxUnits: String(parseDecimalUnits(selection.max, scale)),
+        scale,
+      });
+    }
+    case "random_string":
+      return explicit("random_string", { length: selection.length });
+    case "enum":
+      return explicit("enum", { values: [...selection.values] });
+    case "boolean_ratio":
+      return explicit("boolean_ratio", { trueRatio: selection.trueRatio });
+    case "date_range":
+      return explicit("date_range", { start: selection.start, end: selection.end });
+    case "timestamp_range":
+      return explicit("timestamp_range", { start: selection.start, end: selection.end });
+    case "uuid":
+      return explicit("uuid");
+    case "semantic":
+      return explicit(`semantic:${selection.semanticType}`, { locale, mode, nullProbability: 0 });
+    case "null_ratio": {
+      const fallback = semanticMapping.selected
+        ? {
+          identity: `semantic:${semanticMapping.semanticType}:v1`,
+          kind: `semantic:${semanticMapping.semanticType}`,
+          parameters: { locale, mode },
+        }
+        : { identity: `schema:${column.name}`, kind: schemaKind, parameters: { ...baseParameters } };
+      return {
+        rule: {
+          identity: selection.identity,
+          kind: fallback.kind,
+          source,
+          parameters: { ...fallback.parameters, nullProbability: selection.ratio },
+        },
+        nullProbability: selection.ratio,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdentity, diagnostics, selectedRuleKind, ruleDiagnostics) {
   if (kind === "varchar") {
     const length = column.length;
     if (length.state === "known") {
       if (!Number.isSafeInteger(length.value) || length.value <= 0) {
+        if (ruleDiagnostics.some((entry) => entry.code === "invalid_length")) return;
         diagnostics.push(makeDiagnostic({
           severity: "error",
           code: "invalid_length",
@@ -368,7 +542,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
       }
     } else if (length.state === "absent" || length.state === "not_applicable") {
       parameters.schemaMaxLength = null;
-    } else {
+    } else if (!ruleDiagnostics.some((entry) => entry.code === "varchar_length_unknown")) {
       diagnostics.push(makeDiagnostic({
         severity: "unsupported",
         code: "varchar_length_unknown",
@@ -385,6 +559,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
     const scale = column.scale;
     if (precision.state !== "known" || scale.state !== "known") {
       const unavailable = [precision, scale].filter((fact) => fact.state !== "known").map((fact) => fact.state).join(" / ");
+      if (ruleDiagnostics.some((entry) => entry.code === "decimal_precision_scale_unknown")) return;
       diagnostics.push(makeDiagnostic({
         severity: "unsupported",
         code: "decimal_precision_scale_unknown",
@@ -399,6 +574,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
       || precision.value > MAX_DECIMAL_PRECISION
       || scale.value < 0
       || scale.value > precision.value) {
+      if (ruleDiagnostics.some((entry) => entry.code === "invalid_precision_scale")) return;
       diagnostics.push(makeDiagnostic({
         severity: "error",
         code: "invalid_precision_scale",
@@ -415,6 +591,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
 
   if (kind === "timestamp" && column.precision.state === "known"
     && (!Number.isSafeInteger(column.precision.value) || column.precision.value < 0 || column.precision.value > 9)) {
+    if (ruleDiagnostics.some((entry) => entry.code === "invalid_precision_scale")) return;
     diagnostics.push(makeDiagnostic({
       severity: "error",
       code: "invalid_precision_scale",
@@ -423,7 +600,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
       rule: ruleIdentity,
       reason: `timestamp fractional precision must be an integer from 0 through 9; received ${String(column.precision.value)}`,
     }));
-  } else if (kind === "timestamp" && column.precision.state !== "known") {
+  } else if (kind === "timestamp" && column.precision.state !== "known" && selectedRuleKind !== "timestamp_range") {
     diagnostics.push(makeDiagnostic({
       severity: "warning",
       code: "timestamp_precision_unknown",
@@ -644,6 +821,41 @@ function normalizeSemanticMappings(input, rule, tableIdentity, diagnostics) {
       table: tableIdentity,
       rule,
       reason: "Semantic mappings must be an object keyed by column name",
+    }));
+    return new Map();
+  }
+  return new Map(Object.entries(input));
+}
+
+function safeRuleForDisplay(input) {
+  if (!isRecord(input) || !GENERATION_RULE_KINDS.includes(input.kind)) return null;
+  const fields = {
+    auto: [], constant: ["value"], sequence: ["start", "step"], random_integer: ["min", "max"],
+    random_decimal: ["min", "max"], random_string: ["length"], enum: ["values"],
+    boolean_ratio: ["trueRatio"], date_range: ["start", "end"], timestamp_range: ["start", "end"],
+    uuid: [], null_ratio: ["ratio"], semantic: ["semanticType"],
+  }[input.kind];
+  const output = { kind: input.kind };
+  for (const field of fields) {
+    const value = input[field];
+    if (field === "values" && Array.isArray(value)) {
+      output[field] = value.filter((entry) => entry === null || ["string", "number", "boolean"].includes(typeof entry));
+    } else if (value === null || ["string", "number", "boolean"].includes(typeof value)) {
+      output[field] = value;
+    }
+  }
+  return output;
+}
+
+function normalizeGenerationRules(input, tableIdentity, diagnostics) {
+  if (input === undefined) return new Map();
+  if (!isRecord(input)) {
+    diagnostics.push(makeDiagnostic({
+      severity: "error",
+      code: "generation_rule_invalid",
+      table: tableIdentity,
+      rule: "generation-rules",
+      reason: "Generation rules must be an object keyed by column name",
     }));
     return new Map();
   }

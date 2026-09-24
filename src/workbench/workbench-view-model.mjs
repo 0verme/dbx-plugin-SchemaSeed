@@ -1,24 +1,33 @@
-const SEMANTIC_TYPES = new Set(["name", "gender", "birthday", "mobile", "email", "address"]);
+import { SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
 
-/** @param {import("../generation/generation-plan.mjs").ColumnGenerationPlan} column */
-export function toColumnViewModel(column) {
+/** @param {import("../generation/generation-plan.mjs").ColumnGenerationPlan} column @param {import("../diagnostics.mjs").GenerationDiagnostic[]} [diagnostics] */
+export function toColumnViewModel(column, diagnostics = []) {
   const inference = column.inference;
   const semanticMapping = column.semanticMapping;
+  const generationRule = column.generationRule ?? { kind: "auto" };
   const isSelectedSemantic = semanticMapping.selected && column.rule.kind.startsWith("semantic:");
   const rejectedMapping = ["invalid", "incompatible"].includes(semanticMapping.status)
     && ["explicit_user_semantic_override", "confirmed_semantic_mapping"].includes(semanticMapping.source);
-  const mappingStatus = isSelectedSemantic
-    ? semanticMapping.source === "confirmed_semantic_mapping" ? "Confirmed" : "Override"
-    : rejectedMapping
-      ? `${semanticMapping.source === "confirmed_semantic_mapping" ? "Confirmed mapping" : "Override"} incompatible · fallback active`
-      : inference.status === "candidate" ? "Needs confirmation · fallback active"
-        : inference.status === "ambiguous" ? "Ambiguous · fallback"
-          : inference.status === "incompatible" ? "Incompatible · fallback"
-            : "Fallback";
+  let mappingStatus;
+  if (generationRule.kind !== "auto" && generationRule.kind !== "semantic") {
+    mappingStatus = `Explicit · ${title(generationRule.kind)}`;
+  } else if (isSelectedSemantic) {
+    mappingStatus = semanticMapping.source === "confirmed_semantic_mapping" ? "Confirmed" : "Override";
+  } else if (rejectedMapping) {
+    mappingStatus = `${semanticMapping.source === "confirmed_semantic_mapping" ? "Confirmed mapping" : "Override"} incompatible · fallback active`;
+  } else if (inference.status === "candidate") {
+    mappingStatus = "Needs confirmation · fallback active";
+  } else if (inference.status === "ambiguous") {
+    mappingStatus = "Ambiguous · fallback";
+  } else if (inference.status === "incompatible") {
+    mappingStatus = "Incompatible · fallback";
+  } else {
+    mappingStatus = "Fallback";
+  }
+
   const detected = inference.status === "ambiguous"
     ? `Ambiguous · ${inference.candidates.map(title).join(" / ")}`
     : inference.semanticType === "unknown" ? "Unknown" : title(inference.semanticType);
-
   return {
     column: column.schema.name,
     schemaType: formatSchemaType(column.schema),
@@ -26,11 +35,20 @@ export function toColumnViewModel(column) {
     detectedType: inference.semanticType,
     candidates: [...inference.candidates],
     confidence: title(inference.confidence),
-    selectedMapping: isSelectedSemantic || rejectedMapping ? title(semanticMapping.semanticType) : title(column.rule.kind),
+    selectedMapping: isSelectedSemantic || rejectedMapping
+      ? title(semanticMapping.semanticType)
+      : generationRule.kind === "semantic"
+        ? title(generationRule.semanticType ?? semanticMapping.semanticType)
+        : title(column.rule.kind),
     mappingStatus,
     mappingValue: isSelectedSemantic || rejectedMapping ? semanticMapping.semanticType : "auto",
-    canConfirm: !isSelectedSemantic && inference.status === "candidate" && SEMANTIC_TYPES.has(inference.semanticType),
+    canConfirm: !isSelectedSemantic && inference.status === "candidate" && SEMANTIC_TYPES.includes(inference.semanticType),
     rule: { kind: column.rule.kind, source: column.rule.source },
+    generationRule: { ...generationRule, ...(Array.isArray(generationRule.values) ? { values: [...generationRule.values] } : {}) },
+    ruleChoices: column.ruleChoices?.map((choice) => ({ ...choice, draft: { ...choice.draft } })) ?? [],
+    semanticTypes: [...(column.semanticTypes ?? [])],
+    ruleFields: column.ruleFields?.map((field) => ({ ...field })) ?? [],
+    ruleDiagnostics: diagnostics.filter((entry) => entry.column === column.schema.name).map((entry) => ({ ...entry })),
     evidence: [...semanticMapping.evidence],
   };
 }

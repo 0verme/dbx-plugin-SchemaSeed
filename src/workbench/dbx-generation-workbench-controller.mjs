@@ -38,6 +38,7 @@ export class DbxGenerationWorkbenchController {
     this.schema = null;
     this.plan = null;
     this.currentDataset = null;
+    this.rules = {};
     this.diagnostics = [];
     this.error = null;
     this.actionError = null;
@@ -64,6 +65,7 @@ export class DbxGenerationWorkbenchController {
     this.schema = null;
     this.plan = null;
     this.currentDataset = null;
+    this.rules = {};
     this.diagnostics = [];
     this.error = null;
     this.actionError = null;
@@ -102,6 +104,9 @@ export class DbxGenerationWorkbenchController {
           this.updateControls(action.controls);
           await this.generateCurrent();
           break;
+        case "update-rule":
+          await this.updateRule(action.column, action.rule);
+          break;
         case "new-seed": {
           const seed = String(this.seedFactory());
           if (seed === this.controls.seed) throw new Error("New Seed must differ from the current seed");
@@ -118,6 +123,54 @@ export class DbxGenerationWorkbenchController {
     } catch (error) {
       this.actionError = errorText(error);
       this.emit();
+    }
+    return this.getViewModel();
+  }
+
+  /** @param {string} columnName @param {unknown} rule */
+  async updateRule(columnName, rule) {
+    if (!this.context || !this.schema) throw new Error("Load a DBX table before editing generation rules");
+    if (typeof columnName !== "string" || !this.schema.columns.some((column) => column.name === columnName)) {
+      throw new Error("Generation rule column must exist in the current table schema");
+    }
+    if (!isRecord(rule)) throw new TypeError("Generation rule must be a tagged object");
+
+    this.rules = { ...this.rules, [columnName]: structuredClone(rule) };
+    const contextRevision = this.contextRevision;
+    const operation = ++this.operationRevision;
+    this.plan = null;
+    this.currentDataset = null;
+    this.diagnostics = [];
+    this.error = null;
+    this.actionError = null;
+    this.stage = "rule-validation";
+    this.status = "dirty";
+    this.emit();
+
+    try {
+      const response = await this.preview(this.schema, {
+        ...this.controls,
+        mode: "safe_synthetic",
+        rules: structuredClone(this.rules),
+        validateOnly: true,
+        semanticOverrides: {},
+        semanticMappings: {},
+      });
+      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
+      if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
+        throw new Error("Generation Core runtime returned an invalid rule validation response");
+      }
+      this.plan = response.plan;
+      this.diagnostics = Array.isArray(response.plan.diagnostics)
+        ? response.plan.diagnostics
+        : Array.isArray(response.generated.diagnostics) ? response.generated.diagnostics : [];
+      this.status = response.plan.status === "blocked" || response.generated.status === "blocked" ? "blocked" : "dirty";
+      this.stage = "ready";
+      this.currentDataset = null;
+      this.emit();
+    } catch (error) {
+      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
+      this.fail(error, "generation");
     }
     return this.getViewModel();
   }
@@ -149,7 +202,7 @@ export class DbxGenerationWorkbenchController {
         table: this.context.table,
       } : null,
       controls: { ...this.controls },
-      columns: plan?.columns.map(toColumnViewModel) ?? [],
+      columns: plan?.columns.map((column) => toColumnViewModel(column, this.diagnostics)) ?? [],
       diagnostics: this.diagnostics.map((diagnostic) => ({ ...diagnostic })),
       preview: {
         columns: plan?.table.columns.map((column) => column.name) ?? [],
@@ -167,7 +220,11 @@ export class DbxGenerationWorkbenchController {
         mode: plan.mode,
         determinismProfile: plan.determinismProfile,
       } : null,
-      ruleEditorSlot: { issue: 32, status: "reserved" },
+      ruleEditor: { issue: 32, scope: "current-table-session", state: this.status === "loading"
+        ? (this.stage === "metadata" ? "loading" : "generating")
+        : this.status === "dirty" ? (this.stage === "rule-validation" ? "validating" : "dirty")
+          : this.status === "blocked" ? "blocked" : this.status === "warning" ? "warning"
+            : this.status === "error" ? "error" : "ready" },
       safeSyntheticNotice: SAFE_SYNTHETIC_NOTICE,
       error: this.error,
       actionError: this.actionError,
@@ -238,6 +295,7 @@ export class DbxGenerationWorkbenchController {
       const response = await this.preview(this.schema, {
         ...this.controls,
         mode: "safe_synthetic",
+        rules: structuredClone(this.rules),
         semanticOverrides: {},
         semanticMappings: {},
       });

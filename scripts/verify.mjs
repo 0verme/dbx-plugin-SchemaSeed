@@ -45,6 +45,7 @@ const coreFiles = [
   "src/schema/schema-interpreter.mjs",
   "src/schema/schema-metadata-provider.mjs",
   "src/generation/generation-plan.mjs",
+  "src/generation/generation-rules.mjs",
   "src/generation/generation-engine.mjs",
   "src/generation/person-synthetic.mjs",
   "src/semantic/semantic-inference.mjs",

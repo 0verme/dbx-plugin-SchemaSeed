@@ -63,6 +63,10 @@ test("manifest declares the production Workbench and #10244 table action contrac
   assert.match(router, new RegExp(WORKBENCH_ID.replaceAll(".", "\\.")));
   assert.match(router, /dbx-plugin-init/);
   const productionApp = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
+  const browserViewModel = await readFile(path.join(root, "src/workbench/workbench-view-model.mjs"), "utf8");
+  assert.doesNotMatch(browserViewModel, /node:/, "the DBX browser UI view model must remain browser-safe");
+  assert.match(productionApp, /data-rule-selector/);
+  assert.match(productionApp, /data-rule-field/);
   assert.match(productionApp, /DbxHostSchemaMetadataProvider/);
   assert.match(productionApp, /onContext/);
   assert.doesNotMatch(productionApp, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider/);
@@ -85,6 +89,7 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "src/export/export-dataset.mjs",
     "src/generation/generation-engine.mjs",
     "src/generation/generation-plan.mjs",
+    "src/generation/generation-rules.mjs",
     "src/generation/generation-runtime-contract.mjs",
     "src/generation/generation-runtime-protocol.mjs",
     "src/host/dbx-schema-metadata-probe.mjs",
@@ -119,6 +124,9 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
   assert.match(entries.get("ui/index.html").toString("utf8"), /generation-workbench\/styles\.css/);
   assert.match(entries.get("backend/schema-seed-runtime.mjs").toString("utf8"), /generation-runtime-protocol/);
   assert.match(entries.get("src/generation/generation-runtime-protocol.mjs").toString("utf8"), /generation\/preview/);
+  assert.match(entries.get("src/generation/generation-runtime-protocol.mjs").toString("utf8"), /validateOnly/);
+  assert.match(entries.get("src/generation/generation-plan.mjs").toString("utf8"), /generation-rules\.mjs/);
+  assert.match(entries.get("ui/generation-workbench/app.mjs").toString("utf8"), /data-rule-selector/);
 
   const referencedIcons = [packagedManifest.icon, ...packagedManifest.contributions.map((entry) => entry.icon).filter(Boolean)];
   for (const iconPath of referencedIcons) {

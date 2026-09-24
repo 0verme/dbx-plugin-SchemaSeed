@@ -37,6 +37,7 @@ try {
     "src/export/json-exporter.mjs",
     "src/generation/generation-engine.mjs",
     "src/generation/generation-plan.mjs",
+    "src/generation/generation-rules.mjs",
     "src/generation/generation-runtime-contract.mjs",
     "src/generation/generation-runtime-protocol.mjs",
     "src/generation/person-synthetic.mjs",

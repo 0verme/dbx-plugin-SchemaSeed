@@ -6,7 +6,7 @@
 
 > 本文是分层与职责的设计模型；Phase 1B 的实际 Semantic / Person contract 由 [PHASE1B_ARCHITECTURE.md](PHASE1B_ARCHITECTURE.md) 具体化。Issue #13 已完成 Design Freeze，implementation 单独由 #19 跟踪。
 >
-> Current integration status: Phase 0 #6 is CLOSED; production metadata adapter #30 and the packaged Workbench implementation for #31 are complete. The adapter maps into this SchemaSeed-owned model, while the Core remains unaware of DBX DTOs and runtime APIs. Official DBX runtime smoke for #31 remains pending a release containing upstream #10244.
+> Current integration status: Phase 0 #6 is CLOSED; production metadata adapter #30, packaged Workbench #31, and the Core / production Rule Editor implementation for Column Generation Rules #32 are complete. The adapter maps into this SchemaSeed-owned model, while the Core remains unaware of DBX DTOs and runtime APIs. The frozen 13-rule wire/config contract is documented separately in [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md). Official DBX runtime smoke / #31 acceptance and #32 runtime E2E remain pending a release containing upstream #10244; implementation and package tests do not satisfy that runtime gate.
 
 本文档冻结 SchemaSeed 的最小 Generation Model 语义与职责边界。它是 SchemaSeed 的 **Conceptual / Internal Draft**：
 
