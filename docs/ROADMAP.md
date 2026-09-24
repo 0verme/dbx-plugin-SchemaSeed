@@ -118,7 +118,7 @@ Preview Rows + Diagnostics
 
 ### Upstream boundary
 
-Phase 1A 的实现保持 fixture-only，不依赖 `t8y2/dbx#10043`；#30 随后新增的 production metadata adapter 将真实 Host schema 映射到同一 SchemaSeed domain，不改变 Phase 1A 的原始范围或 Core 边界。
+Phase 1A 的实现保持 fixture-only，不依赖 `t8y2/dbx#10043`；production metadata adapter 已由 #30 新增，将真实 Host schema 映射到同一 SchemaSeed domain，不改变 Phase 1A 的原始范围或 Core 边界。
 
 ## Phase 1B — Semantic Mapping + Person Synthetic Generation（[#19](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/19)）
 
