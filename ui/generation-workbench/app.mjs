@@ -1,6 +1,6 @@
-import { GENERATION_PREVIEW_METHOD } from "../../src/generation/generation-runtime-contract.mjs";
-import { DbxHostSchemaMetadataProvider } from "../../src/providers/dbx-host-schema-metadata-provider.mjs";
-import { DbxGenerationWorkbenchController } from "../../src/workbench/dbx-generation-workbench-controller.mjs";
+import { GENERATION_PREVIEW_METHOD } from "../src/generation/generation-runtime-contract.mjs";
+import { DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
+import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 
 const WORKBENCH_MARKUP = `
   <div class="sswb">

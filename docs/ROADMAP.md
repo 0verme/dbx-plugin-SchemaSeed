@@ -27,10 +27,10 @@ Schema Metadata:
   real DBX smoke: PASS on MySQL / SQLite / PostgreSQL
   automated one-shot replay: missing_table_context (not manually runtime-tested)
 
-CONTEXT_MENU_TO_WORKBENCH_HANDOFF: UPSTREAM_MERGED (#10244)
-DBX v0.6.21 Probe runtime: public sidecar RPC + 10-minute in-memory handoff; user manually opens Probe
+CONTEXT_MENU_TO_WORKBENCH_HANDOFF: RELEASED in DBX v0.6.23 (upstream #10244)
+DBX v0.6.21 Probe runtime: public sidecar RPC + 10-minute in-memory handoff; user manually opens Probe (historical Phase 0 evidence)
 Current contract: table/connection context-menu → `open-workbench` passes context and refreshes reused tabs
-Runtime smoke for a release containing #10244: #31
+Runtime smoke for DBX v0.6.23: #31 (pending manual execution)
 
 Issue #5: CLOSED (PR #28 MERGED; runtime acceptance complete)
 Issue #6: CLOSED (PR #33 MERGED)
@@ -38,7 +38,9 @@ Phase 0 Gate: READY_WITH_FOLLOWUPS
 Overall Phase 0: READY_WITH_FOLLOWUPS
 ```
 
-### Table Context path
+### Table Context path（historical Phase 0, DBX v0.6.21）
+
+> Historical evidence only. The production table context-menu entry `io.github.0verme.schema-seed.table-context-probe` (zh-CN「SchemaSeed：保存 Table Context」) was removed from the manifest in the DBX v0.6.23 runtime-validation cleanup. The Schema Metadata Probe Workbench is retained and can still be opened manually from the plugin details page; the sidecar RPC below is no longer reachable through a production table-menu entry.
 
 ```text
 DBX Sidebar Table Node
@@ -51,7 +53,7 @@ DBX Sidebar Table Node
   → Raw Host API response + normalized metadata + diagnostics
 ```
 
-The DBX v0.6.21 Phase 0 Probe runtime used a two-step flow: save the selected table context, then manually open the Workbench. That is historical runtime evidence, not the current upstream contract. Upstream [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) is merged and now supports table/connection context-menu → `open-workbench`, passes the current context, and refreshes context when reusing a Workbench tab. A DBX release containing this change has not yet been runtime-smoked by SchemaSeed; #31 owns that validation and may use the direct table-level entry. #30 does not implement a Workbench UI or manifest contribution. The Phase 0 Probe continues to use the documented sidecar flow and identity-only context.
+The DBX v0.6.21 Phase 0 Probe runtime used a two-step flow: save the selected table context, then manually open the Workbench. That is historical runtime evidence, not the current upstream contract. Upstream [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) is merged and released in DBX v0.6.23; it supports table/connection context-menu → `open-workbench`, passes the current context, and refreshes context when reusing a Workbench tab. SchemaSeed has not yet runtime-smoked DBX v0.6.23; #31 owns that validation and uses the direct table-level entry. #30 does not implement a Workbench UI or manifest contribution. The retained Phase 0 Probe Workbench keeps its historical sidecar RPC contract, but its production table context-menu entry is removed.
 
 ### 审计范围
 
@@ -81,7 +83,7 @@ The DBX v0.6.21 Phase 0 Probe runtime used a two-step flow: save the selected ta
 Schema Acquisition Path
 ```
 
-Issue #5 的阻塞性 Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 完成实测（PR #28）。本 Gate 判定为 `READY_WITH_FOLLOWUPS`：Host API 1.3 未暴露的 PK / FK / UNIQUE / CHECK / Comment / Identity 仍为 non-blocking follow-ups。`not_exposed` 仅说明 Host API 未暴露该字段，不代表数据库或 driver 不支持。context-menu → Workbench handoff 已由上游 #10244 merge；#6 已由 PR #33 合并关闭。
+Issue #5 的阻塞性 Schema Acquisition Path 已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 完成实测（PR #28）。本 Gate 判定为 `READY_WITH_FOLLOWUPS`：Host API 1.3 未暴露的 PK / FK / UNIQUE / CHECK / Comment / Identity 仍为 non-blocking follow-ups。`not_exposed` 仅说明 Host API 未暴露该字段，不代表数据库或 driver 不支持。context-menu → Workbench handoff 已由上游 #10244 实现并随 DBX v0.6.23 正式发布；#6 已由 PR #33 合并关闭。
 
 ### 禁止事项
 
@@ -158,7 +160,7 @@ Fixture Preview + Diagnostics
 
 ### Upstream boundary
 
-Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进。Production adapter 由 #30 单独交付，正式 Workbench implementation/package 由 #31 完成；含 #10244 的正式 DBX release runtime smoke 仍 pending。
+Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进。Production adapter 由 #30 单独交付，正式 Workbench implementation/package 由 #31 完成；DBX v0.6.23 已正式包含 #10244，runtime smoke 仍 pending manual execution。
 
 ## Phase 1D — Deterministic Export Core + Workbench Download（[#23](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/23)）
 
@@ -199,15 +201,15 @@ DBX Sidebar table
 - The current dataset is created from the same Core generation result used by Preview. Export serializes only that dataset and never calls `generateRows()` again.
 - Context change synchronously invalidates old metadata, plan, preview and export dataset. `A → B → C` calls are revision-guarded so late responses cannot replace C.
 - UI states distinguish `loading`, `ready`, `warning`, `blocked` and `error`; provider/Core diagnostics remain the single diagnostic source.
-- `ui/` includes both the production Workbench UI and separate Phase 0 Probe. The `.dbxp` package explicitly excludes `web/`, `fixtures/`, fixture providers/controllers, tests and standalone harness server.
-- Issue #32 implements the frozen 13-rule v0.1 Core contract and production Rule Editor; see [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md). Runtime E2E remains gated on an official DBX release containing #10244.
+- `ui/` includes both the production Workbench UI and the separate Phase 0 Probe Workbench (manual plugin-details entry only; its historical table context-menu contribution was removed). The `.dbxp` package explicitly excludes `web/`, `fixtures/`, fixture providers/controllers, tests and standalone harness server.
+- Issue #32 implements the frozen 13-rule v0.1 Core contract and production Rule Editor; see [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md). The release gate is satisfied by DBX v0.6.23; runtime E2E remains pending manual execution.
 
 ### DBX release compatibility decision
 
-- Latest official DBX release audited: `v0.6.22`, published before `t8y2/dbx#10244` merged; the PR says it will be available in the next release, whose version is not yet known.
-- v0.6.22 manifest parser denies unknown fields on context-menu contributions. It therefore rejects a manifest containing `context-menu.action.open-workbench`; it does not silently ignore the action or provide a safe legacy fallback.
-- `manifest.json` keeps the previous `engines.dbx: ">=0.6.19"` floor without guessing a future version. This is not a valid release floor for the new action. Treat current `.dbxp` as an implementation-only unsigned candidate; do not install/release against v0.6.22.
-- Final DBX floor and runtime smoke remain pending until the official release containing #10244 is published. Then set the floor to that verified release and smoke table launch, metadata, Preview / exports and reused-workbench context refresh. Do not compile DBX locally for this gate.
+- Latest official DBX release audited: `v0.6.23` (released 2026-09-25), the first release containing `t8y2/dbx#10244`; its release notes list the right-click → plugin Workbench entry.
+- `v0.6.22` predates #10244 and denies unknown fields on context-menu contributions. It rejects a manifest containing `context-menu.action.open-workbench`; it is not a valid install target.
+- `manifest.json` now declares `engines.dbx: ">=0.6.23"`; the historical `>=0.6.19` floor (which did not cover the action) was removed. This floor is a runtime prerequisite only and does not claim completed smoke.
+- Runtime smoke remains pending manual execution on DBX v0.6.23: table launch, metadata, Preview / exports and reused-workbench context refresh. Do not compile DBX locally for this gate.
 
 ### Issue #32 — Column Generation Rules v0.1 and Rule Editor
 
@@ -215,7 +217,7 @@ DBX Sidebar table
 - Rule availability and config fields are Core-provided. The production Workbench Rule Editor edits table-session state, uses validation-only calls, invalidates the old Preview/Export immediately, and blocks invalid rules rather than falling back.
 - Existing `generation/preview` RPC carries rules and validation-only options; package allowlist/contract tests include the Core module while preserving fixture-free production runtime boundaries.
 - Focused and full local Node tests validate tagged contracts, schema bounds, exact decimal arithmetic, UTC ranges, stable identities, controller invalidation, RPC and `.dbxp` packaging. These are not DBX runtime E2E evidence.
-- State: `IMPLEMENTATION_READY_RUNTIME_E2E_PENDING`. Keep Issue #32 open until an official DBX release contains #10244 and the formal Workbench + rules flow passes runtime validation. No release fabrication or local upstream compilation.
+- State: `IMPLEMENTATION_READY_RUNTIME_E2E_PENDING`. Keep Issue #32 open until the formal Workbench + rules flow passes runtime validation on DBX v0.6.23. No release fabrication or local upstream compilation.
 
 ### Issue #37 — Manual Single-table Constraint Engine v0.1
 
@@ -226,4 +228,4 @@ DBX Sidebar table
 
 ### Current status / next step
 
-`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; official runtime smoke and acceptance-based Issue closure remain pending the upstream release containing #10244. `#32` Core + production Rule Editor implementation is ready; runtime E2E is gated on the same upstream release. Manual Unique / Composite Unique / Required + Unique are the explicit #37 scope; automatic database-constraint discovery, CHECK, Identity, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.
+`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; the runtime release gate is satisfied by DBX v0.6.23, and official runtime smoke / acceptance-based Issue closure still require manual execution. `#32` Core + production Rule Editor implementation is ready; runtime E2E remains pending on the same release. The production table context-menu now exposes only the `generate-test-data` entry; the historical Phase 0 probe entry was removed. Manual Unique / Composite Unique / Required + Unique are the explicit #37 scope; automatic database-constraint discovery, CHECK, Identity, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.

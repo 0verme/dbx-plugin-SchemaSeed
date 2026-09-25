@@ -1,4 +1,5 @@
 import { formatDecimalUnits, formatTimestamp, parseTimestamp } from "./generation-rules.mjs";
+import { toHex } from "./sha256.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const DAY_MS = 86_400_000n;
@@ -159,7 +160,7 @@ function decodeString(index, length) {
 
 function encodeUuid(index) {
   if (index < 0n || index >= (1n << 122n)) throw new Error("UUID allocation index exceeded its planned domain");
-  const bytes = Buffer.alloc(16);
+  const bytes = new Uint8Array(16);
   const positions = [];
   for (let bit = 0; bit < 48; bit += 1) positions.push([bit >> 3, 7 - (bit & 7)]);
   for (let bit = 3; bit >= 0; bit -= 1) positions.push([6, bit]);
@@ -174,7 +175,7 @@ function encodeUuid(index) {
   }
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = bytes.toString("hex");
+  const hex = toHex(bytes);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 

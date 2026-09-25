@@ -16,10 +16,11 @@ Runtime: DBX v0.6.21 Windows Desktop
 Runtime Matrix: MySQL PASS; SQLite PASS; PostgreSQL PASS
 Real DBX Smoke: PASS on MySQL / SQLite / PostgreSQL
 Issue #5: CLOSED (PR #28)
-Issue #6 / Phase 0 Gate: READY_WITH_FOLLOWUPS (Issue #6 closes when the gate PR merges)
+Issue #6: CLOSED (PR #33)
+Phase 0 Gate: READY_WITH_FOLLOWUPS
 ```
 
-The direct context-menu → Workbench handoff is not available and remains a non-blocking product follow-up. The minimal Probe uses the documented plugin sidecar RPC and a 10-minute, one-shot, in-memory plugin-owned TableContext handoff. Host API 1.3 exposes columns and `fieldCapabilities` for `length`, `precision`, `scale`, and `default`; it does not expose comment, PK, FK, UNIQUE, CHECK, or identity. These future fields are `not_exposed`, not evidence that a database or driver does not support them. The runtime response is read-only and requires an already-open DBX connection/session.
+The direct context-menu → Workbench handoff from upstream `t8y2/dbx#10244` is available in DBX v0.6.23 (released 2026-09-25). The historical minimal Probe used the documented plugin sidecar RPC and a 10-minute, one-shot, in-memory plugin-owned TableContext handoff; its production table context-menu entry was removed in the v0.6.23 runtime-validation cleanup, while the Probe Workbench remains manually openable from the plugin details page. Host API 1.3 exposes columns and `fieldCapabilities` for `length`, `precision`, `scale`, and `default`; it does not expose comment, PK, FK, UNIQUE, CHECK, or identity. These future fields are `not_exposed`, not evidence that a database or driver does not support them. The runtime response is read-only and requires an already-open DBX connection/session.
 
 ## Historical Source Audit Snapshot (2026-09-22, pre-#10043)
 

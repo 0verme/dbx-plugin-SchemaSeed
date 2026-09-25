@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { collectUiRuntimeGraph } from "./ui-runtime-graph.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -45,6 +46,7 @@ try {
     "src/generation/generation-runtime-contract.mjs",
     "src/generation/generation-runtime-protocol.mjs",
     "src/generation/person-synthetic.mjs",
+    "src/generation/sha256.mjs",
     "src/host/dbx-schema-metadata-probe.mjs",
     "src/probe-protocol.mjs",
     "src/probe-state.mjs",
@@ -57,25 +59,28 @@ try {
     "src/table-context.mjs",
     "src/workbench/dbx-generation-workbench-controller.mjs",
     "src/workbench/workbench-view-model.mjs",
-    "ui/app.mjs",
-    "ui/generation-workbench/app.mjs",
-    "ui/generation-workbench/styles.css",
+    "ui/generation-workbench.css",
     "ui/index.html",
-    "ui/probe-app.mjs",
     "ui/probe.css",
   ];
   for (const relative of runtimeModules) {
     files.set(relative, { data: await readFile(path.join(root, relative)), mode: 0o644 });
   }
-  files.set("ui/schema-metadata-probe.mjs", {
-    data: await readFile(path.join(root, "src/host/dbx-schema-metadata-probe.mjs")),
-    mode: 0o644,
-  });
+
+  // The DBX Workbench serves UI assets from the `ui` root, so every runtime
+  // module must be reachable there. The graph walk vendors the shared
+  // Generation Core modules under `ui/src/` and rejects Node-only code that
+  // cannot run inside the sandboxed WebView.
+  const uiRuntimeGraph = await collectUiRuntimeGraph((sourcePath) => readFile(path.join(root, sourcePath), "utf8"));
+  for (const [packagePath, entry] of uiRuntimeGraph) {
+    files.set(packagePath, { data: Buffer.from(entry.source), mode: 0o644 });
+  }
+
   const forbiddenRuntimeFiles = [...files.keys()].filter((name) =>
     /^(?:fixtures|web|tests)\//.test(name)
-    || /fixture-schema-metadata-provider|fixture-preview/.test(name)
-    || name === "src/workbench/workbench-server.mjs"
-    || name === "src/workbench/workbench-controller.mjs");
+    || /(?:^|\/)(?:fixture-schema-metadata-provider|fixture-preview)\.mjs$/.test(name)
+    || /(?:^|\/)workbench-server\.mjs$/.test(name)
+    || /(?:^|\/)workbench-controller\.mjs$/.test(name));
   if (forbiddenRuntimeFiles.length > 0) {
     throw new Error(`Fixture/development resources entered the production package: ${forbiddenRuntimeFiles.join(", ")}`);
   }
