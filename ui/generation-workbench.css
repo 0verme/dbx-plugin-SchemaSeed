@@ -25,6 +25,18 @@
 .sswb-status[data-status="warning"] { color: #8a5a0a; }
 .sswb-main { display: grid; gap: 12px; width: min(1500px, 100%); margin: 0 auto; padding: 14px 18px 28px; }
 .sswb-panel { min-width: 0; padding: 14px 16px; background: var(--sswb-panel); border: 1px solid var(--sswb-line); border-radius: 4px; }
+.sswb-panel.sswb-section { padding: 0; }
+.sswb-section-header { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 16px; cursor: pointer; list-style: none; }
+.sswb-section-header::-webkit-details-marker { display: none; }
+.sswb-section-header:hover { background: color-mix(in srgb, var(--sswb-panel), #64748b 3%); }
+.sswb-section-header h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.sswb-section-toggle { flex: 0 0 auto; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; color: var(--sswb-muted); }
+.sswb-section details[open] > .sswb-section-header .sswb-section-toggle { transform: rotate(90deg); }
+.sswb-section-summary { color: var(--sswb-muted); font-size: 12px; }
+.sswb-section-summary[data-severity="warning"] { color: #8a5a0a; font-weight: 600; }
+.sswb-section-summary[data-severity="error"] { color: #a02b25; font-weight: 600; }
+.sswb-section-body { padding: 0 16px 14px; }
+.sswb-section-body > .sswb-caption { margin: 0 0 10px; }
 .sswb-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
 .sswb-heading h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .sswb-caption { margin: 3px 0 0; color: var(--sswb-muted); font-size: 12px; }
@@ -113,3 +125,4 @@
 .sswb footer { padding: 2px 0 0; color: var(--sswb-muted); text-align: center; font-size: 11px; }
 @media (max-width: 1050px) { .sswb-controls { grid-template-columns: repeat(3, minmax(100px, 1fr)); } .sswb-actions { grid-column: 1 / -1; } }
 @media (max-width: 640px) { .sswb-header { padding: 10px 12px; } .sswb-main { padding: 10px; gap: 9px; } .sswb-panel { padding: 12px; } .sswb-context-grid { grid-template-columns: 1fr; } .sswb-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sswb-actions { grid-column: 1 / -1; } .sswb-actions .sswb-button { flex: 1; } .sswb-export-row { align-items: flex-start; flex-direction: column; } .sswb-diagnostic { grid-template-columns: 90px minmax(0, 1fr); } .sswb-diagnostic-body { grid-column: 2; } }
+@media (max-width: 640px) { .sswb-section-header { padding: 9px 12px; } .sswb-section-body { padding: 0 12px 12px; } }

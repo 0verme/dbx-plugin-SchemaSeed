@@ -40,7 +40,9 @@ export const EN_US_MESSAGES = Object.freeze({
   "actions.newSeed": "New Seed",
 
   // Column / strategy table.
-  "columns.title": "Columns and current generation strategy",
+  "columns.title": "Columns and generation strategy",
+  "columns.summary": "{count} fields",
+  "columns.summaryPending": "{count} fields · {pending} to confirm",
   "columns.caption": "Generator, semantic mapping and evidence come from the current GenerationPlan",
   "columns.header.column": "Column",
   "columns.header.schemaType": "Schema Type",
@@ -148,6 +150,8 @@ export const EN_US_MESSAGES = Object.freeze({
 
   // Constraints.
   "constraints.title": "Constraints",
+  "constraints.summary.none": "Not configured",
+  "constraints.summary.count": "{count} constraint(s)",
   "constraints.caption": "SchemaSeed generation obligations only; these are not database constraint metadata.",
   "constraints.add": "+ Add Constraint",
   "constraints.header.kind": "Type",
@@ -178,6 +182,11 @@ export const EN_US_MESSAGES = Object.freeze({
 
   // Diagnostics.
   "diagnostics.title": "Diagnostics",
+  "diagnostics.summary.none": "No issues",
+  "diagnostics.summary.pending": "{count} to confirm",
+  "diagnostics.summary.errors": "{count} error(s)",
+  "diagnostics.summary.issues": "{count} issue(s)",
+  "diagnostics.summary.loading": "Loading…",
   "diagnostics.caption": "Host provider / Core diagnostics rendered in the current UI language",
   "diagnostics.empty.loading": "Loading…",
   "diagnostics.empty.blocked": "No diagnostic detail is available, but generation is still blocked.",
