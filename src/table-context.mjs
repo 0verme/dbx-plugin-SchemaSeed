@@ -4,6 +4,10 @@
  */
 export const PLUGIN_ID = "io.github.0verme.schema-seed";
 export const PLUGIN_VERSION = "0.1.0";
+// Legacy Phase 0 contract kept only for the manually opened Schema Metadata
+// Probe Workbench sidecar flow and its tests. The production table context-menu
+// contribution was removed in the DBX v0.6.23 runtime-validation cleanup;
+// `contextMenu/<id>` is no longer reachable through a manifest entry.
 export const TABLE_CONTEXT_CONTRIBUTION_ID = `${PLUGIN_ID}.table-context-probe`;
 export const TABLE_CONTEXT_METHOD = `contextMenu/${TABLE_CONTEXT_CONTRIBUTION_ID}`;
 

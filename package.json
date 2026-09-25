@@ -1,5 +1,5 @@
 {
-  "name": "@0verme/schema-seed-table-context-probe",
+  "name": "@0verme/schema-seed",
   "private": true,
   "type": "module",
   "scripts": {

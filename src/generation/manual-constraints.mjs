@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.mjs";
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
 import { randomUnit } from "./generation-identity.mjs";
 import { describeConstraintDomain } from "./constraint-domain.mjs";
@@ -248,7 +248,7 @@ export function validateDatasetConstraints(rows, constraintPlan) {
 
 export function manualConstraintIdentity(config) {
   const canonical = canonicalSerialize(config);
-  const digest = createHash("sha256").update(`SchemaSeed.ManualConstraint.v1\0${canonical}`, "utf8").digest("hex");
+  const digest = sha256Hex(`SchemaSeed.ManualConstraint.v1\0${canonical}`);
   return `constraint:${config.kind}:v1:${digest.slice(0, 24)}`;
 }
 

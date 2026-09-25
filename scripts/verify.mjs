@@ -6,24 +6,28 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-const contribution = manifest.contributions?.find((entry) => entry.id === "io.github.0verme.schema-seed.table-context-probe");
+const phase0ProbeId = "io.github.0verme.schema-seed.table-context-probe";
 const generationWorkbenchId = "io.github.0verme.schema-seed.generation-workbench";
 const generationAction = manifest.contributions?.find((entry) => entry.id === "io.github.0verme.schema-seed.generate-test-data");
+const tableContributions = manifest.contributions?.filter((entry) => entry.type === "context-menu" && entry.menu === "table") ?? [];
 
 assert.equal(manifest.manifest_version, 1);
 assert.equal(manifest.engines.host_api, "^1.3");
-assert.equal(manifest.engines.dbx, ">=0.6.19", "do not guess a future DBX release number");
+assert.equal(manifest.engines.dbx, ">=0.6.23", "DBX v0.6.23 is the first released runtime containing upstream #10244");
 assert.deepEqual(manifest.permissions, ["host.schema:read"]);
 assert.equal(manifest.entrypoints.backend.transport, "stdio-jsonl");
 assert.deepEqual(manifest.entrypoints.ui, { root: "ui", entry: "ui/index.html" });
-assert.equal(contribution?.type, "context-menu");
-assert.equal(contribution?.menu, "table");
+assert.equal(tableContributions.length, 1, "production manifest exposes exactly one table context-menu contribution");
+assert.equal(tableContributions[0].id, "io.github.0verme.schema-seed.generate-test-data");
+assert.equal(manifest.contributions.some((entry) => entry.id === phase0ProbeId), false, "the historical table context probe must not remain a production entry point");
+assert.equal(manifest.localizations?.["zh-CN"]?.contributions?.[phase0ProbeId], undefined, "the historical table context probe localization must be removed");
 assert.equal(manifest.entrypoints.backend.executable, "bin/universal/schema-seed-runtime");
 assert.equal(manifest.contributions.filter((entry) => entry.type === "workbench").length, 2);
 assert.ok(manifest.contributions.some((entry) => entry.type === "workbench" && entry.id === "io.github.0verme.schema-seed.schema-metadata-probe"));
 assert.ok(manifest.contributions.some((entry) => entry.type === "workbench" && entry.id === generationWorkbenchId));
 assert.equal(generationAction?.type, "context-menu");
 assert.equal(generationAction?.menu, "table");
+assert.equal(generationAction?.id, tableContributions[0].id);
 assert.deepEqual(generationAction?.action, { type: "open-workbench", workbench: generationWorkbenchId });
 assert.equal(packageJson.scripts.workbench, "node scripts/workbench.mjs");
 
@@ -51,6 +55,7 @@ const coreFiles = [
   "src/generation/generation-plan.mjs",
   "src/generation/generation-rules.mjs",
   "src/generation/manual-constraints.mjs",
+  "src/generation/sha256.mjs",
   "src/generation/person-synthetic.mjs",
   "src/semantic/semantic-inference.mjs",
   "src/semantic/person-groups.mjs",
