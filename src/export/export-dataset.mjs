@@ -19,9 +19,10 @@ export class ExportError extends Error {
  * This function never invokes generation or derives mapping rules.
  * @param {import("../generation/generation-plan.mjs").GenerationPlan} plan
  * @param {{ rows: Array<Record<string, unknown>>, status: string }} generated
+ * @param {{ table?: { database?: string | null, schema?: string | null, table: string } }} [options]
  * @returns {ExportDataset}
  */
-export function createExportDataset(plan, generated) {
+export function createExportDataset(plan, generated, options = {}) {
   if (!plan || !generated || !Array.isArray(generated.rows)) {
     throw new ExportError("export_no_dataset", "A GenerationPlan and successful generated rows are required");
   }
@@ -64,6 +65,7 @@ export function createExportDataset(plan, generated) {
   });
   return Object.freeze({
     tableIdentity: plan.table.tableIdentity,
+    table: options.table === undefined || options.table === null ? null : normalizeTableReference(options.table),
     columns: Object.freeze([...columns]),
     rows: Object.freeze(rows),
     generationContext,
@@ -90,8 +92,35 @@ export function validateExportDataset(dataset) {
   if (dataset.rows.length !== dataset.generationContext.rowCount) {
     throw new ExportError("export_row_shape_mismatch", "Dataset row count does not match generationContext.rowCount");
   }
+  if (dataset.table !== undefined && dataset.table !== null) normalizeTableReference(dataset.table);
   validateRows(dataset.rows, dataset.columns);
   return dataset;
+}
+
+/**
+ * Normalize the database / schema / table reference captured with the dataset.
+ * It is the same TableContext shape the Workbench already receives; the export
+ * boundary does not build a second table model.
+ * @param {unknown} input
+ * @returns {{ database: string | null, schema: string | null, table: string }}
+ */
+export function normalizeTableReference(input) {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    throw new ExportError("export_no_table_reference", "A database / schema / table reference must be an object");
+  }
+  if (typeof input.table !== "string" || input.table.trim() === "") {
+    throw new ExportError("export_no_table_reference", "A database / schema / table reference requires a non-empty table name");
+  }
+  const reference = { database: null, schema: null, table: input.table.trim() };
+  for (const key of ["database", "schema"]) {
+    const value = input[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "string" || value.trim() === "") {
+      throw new ExportError("export_no_table_reference", `A database / schema / table reference ${key} must be non-empty text when provided`);
+    }
+    reference[key] = value.trim();
+  }
+  return Object.freeze(reference);
 }
 
 /** @param {string[]} columns */
@@ -137,17 +166,18 @@ function validateRows(rows, columns) {
 /**
  * @typedef {Object} ExportDataset
  * @property {string} tableIdentity
+ * @property {{ database: string | null, schema: string | null, table: string } | null} table Database / schema / table reference captured with this snapshot.
  * @property {string[]} columns Explicit TableSchema column order.
  * @property {Array<Record<string, string | number | boolean | null>>} rows
  * @property {{ seed: string, locale: string, rowCount: number, determinismProfile: string }} generationContext
  */
 
-/** @param {string} tableIdentity @param {number} rowCount @param {"csv" | "json"} format */
+/** @param {string} tableIdentity @param {number} rowCount @param {"csv" | "json" | "sql"} format */
 export function createExportFilename(tableIdentity, rowCount, format) {
   if (typeof tableIdentity !== "string" || tableIdentity.trim() === ""
     || !Number.isSafeInteger(rowCount) || rowCount < 0
-    || !["csv", "json"].includes(format)) {
-    throw new TypeError("A table identity, non-negative row count, and csv/json format are required");
+    || !["csv", "json", "sql"].includes(format)) {
+    throw new TypeError("A table identity, non-negative row count, and csv/json/sql format are required");
   }
   const normalizedTableName = tableIdentity.normalize("NFKC")
     .replace(/[^\p{L}\p{N}_-]+/gu, "-")

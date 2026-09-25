@@ -172,7 +172,7 @@ Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phas
 
 ### 明确延期 / 边界
 
-- SQL Export deferred：fixture Workbench 没有 production database dialect；不实现 generic SQL serializer。
+- SQL Export 在 Phase 1D 明确延期（fixture Workbench 没有 production database dialect）；v0.2.2（Issue [#47](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/47)）已在 production Workbench 交付普通单行 INSERT SQL 导出，并明确 identifier quoting / boolean literal 的跨方言最小策略与 MySQL `ANSI_QUOTES` 等已知限制；方言感知 serializer 仍为 Future Work。
 - Phase 1D 当时未实现 production `DbxHostSchemaMetadataProvider` / Host-backed Generation；#30 后续另行完成。fixture Workbench packaging、PK / UNIQUE / CHECK / FK、Relation Planner 或 SCD 仍不在 Phase 1D 范围。
 - CSV / JSON 不依赖 upstream `t8y2/dbx#10043`；该 PR 在 Phase 1D 执行期间已 merge，不扩大本 Issue。
 
@@ -194,7 +194,7 @@ DBX Sidebar table
   → DbxHostSchemaMetadataProvider
   → SchemaSeed TableSchema
   → GenerationPlan → generateRows()
-  → Preview → CSV / JSON
+  → Preview → CSV / JSON / INSERT SQL
 ```
 
 - Formal Workbench obtains TableContext directly from DBX and calls the public `getTableMetadata()` provider; `database` / `schema` remain optional.
@@ -228,4 +228,4 @@ DBX Sidebar table
 
 ### Current status / next step
 
-`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; the runtime release gate is satisfied by DBX v0.6.23, and official runtime smoke / acceptance-based Issue closure still require manual execution. `#32` Core + production Rule Editor implementation is ready; runtime E2E remains pending on the same release. The production table context-menu now exposes only the `generate-test-data` entry; the historical Phase 0 probe entry was removed. Manual Unique / Composite Unique / Required + Unique are the explicit #37 scope; automatic database-constraint discovery, CHECK, Identity, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.
+`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; the runtime release gate is satisfied by DBX v0.6.23, and official runtime smoke / acceptance-based Issue closure still require manual execution. `#32` Core + production Rule Editor implementation is ready; runtime E2E remains pending on the same release. The production table context-menu now exposes only the `generate-test-data` entry; the historical Phase 0 probe entry was removed. Manual Unique / Composite Unique / Required + Unique are the explicit #37 scope; automatic database-constraint discovery, CHECK, Identity, FK datasets, SCD and Direct Insert remain non-goals. INSERT SQL export is delivered separately in v0.2.2 (Issue #47) with a documented dialect boundary, and does not add direct database writes.

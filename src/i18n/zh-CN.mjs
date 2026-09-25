@@ -258,6 +258,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   // Export.
   "export.csv": "导出 CSV",
   "export.json": "导出 JSON",
+  "export.sql": "导出 INSERT SQL",
   "export.unavailable": "生成预览成功后才可导出。",
   "export.ready": "导出的数据与当前预览完全相同。",
   "export.disabledHint": "预览不可用或存在阻塞诊断时，导出保持禁用。",
@@ -265,6 +266,8 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "export.failed": "导出失败：{code} · {message}",
   "export.error.export_blocked_plan": "当前 GenerationPlan 被阻塞，无法导出。",
   "export.error.export_no_dataset": "导出需要先成功生成当前表的数据预览。",
+  "export.error.export_no_table_reference": "当前表缺少 database / schema / table 上下文，无法生成 INSERT SQL。",
+  "export.error.export_serialization_failed": "当前数据无法安全序列化，已停止导出。",
   "export.error.export_error": "导出失败。",
 
   // Errors surfaced by Workbench actions.

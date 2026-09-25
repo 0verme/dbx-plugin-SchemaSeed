@@ -1,6 +1,7 @@
 import { exportCsv } from "../export/csv-exporter.mjs";
 import { createExportDataset, createExportFilename, ExportError } from "../export/export-dataset.mjs";
 import { exportJson } from "../export/json-exporter.mjs";
+import { exportInsertSql } from "../export/sql-exporter.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
 import { createI18n, DEFAULT_UI_LOCALE } from "../i18n/index.mjs";
 import { toColumnViewModel } from "./workbench-view-model.mjs";
@@ -351,9 +352,13 @@ export class DbxGenerationWorkbenchController {
     };
   }
 
-  /** Return a descriptor for the same frozen dataset currently shown in Preview. @param {"csv" | "json"} format */
+  /**
+   * Return a descriptor for the same frozen dataset currently shown in Preview.
+   * SQL consumes the same snapshot as CSV / JSON; it never regenerates rows.
+   * @param {"csv" | "json" | "sql"} format
+   */
   prepareExport(format) {
-    if (format !== "csv" && format !== "json") throw new TypeError("Export format must be csv or json");
+    if (format !== "csv" && format !== "json" && format !== "sql") throw new TypeError("Export format must be csv, json or sql");
     if (this.plan?.status === "blocked" || this.status === "blocked") {
       throw new ExportError("export_blocked_plan", "Blocked plans cannot be exported");
     }
@@ -363,10 +368,17 @@ export class DbxGenerationWorkbenchController {
 
     const content = format === "csv"
       ? exportCsv(this.currentDataset, { header: true, mode: "spreadsheet_safe", bom: true })
-      : exportJson(this.currentDataset, { pretty: true });
+      : format === "json"
+        ? exportJson(this.currentDataset, { pretty: true })
+        : exportInsertSql(this.currentDataset, { header: true });
+    const mimeTypes = {
+      csv: "text/csv;charset=utf-8",
+      json: "application/json;charset=utf-8",
+      sql: "application/sql;charset=utf-8",
+    };
     return {
       filename: createExportFilename(this.currentDataset.tableIdentity, this.currentDataset.rows.length, format),
-      mimeType: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8",
+      mimeType: mimeTypes[format],
       content,
       summary: {
         rowCount: this.currentDataset.rows.length,
@@ -434,7 +446,7 @@ export class DbxGenerationWorkbenchController {
       } else {
         this.status = response.generated.status === "ready_with_warnings" || response.plan.status === "ready_with_warnings"
           ? "warning" : "ready";
-        this.currentDataset = createExportDataset(response.plan, response.generated);
+        this.currentDataset = createExportDataset(response.plan, response.generated, { table: this.context });
       }
       this.stage = "ready";
       this.emit();

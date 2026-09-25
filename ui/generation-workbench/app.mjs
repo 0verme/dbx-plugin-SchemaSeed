@@ -66,7 +66,7 @@ const WORKBENCH_MARKUP = `
         <div class="sswb-heading"><div><h2 id="sswb-preview-title" data-i18n="preview.title"></h2><p id="sswb-preview-summary" class="sswb-caption"></p></div><span class="sswb-readonly" data-i18n="preview.readonly"></span></div>
         <p id="sswb-state-message" class="sswb-state-message" role="status"></p>
         <p id="sswb-safe-notice" class="sswb-safe-notice"></p>
-        <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
+        <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
         <div class="sswb-scroll sswb-preview-scroll"><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
       </section>
       <footer data-i18n="footer.statement"></footer>
@@ -257,7 +257,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     renderPreview(viewModel, t);
     const exportDisabled = !viewModel.export.enabled || viewModel.status === "loading";
     const exportHint = exportDisabled ? exportDisabledHint(viewModel, t) : "";
-    for (const id of ["sswb-export-csv", "sswb-export-json"]) {
+    for (const id of ["sswb-export-csv", "sswb-export-json", "sswb-export-sql"]) {
       element(id).disabled = exportDisabled;
       element(id).title = exportHint;
     }
