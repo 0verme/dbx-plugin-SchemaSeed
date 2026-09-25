@@ -5,7 +5,7 @@ import { GENERATION_PREVIEW_METHOD } from "./generation-runtime-contract.mjs";
 export { GENERATION_PREVIEW_METHOD } from "./generation-runtime-contract.mjs";
 export const GENERATION_RUNTIME_JSON_RPC_VERSION = "2.0";
 const MAX_PREVIEW_ROWS = 100;
-const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "validateOnly", "semanticOverrides", "semanticMappings"]);
+const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings"]);
 
 /**
  * Build and execute an existing Core GenerationPlan for the packaged Workbench.

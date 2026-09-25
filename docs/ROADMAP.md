@@ -217,6 +217,13 @@ DBX Sidebar table
 - Focused and full local Node tests validate tagged contracts, schema bounds, exact decimal arithmetic, UTC ranges, stable identities, controller invalidation, RPC and `.dbxp` packaging. These are not DBX runtime E2E evidence.
 - State: `IMPLEMENTATION_READY_RUNTIME_E2E_PENDING`. Keep Issue #32 open until an official DBX release contains #10244 and the formal Workbench + rules flow passes runtime validation. No release fabrication or local upstream compilation.
 
+### Issue #37 — Manual Single-table Constraint Engine v0.1
+
+- Core accepts only explicit `unique`, ordered `composite_unique` and `required_unique` configuration; it builds an independent inspectable ConstraintPlan, proves finite domain / tuple capacity, allocates deterministically without collision retry, and independently validates the final dataset.
+- The production Workbench editor uses the existing `generation/preview` validation-only path. Constraint edits invalidate Preview / Export; constraints are cleared on context refresh and are not persisted. `.dbxp` includes the new Core and Workbench assets while excluding test / fixture / standalone resources.
+- This capability is a SchemaSeed generation obligation, not database PK / UNIQUE discovery. No host schema provenance is rewritten and no database catalog, private API, credential or second connection is used. See the canonical [Manual Constraints contract](MANUAL_CONSTRAINTS.md).
+- #37 does not depend on or alter #31 runtime smoke / #32 runtime E2E gates, and does not claim either gate verified.
+
 ### Current status / next step
 
-`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; official runtime smoke and acceptance-based Issue closure remain pending the upstream release containing #10244. `#32` Core + production Rule Editor implementation is ready; runtime E2E is gated on the same upstream release. PK / UNIQUE / CHECK, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.
+`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; official runtime smoke and acceptance-based Issue closure remain pending the upstream release containing #10244. `#32` Core + production Rule Editor implementation is ready; runtime E2E is gated on the same upstream release. Manual Unique / Composite Unique / Required + Unique are the explicit #37 scope; automatic database-constraint discovery, CHECK, Identity, FK datasets, SCD, SQL Export and Direct Insert remain non-goals.

@@ -58,6 +58,11 @@
 .sswb-mapping li { margin: 4px 0; overflow-wrap: anywhere; }
 .sswb-rule-slot { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 10px; padding: 9px 10px; border: 1px dashed #b7c4ce; border-radius: 3px; color: #536274; font-size: 11px; }
 .sswb-rule-slot strong { color: #344456; }
+.sswb-constraints { width: 100%; min-width: 620px; border-collapse: collapse; text-align: left; }
+.sswb-constraints th, .sswb-constraints td { padding: 7px 9px; border-bottom: 1px solid #e7ebef; vertical-align: middle; font-size: 12px; }
+.sswb-constraints th { color: #596779; background: color-mix(in srgb, var(--sswb-panel), #64748b 4%); font-size: 11px; font-weight: 650; }
+.sswb-constraints select, .sswb-constraints textarea { width: 100%; min-width: 120px; min-height: 30px; padding: 4px 7px; border: 1px solid #cbd3dc; border-radius: 3px; background: var(--sswb-panel); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.sswb-constraints textarea { min-height: 45px; resize: vertical; }
 .sswb-rule-editor { display: grid; gap: 6px; margin-top: 7px; min-width: 190px; }
 .sswb-rule-editor > select { min-height: 30px; padding: 4px 7px; border: 1px solid #cbd3dc; border-radius: 3px; background: var(--sswb-panel); }
 .sswb-rule-fields { display: flex; flex-wrap: wrap; gap: 5px 7px; }

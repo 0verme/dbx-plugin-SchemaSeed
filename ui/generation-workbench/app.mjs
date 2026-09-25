@@ -31,6 +31,12 @@ const WORKBENCH_MARKUP = `
         <div id="sswb-rule-state" class="sswb-rule-slot" role="status">规则仅保存在当前表的 Workbench session；修改后需重新 Generate。</div>
       </section>
 
+      <section class="sswb-panel" aria-labelledby="sswb-constraints-title">
+        <div class="sswb-heading"><div><h2 id="sswb-constraints-title">Constraints</h2><p class="sswb-caption">仅用于 SchemaSeed 数据生成；不是数据库约束元数据。</p></div><button class="sswb-button" type="button" data-constraint-add>+ Add Constraint</button></div>
+        <div class="sswb-scroll"><table class="sswb-constraints"><thead><tr><th>Type</th><th>Columns (ordered for composite)</th><th>Plan / Capacity</th><th></th></tr></thead><tbody id="sswb-constraints-body"></tbody></table></div>
+        <div id="sswb-constraint-state" class="sswb-rule-slot" role="status">Constraints are scoped to this table session. Changes invalidate Preview and Export.</div>
+      </section>
+
       <section class="sswb-panel" aria-labelledby="sswb-diagnostics-title">
         <div class="sswb-heading"><div><h2 id="sswb-diagnostics-title">Diagnostics</h2><p class="sswb-caption">复用 Host Provider / Generation Core diagnostics</p></div></div>
         <div id="sswb-diagnostics" class="sswb-diagnostics"></div>
@@ -95,12 +101,40 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
       const rule = structuredClone(column.generationRule);
       rule[target.dataset.ruleField] = readRuleField(target);
       void controller.dispatch({ type: "update-rule", column: column.column, rule });
+      return;
+    }
+    if (target.matches("[data-constraint-kind], [data-constraint-column], [data-constraint-columns]")) {
+      const constraint = controller.constraints.find((entry) => entry.id === target.dataset.constraintId);
+      if (!constraint) return;
+      const updated = structuredClone(constraint);
+      if (target.matches("[data-constraint-kind]")) {
+        const rawColumns = updated.kind === "composite_unique" ? updated.columns : [updated.column];
+        const oldColumns = Array.isArray(rawColumns) ? rawColumns : typeof rawColumns === "string" ? [rawColumns] : [];
+        updated.kind = target.value;
+        delete updated.column;
+        delete updated.columns;
+        if (updated.kind === "composite_unique") updated.columns = oldColumns.filter(Boolean).slice(0, 2);
+        else updated.column = oldColumns[0] ?? "";
+      } else if (target.matches("[data-constraint-column]")) {
+        updated.column = target.value;
+      } else {
+        try { updated.columns = JSON.parse(target.value); } catch { updated.columns = target.value; }
+      }
+      void controller.dispatch({ type: "update-constraint", constraint: updated });
     }
   }
 
   function onClick(event) {
-    const target = event.target.closest("[data-sswb-action], [data-sswb-export]");
+    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-constraint-add], [data-constraint-delete]");
     if (!target) return;
+    if (target.matches("[data-constraint-add]")) {
+      void controller.dispatch({ type: "add-constraint", kind: "unique" });
+      return;
+    }
+    if (target.matches("[data-constraint-delete]")) {
+      void controller.dispatch({ type: "delete-constraint", id: target.dataset.constraintId });
+      return;
+    }
     if (target.dataset.sswbExport) {
       try {
         const descriptor = controller.prepareExport(target.dataset.sswbExport);
@@ -144,7 +178,9 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
       control.disabled = viewModel.status === "loading" || viewModel.status === "blocked";
     }
     element("sswb-rule-state").textContent = ruleStateMessage(viewModel);
+    element("sswb-constraint-state").textContent = constraintStateMessage(viewModel);
     renderColumns(viewModel.columns);
+    renderConstraints(viewModel);
     renderDiagnostics(viewModel.diagnostics);
     renderPreview(viewModel);
     element("sswb-export-csv").disabled = !viewModel.export.enabled || viewModel.status === "loading";
@@ -205,6 +241,80 @@ export async function mountGenerationWorkbench(root, host, initialContext) {
         detailsCell.append(details);
       } else if (column.ruleDiagnostics.length === 0) detailsCell.append(document.createTextNode("—"));
       row.append(detailsCell);
+      body.append(row);
+    }
+  }
+
+  function renderConstraints(viewModel) {
+    const body = element("sswb-constraints-body");
+    body.replaceChildren();
+    if (viewModel.constraints.length === 0) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 4;
+      cell.textContent = viewModel.context ? "No SchemaSeed generation constraints configured." : "Load a table to configure constraints.";
+      row.append(cell);
+      body.append(row);
+      return;
+    }
+    const labels = { unique: "Unique", composite_unique: "Composite Unique", required_unique: "Required + Unique" };
+    for (const constraint of viewModel.constraints) {
+      const row = document.createElement("tr");
+      const kindCell = document.createElement("td");
+      const kind = document.createElement("select");
+      kind.dataset.constraintKind = "true";
+      kind.dataset.constraintId = constraint.id;
+      for (const value of ["unique", "composite_unique", "required_unique"]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = labels[value];
+        kind.append(option);
+      }
+      kind.value = constraint.kind;
+      kindCell.append(kind);
+      row.append(kindCell);
+
+      const columnsCell = document.createElement("td");
+      if (constraint.kind === "composite_unique") {
+        const ordered = document.createElement("textarea");
+        ordered.rows = 2;
+        ordered.value = Array.isArray(constraint.columns) ? JSON.stringify(constraint.columns) : String(constraint.columns ?? "");
+        ordered.setAttribute("aria-label", `${constraint.id} ordered columns as JSON array`);
+        ordered.dataset.constraintColumns = "true";
+        ordered.dataset.constraintId = constraint.id;
+        columnsCell.append(ordered);
+      } else {
+        const select = document.createElement("select");
+        select.dataset.constraintColumn = "true";
+        select.dataset.constraintId = constraint.id;
+        for (const column of viewModel.columns) {
+          const option = document.createElement("option");
+          option.value = column.column;
+          option.textContent = column.column;
+          select.append(option);
+        }
+        select.value = constraint.column ?? "";
+        columnsCell.append(select);
+      }
+      row.append(columnsCell);
+
+      const planCell = document.createElement("td");
+      const planned = viewModel.constraintPlan?.constraints.find((entry) => entry.id === constraint.id);
+      if (planned) {
+        const capacity = planned.capacity.state === "known" ? planned.capacity.value : "unknown / cannot prove";
+        planCell.textContent = `${planned.satisfiable === true ? "satisfiable" : planned.satisfiable === false ? "unsatisfiable" : "not proven"} · capacity ${capacity}${planned.blocking ? " · blocked" : ""}`;
+      } else planCell.textContent = "Plan pending validation";
+      row.append(planCell);
+
+      const actionCell = document.createElement("td");
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "sswb-button";
+      remove.textContent = "Delete";
+      remove.dataset.constraintDelete = "true";
+      remove.dataset.constraintId = constraint.id;
+      actionCell.append(remove);
+      row.append(actionCell);
       body.append(row);
     }
   }
@@ -359,6 +469,15 @@ function ruleStateMessage(viewModel) {
   if (viewModel.ruleEditor.state === "blocked") return "A rule or schema diagnostic blocks generation; fix it before Generate or Export.";
   if (viewModel.ruleEditor.state === "warning") return "Rules are ready with Core warnings; Preview remains available.";
   return "Rules are scoped to this table session. Editing any rule invalidates Preview and Export.";
+}
+
+function constraintStateMessage(viewModel) {
+  if (viewModel.constraintEditor.state === "loading") return "Load a DBX table schema before editing constraints.";
+  if (viewModel.constraintEditor.state === "validating") return "Core is validating constraints; Preview and Export remain invalidated.";
+  if (viewModel.constraintEditor.state === "dirty") return "Constraints are valid; Preview is stale. Generate to create a dataset.";
+  if (viewModel.constraintEditor.state === "blocked") return "A manual constraint or rule conflict blocks Generate and Export; review Core diagnostics.";
+  if (viewModel.constraintEditor.state === "error") return "Constraint validation runtime failed.";
+  return "Constraints are explicit SchemaSeed generation obligations scoped to this table session.";
 }
 
 function statusLabel(viewModel) {

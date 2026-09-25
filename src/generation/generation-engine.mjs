@@ -1,6 +1,8 @@
-import { createHash } from "node:crypto";
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
 import { formatDecimalUnits, formatTimestamp, parseTimestamp } from "./generation-rules.mjs";
+import { allocateConstraintRows } from "./constraint-allocation.mjs";
+import { digestFor, randomBigIntBelow, randomBigIntBelowUniform, randomUnit } from "./generation-identity.mjs";
+import { validateDatasetConstraints } from "./manual-constraints.mjs";
 import { generatePersonSyntheticValue } from "./person-synthetic.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -30,6 +32,9 @@ export function generateRows(plan) {
   if (plan.status === "blocked") return { rows: [], diagnostics: [...plan.diagnostics], status: "blocked" };
 
   const rows = [];
+  const constrainedRows = plan.constraintPlan?.allocations?.length
+    ? allocateConstraintRows(plan)
+    : new Map();
   for (let rowIndex = 0; rowIndex < plan.rowCount; rowIndex += 1) {
     const rowIdentity = String(rowIndex);
     const entries = [];
@@ -66,10 +71,18 @@ export function generateRows(plan) {
       ];
       return { rows: [], diagnostics, status: "blocked" };
     }
-    rows.push(Object.fromEntries(entries));
+    const row = Object.fromEntries(entries);
+    for (const [column, value] of constrainedRows.get(rowIndex) ?? []) row[column] = value;
+    rows.push(row);
   }
 
-  return { rows, diagnostics: [...plan.diagnostics], status: planStatus(plan.diagnostics) };
+  const diagnostics = [...plan.diagnostics];
+  if (plan.constraintPlan) {
+    const validation = validateDatasetConstraints(rows, plan.constraintPlan);
+    diagnostics.push(...validation.diagnostics);
+    if (!validation.valid) return { rows: [], diagnostics, status: "blocked" };
+  }
+  return { rows, diagnostics, status: planStatus(diagnostics) };
 }
 
 function generateValue(rule, identity, column, locale, rowIndex) {
@@ -201,50 +214,4 @@ function parseTimestampBound(value, fallback) {
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) throw new Error(`Invalid timestamp bound ${String(value)}`);
   return parsed;
-}
-
-function randomUnit(identity) {
-  const digest = digestFor(identity);
-  const top53Bits = digest.readBigUInt64BE(0) >> 11n;
-  return Number(top53Bits) / 9_007_199_254_740_992;
-}
-
-function randomBigIntBelow(exclusiveMax, identity) {
-  if (exclusiveMax <= 0n) throw new Error("Random range must have a positive width");
-  const bitCount = exclusiveMax.toString(2).length;
-  const byteCount = Math.ceil(bitCount / 8);
-  const mask = (1n << BigInt(bitCount)) - 1n;
-  let bytes = Buffer.alloc(0);
-  let block = 0;
-  while (bytes.length < byteCount) {
-    bytes = Buffer.concat([bytes, digestFor([...identity, `block-${block}`])]);
-    block += 1;
-  }
-  const candidate = BigInt(`0x${bytes.subarray(0, byteCount).toString("hex")}`) & mask;
-  return candidate % exclusiveMax;
-}
-
-function randomBigIntBelowUniform(exclusiveMax, identity) {
-  if (exclusiveMax <= 0n) throw new Error("Random range must have a positive width");
-  if (exclusiveMax === 1n) return 0n;
-  const bitCount = (exclusiveMax - 1n).toString(2).length;
-  const byteCount = Math.ceil(bitCount / 8);
-  const mask = (1n << BigInt(bitCount)) - 1n;
-  for (let attempt = 0; ; attempt += 1) {
-    const parts = [];
-    let length = 0;
-    for (let block = 0; length < byteCount; block += 1) {
-      const part = digestFor([...identity, `candidate-${attempt}`, `block-${block}`]);
-      parts.push(part);
-      length += part.length;
-    }
-    const candidate = BigInt(`0x${Buffer.concat(parts).subarray(0, byteCount).toString("hex")}`) & mask;
-    if (candidate < exclusiveMax) return candidate;
-  }
-}
-
-function digestFor(identity) {
-  return createHash("sha256")
-    .update(JSON.stringify(["SchemaSeed", "sha256-addressed-v1", ...identity]), "utf8")
-    .digest();
 }

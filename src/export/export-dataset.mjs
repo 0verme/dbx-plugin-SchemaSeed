@@ -1,3 +1,5 @@
+import { validateDatasetConstraints } from "../generation/manual-constraints.mjs";
+
 const SAFE_STATUSES = new Set(["ready", "ready_with_warnings"]);
 const EXPORT_SCALAR_TYPES = new Set(["string", "number", "boolean"]);
 
@@ -46,6 +48,14 @@ export function createExportDataset(plan, generated) {
   }
 
   const rows = normalizeRows(generated.rows, columns);
+  if (plan.constraintPlan) {
+    const validation = validateDatasetConstraints(rows, plan.constraintPlan);
+    if (!validation.valid) {
+      const error = new ExportError("export_constraint_violation", "Dataset failed independent manual-constraint validation");
+      error.diagnostics = validation.diagnostics;
+      throw error;
+    }
+  }
   const generationContext = Object.freeze({
     seed: plan.seed,
     locale: plan.locale,
