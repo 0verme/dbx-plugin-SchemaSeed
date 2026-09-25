@@ -68,6 +68,7 @@ const coreFiles = [
   "src/workbench/workbench-controller.mjs",
   "src/workbench/workbench-server.mjs",
   "src/workbench/dbx-generation-workbench-controller.mjs",
+  "src/workbench/workbench-sections.mjs",
   "src/workbench/workbench-view-model.mjs",
   "src/generation/generation-runtime-contract.mjs",
   "src/generation/generation-runtime-protocol.mjs",

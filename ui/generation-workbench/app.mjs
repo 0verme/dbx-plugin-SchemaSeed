@@ -19,6 +19,7 @@ import {
 } from "../src/i18n/workbench-messages.mjs";
 import { DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
+import { initialSectionExpansion, sectionSummaries, shouldAutoExpandDiagnostics } from "../src/workbench/workbench-sections.mjs";
 
 const WORKBENCH_MARKUP = `
   <div class="sswb">
@@ -45,29 +46,56 @@ const WORKBENCH_MARKUP = `
         <p id="sswb-action-error" class="sswb-inline-error" role="alert" hidden></p>
       </section>
 
-      <section class="sswb-panel" aria-labelledby="sswb-columns-title">
-        <div class="sswb-heading"><div><h2 id="sswb-columns-title" data-i18n="columns.title"></h2><p class="sswb-caption" data-i18n="columns.caption"></p></div></div>
-        <div class="sswb-scroll"><table class="sswb-mapping"><thead><tr><th data-i18n="columns.header.column"></th><th data-i18n="columns.header.schemaType"></th><th data-i18n="columns.header.strategy"></th><th data-i18n="columns.header.mappingStatus"></th><th data-i18n="columns.header.rules"></th></tr></thead><tbody id="sswb-columns"></tbody></table></div>
-        <div id="sswb-rule-state" class="sswb-rule-slot" role="status"></div>
-      </section>
-
-      <section class="sswb-panel" aria-labelledby="sswb-constraints-title">
-        <div class="sswb-heading"><div><h2 id="sswb-constraints-title" data-i18n="constraints.title"></h2><p class="sswb-caption" data-i18n="constraints.caption"></p></div><button class="sswb-button" type="button" data-constraint-add data-i18n="constraints.add"></button></div>
-        <div class="sswb-scroll"><table class="sswb-constraints"><thead><tr><th data-i18n="constraints.header.kind"></th><th data-i18n="constraints.header.columns"></th><th data-i18n="constraints.header.plan"></th><th></th></tr></thead><tbody id="sswb-constraints-body"></tbody></table></div>
-        <div id="sswb-constraint-state" class="sswb-rule-slot" role="status"></div>
-      </section>
-
-      <section class="sswb-panel" aria-labelledby="sswb-diagnostics-title">
-        <div class="sswb-heading"><div><h2 id="sswb-diagnostics-title" data-i18n="diagnostics.title"></h2><p class="sswb-caption" data-i18n="diagnostics.caption"></p></div></div>
-        <div id="sswb-diagnostics" class="sswb-diagnostics"></div>
-      </section>
-
       <section class="sswb-panel" aria-labelledby="sswb-preview-title">
         <div class="sswb-heading"><div><h2 id="sswb-preview-title" data-i18n="preview.title"></h2><p id="sswb-preview-summary" class="sswb-caption"></p></div><span class="sswb-readonly" data-i18n="preview.readonly"></span></div>
         <p id="sswb-state-message" class="sswb-state-message" role="status"></p>
         <p id="sswb-safe-notice" class="sswb-safe-notice"></p>
         <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
         <div class="sswb-scroll sswb-preview-scroll"><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
+      </section>
+
+      <section class="sswb-panel sswb-section" aria-labelledby="sswb-columns-title">
+        <details id="sswb-columns-details">
+          <summary class="sswb-section-header">
+            <span class="sswb-section-toggle" aria-hidden="true"></span>
+            <h2 id="sswb-columns-title" data-i18n="columns.title"></h2>
+            <span id="sswb-columns-summary" class="sswb-section-summary"></span>
+          </summary>
+          <div class="sswb-section-body">
+            <p class="sswb-caption" data-i18n="columns.caption"></p>
+            <div class="sswb-scroll"><table class="sswb-mapping"><thead><tr><th data-i18n="columns.header.column"></th><th data-i18n="columns.header.schemaType"></th><th data-i18n="columns.header.strategy"></th><th data-i18n="columns.header.mappingStatus"></th><th data-i18n="columns.header.rules"></th></tr></thead><tbody id="sswb-columns"></tbody></table></div>
+            <div id="sswb-rule-state" class="sswb-rule-slot" role="status"></div>
+          </div>
+        </details>
+      </section>
+
+      <section class="sswb-panel sswb-section" aria-labelledby="sswb-constraints-title">
+        <details id="sswb-constraints-details">
+          <summary class="sswb-section-header">
+            <span class="sswb-section-toggle" aria-hidden="true"></span>
+            <h2 id="sswb-constraints-title" data-i18n="constraints.title"></h2>
+            <span id="sswb-constraints-summary" class="sswb-section-summary"></span>
+          </summary>
+          <div class="sswb-section-body">
+            <div class="sswb-heading"><p class="sswb-caption" data-i18n="constraints.caption"></p><button class="sswb-button" type="button" data-constraint-add data-i18n="constraints.add"></button></div>
+            <div class="sswb-scroll"><table class="sswb-constraints"><thead><tr><th data-i18n="constraints.header.kind"></th><th data-i18n="constraints.header.columns"></th><th data-i18n="constraints.header.plan"></th><th></th></tr></thead><tbody id="sswb-constraints-body"></tbody></table></div>
+            <div id="sswb-constraint-state" class="sswb-rule-slot" role="status"></div>
+          </div>
+        </details>
+      </section>
+
+      <section class="sswb-panel sswb-section" aria-labelledby="sswb-diagnostics-title">
+        <details id="sswb-diagnostics-details">
+          <summary class="sswb-section-header">
+            <span class="sswb-section-toggle" aria-hidden="true"></span>
+            <h2 id="sswb-diagnostics-title" data-i18n="diagnostics.title"></h2>
+            <span id="sswb-diagnostics-summary" class="sswb-section-summary"></span>
+          </summary>
+          <div class="sswb-section-body">
+            <p class="sswb-caption" data-i18n="diagnostics.caption"></p>
+            <div id="sswb-diagnostics" class="sswb-diagnostics"></div>
+          </div>
+        </details>
       </section>
       <footer data-i18n="footer.statement"></footer>
     </main>
@@ -102,6 +130,9 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   const unsubscribeContext = host.onContext((context) => {
     void controller.setContext(context);
   });
+  // Disclosure is page-session state only: it starts collapsed on every open,
+  // survives re-renders, and never touches browser storage.
+  const sectionState = { initialized: false, blockingCount: 0 };
   root.addEventListener("change", onControlsChange);
   root.addEventListener("click", onClick);
   applyStaticMessages();
@@ -251,6 +282,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     }
     element("sswb-rule-state").textContent = ruleEditorStateMessage(viewModel, t);
     element("sswb-constraint-state").textContent = constraintEditorStateMessage(viewModel, t);
+    renderSectionSummaries(viewModel, t);
     renderColumns(viewModel.columns, viewModel.status, t);
     renderConstraints(viewModel, t);
     renderDiagnostics(viewModel, t);
@@ -263,6 +295,37 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     }
     const exportMessage = exportStatusMessage(viewModel, t);
     if (exportMessage !== null) element("sswb-export-message").textContent = exportMessage;
+  }
+
+  /**
+   * Collapsed headers keep the important state visible (field count,
+   * confirmation count, constraint count, diagnostic severity) without leaking
+   * Core enums. Expansion is DOM state, so a re-render never resets a user's
+   * choice; only a newly appeared blocking error forces Diagnostics open.
+   */
+  function renderSectionSummaries(viewModel, t) {
+    const summaries = sectionSummaries(viewModel, t);
+    setSectionSummary("sswb-columns-summary", summaries.columns);
+    setSectionSummary("sswb-constraints-summary", summaries.constraints);
+    setSectionSummary("sswb-diagnostics-summary", summaries.diagnostics);
+    const diagnostics = element("sswb-diagnostics-details");
+    if (!sectionState.initialized) {
+      sectionState.initialized = true;
+      const expansion = initialSectionExpansion(viewModel, t);
+      element("sswb-columns-details").open = expansion.columns;
+      element("sswb-constraints-details").open = expansion.constraints;
+      diagnostics.open = expansion.diagnostics;
+    } else if (shouldAutoExpandDiagnostics(sectionState.blockingCount, summaries.blockingCount)) {
+      diagnostics.open = true;
+    }
+    sectionState.blockingCount = summaries.blockingCount;
+  }
+
+  function setSectionSummary(id, summary) {
+    const node = element(id);
+    node.textContent = summary.text;
+    if (summary.severity === "none") delete node.dataset.severity;
+    else node.dataset.severity = summary.severity;
   }
 
   function renderColumns(columns, status, t) {
