@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -168,6 +168,41 @@ test("manifest declares the production Workbench and DBX v0.6.23 table action co
   assert.doesNotMatch(productionApp, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider/);
   assert.match(config, /src\/workbench\/dbx-generation-workbench-controller\.mjs/);
   assert.doesNotMatch(config, /^\s+"(?:fixtures|web|tests|src\/providers\/fixture|src\/workbench\/workbench-controller)/m);
+});
+
+test("source version contract matches the manifest that the release packages", async () => {
+  const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
+  const { PLUGIN_VERSION } = await import("../src/table-context.mjs");
+  assert.equal(PLUGIN_VERSION, manifest.version, "src/table-context.mjs PLUGIN_VERSION must track manifest.json version");
+});
+
+test("package build refuses to mislabel a platform target", () => {
+  const result = spawnSync(process.execPath, [path.join(root, "scripts/build.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, DBX_PLUGIN_TARGET: "linux-x64" },
+  });
+  assert.notEqual(result.status, 0, "SchemaSeed only publishes the platform-independent universal candidate");
+  assert.match(result.stderr, /DBX_PLUGIN_TARGET/);
+});
+
+test("candidate artifact metadata matches the packaged bytes and stays unsigned", async () => {
+  execFileSync(process.execPath, [path.join(root, "scripts/build.mjs")], { cwd: root, stdio: "pipe" });
+  const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
+  const candidateName = `${manifest.id}-${manifest.version}-universal`;
+  const packageBytes = await readFile(path.join(root, "dist", `${candidateName}.dbxp`));
+  const metadata = JSON.parse(await readFile(path.join(root, "dist", `${candidateName}.artifact.json`), "utf8"));
+  assert.equal(metadata.target, "universal");
+  assert.equal(metadata.url, `${candidateName}.dbxp`);
+  assert.equal(metadata.sha256, createHash("sha256").update(packageBytes).digest("hex"));
+  assert.equal(metadata.size, packageBytes.length);
+  assert.equal(metadata.signingKeyId, undefined, "release candidates stay unsigned for DBX Store signing");
+  const entries = readStoredZip(packageBytes);
+  assert.equal(entries.has("signature.json"), false, "an unsigned candidate must not ship signature.json");
+  const packagedManifest = JSON.parse(entries.get("manifest.json").toString("utf8"));
+  assert.equal(packagedManifest.id, manifest.id);
+  assert.equal(packagedManifest.publisher, manifest.publisher);
+  assert.equal(packagedManifest.version, manifest.version);
 });
 
 test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes fixture/dev resources", async () => {

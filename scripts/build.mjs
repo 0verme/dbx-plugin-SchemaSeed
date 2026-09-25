@@ -7,7 +7,7 @@ import { collectUiRuntimeGraph } from "./ui-runtime-graph.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
-const target = "universal";
+const target = resolveTarget();
 const buildRoot = await fsMkdtemp(path.join(os.tmpdir(), "schema-seed-workbench-"));
 
 try {
@@ -119,6 +119,19 @@ try {
   console.log(`Metadata ${metadataPath}`);
 } finally {
   await rm(buildRoot, { recursive: true, force: true });
+}
+
+// The DBX reusable release workflow packages one candidate per
+// `DBX_PLUGIN_TARGET` matrix entry. SchemaSeed's backend is the
+// platform-independent Node runtime launched from `bin/universal/`, so
+// `universal` is the only target that may be published; fail fast instead of
+// mislabelling the candidate for a platform it was never built for.
+function resolveTarget() {
+  const target = process.env.DBX_PLUGIN_TARGET ?? "universal";
+  if (target !== "universal") {
+    throw new Error(`DBX_PLUGIN_TARGET must be "universal" for SchemaSeed's platform-independent runtime (received "${target}")`);
+  }
+  return target;
 }
 
 function sha256(data) {

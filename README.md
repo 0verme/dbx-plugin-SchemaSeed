@@ -110,6 +110,7 @@ npm run workbench
 
 - `npm run build` 生成面向 DBX v0.6.23+ 的 unsigned universal `.dbxp` implementation candidate，包含 Phase 0 Probe Workbench、正式 Workbench UI、production adapter / Core runtime 与 manifest contributions；production table 右键只保留正式「生成测试数据」入口。内容审计会排除 `web/`、`fixtures/`、fixture provider/controller、tests 和开发 server。
 - 该 unsigned artifact 以 SchemaSeed 项目功能里程碑形式经 GitHub Release 分发；本次候选已对齐 DBX v0.6.23（首个包含 #10244 的 release）。在 v0.6.23 人工 runtime smoke 完成前，不要声称兼容性已验证或提交 dbx-store；v0.6.22 及更早 runtime 会拒绝新 `action` manifest contract，不要安装。
+- 正式发布链路由 GitHub Release 触发 DBX 官方 reusable workflow，自动产出 unsigned `.dbxp` 与 `release-candidates.json`；不要手工上传本地 `.dbxp`，详见[发布](#发布)。
 - `npm run workbench` 启动本地 fixture-only development harness（默认 loopback 地址 `http://127.0.0.1:4173`）；它不连接 DBX 或数据库。
 
 ## 使用方式
@@ -204,6 +205,24 @@ DBX Sidebar Table
 ## 开发
 
 需要 Node.js 22+。核心验证、静态检查、类型契约检查和 candidate 打包命令见[安装与当前验证方式](#安装与当前验证方式)。本地 fixture harness 可通过 `npm run workbench` 启动。改动 metadata adapter 或 package contract 时，应同时复核 Phase 0 边界和打包内容。
+
+## 发布
+
+GitHub Release 是唯一的正式分发入口，发布链路复用 DBX 官方 reusable workflow（`t8y2/dbx/.github/workflows/plugin-release-reusable.yml`），不自建 Release shell：
+
+```text
+GitHub Release published（tag 指向合并后的 main）
+  → .github/workflows/plugin-release.yml（plugin-cli-v0.1.9）
+  → npm run build 生成 unsigned universal candidate
+  → 校验 .artifact.json 与 .dbxp 字节一致、包内无 signature.json
+  → GitHub Release 上传 .dbxp + release-candidates.json
+```
+
+- 触发条件是 `release: published`，且 workflow 必须已在默认分支上，因此必须先合并到 `main`，再打 tag 并发布 Release。
+- `package-command` 为 `npm run build`（`scripts/build.mjs`）：SchemaSeed 的 backend 是 `bin/universal/` 启动的平台无关 Node runtime，官方 `dbx-plugin package .` 只从 `[backend]` 构建 Rust/Go sidecar，且 `ui/src/**` 运行时图由 build 时 vendoring 生成而不是入库，因此候选由本仓库自己的 deterministic packager 产出，契约与官方 `.artifact.json` 一致。
+- Release asset 是 **unsigned candidate**：不包含 `signature.json`，不持有 DBX Store signing key，工作流不新增任何 secret，只使用 GitHub 默认 `contents: write` 权限。
+- `release-candidates.json` 是提交 DBX Store 审核的候选清单（plugin identity + 每个 target 的 `url` / `sha256` / `size`）；DBX Store 审核通过后才由仓库侧签名并生成最终 metadata。
+- 版本契约：`manifest.json` 的 `version` 与 `src/table-context.mjs` 的 `PLUGIN_VERSION` 必须同时递增；`target` 来自 `DBX_PLUGIN_TARGET`，SchemaSeed 只支持 `universal`。
 
 ## 项目结构
 
