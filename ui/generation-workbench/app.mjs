@@ -1,5 +1,6 @@
 import { GENERATION_PREVIEW_METHOD } from "../src/generation/generation-runtime-contract.mjs";
 import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
+import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
 import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
 import { constraintKindOptions, constraintPlanLabel } from "../src/i18n/labels.mjs";
 import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "../src/i18n/ui-locale.mjs";
@@ -303,7 +304,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
           const description = describeDiagnostic(entry, t);
           const item = document.createElement("li");
           item.dataset.severity = entry.severity;
-          item.textContent = t("columns.ruleDiagnostic", { title: description.headline, code: description.code });
+          item.textContent = t("columns.ruleDiagnostic", { title: description.headline });
           diagnostics.append(item);
         }
         detailsCell.append(diagnostics);
@@ -313,15 +314,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
         const summary = document.createElement("summary");
         summary.textContent = t("columns.evidenceSummary", { count: column.evidence.length });
         const list = document.createElement("ul");
-        for (const entry of column.evidence) {
-          const item = document.createElement("li");
-          item.textContent = t("columns.evidenceItem", {
-            source: entry.source,
-            observation: entry.observation,
-            explanation: entry.explanation,
-          });
-          list.append(item);
-        }
+        for (const entry of column.evidence) list.append(renderEvidence(entry, t));
         details.append(summary, list);
         detailsCell.append(details);
       } else if (column.ruleDiagnostics.length === 0) detailsCell.append(document.createTextNode(t("columns.none")));
@@ -426,8 +419,6 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     item.setAttribute("aria-label", description.headline);
     const level = document.createElement("strong");
     level.textContent = description.levelLabel;
-    const code = document.createElement("code");
-    code.textContent = description.code;
     const body = document.createElement("div");
     body.className = "sswb-diagnostic-body";
     const title = document.createElement("p");
@@ -464,7 +455,43 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       details.append(summary, list);
       body.append(details);
     }
-    item.append(level, code, body);
+    item.append(level, body);
+    return item;
+  }
+
+  /**
+   * Evidence uses the same progressive disclosure as diagnostics: the
+   * localized, user-facing observation first, then the raw Core kind / source /
+   * observation / explanation behind "raw evidence". An unknown future kind
+   * degrades to the safe fallback copy instead of leaking Core wording.
+   */
+  function renderEvidence(entry, t) {
+    const description = describeEvidence(entry, t);
+    const item = document.createElement("li");
+    const line = document.createElement("p");
+    line.className = "sswb-evidence-line";
+    line.textContent = t("columns.evidenceItem", {
+      source: description.sourceLabel,
+      observation: description.observation,
+      explanation: description.explanation,
+    });
+    item.append(line);
+    const rows = evidenceTechnicalRows(description, t);
+    if (rows.length > 0) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = t("evidence.technicalSummary");
+      const list = document.createElement("dl");
+      for (const [rowLabel, rowValue] of rows) {
+        const term = document.createElement("dt");
+        term.textContent = rowLabel;
+        const definition = document.createElement("dd");
+        definition.textContent = rowValue;
+        list.append(term, definition);
+      }
+      details.append(summary, list);
+      item.append(details);
+    }
     return item;
   }
 

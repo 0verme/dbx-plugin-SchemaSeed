@@ -59,6 +59,12 @@
 .sswb-mapping summary { color: #176b87; cursor: pointer; font-size: 11px; }
 .sswb-mapping ul { min-width: 230px; max-width: 360px; padding-left: 16px; color: #49586a; }
 .sswb-mapping li { margin: 4px 0; overflow-wrap: anywhere; }
+.sswb-mapping .sswb-evidence-line { margin: 0; }
+.sswb-mapping li details { margin-top: 3px; }
+.sswb-mapping li details summary { color: #176b87; cursor: pointer; font-size: 10px; }
+.sswb-mapping li details dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 8px; margin: 5px 0 0; padding: 6px 8px; border: 1px solid #e7ebef; border-radius: 3px; background: color-mix(in srgb, var(--sswb-panel), #64748b 3%); }
+.sswb-mapping li details dt { color: #596779; font-size: 10px; }
+.sswb-mapping li details dd { margin: 0; color: #33404f; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
 .sswb-rule-slot { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 10px; padding: 9px 10px; border: 1px dashed #b7c4ce; border-radius: 3px; color: #536274; font-size: 11px; }
 .sswb-rule-slot strong { color: #344456; }
 .sswb-constraints { width: 100%; min-width: 620px; border-collapse: collapse; text-align: left; }
@@ -78,13 +84,12 @@
 .sswb-rule-diagnostics li[data-severity="unsupported"] { color: #7758a6; }
 .sswb-diagnostics { display: grid; gap: 7px; }
 .sswb-diagnostics > p { margin: 0; color: var(--sswb-muted); font-size: 12px; }
-.sswb-diagnostic { display: grid; grid-template-columns: 130px minmax(100px, .5fr) minmax(0, 2fr); gap: 4px 10px; padding: 7px 9px; border-left: 3px solid #8794a3; background: color-mix(in srgb, var(--sswb-panel), #64748b 4%); }
+.sswb-diagnostic { display: grid; grid-template-columns: 130px minmax(0, 2fr); gap: 4px 10px; padding: 7px 9px; border-left: 3px solid #8794a3; background: color-mix(in srgb, var(--sswb-panel), #64748b 4%); }
 .sswb-diagnostic[data-severity="warning"] { border-left-color: #c18b24; }
 .sswb-diagnostic[data-severity="error"] { border-left-color: #c4433c; }
 .sswb-diagnostic[data-severity="unsupported"] { border-left-color: #7758a6; }
 .sswb-diagnostic strong { font-size: 11px; text-transform: capitalize; }
-.sswb-diagnostic code { color: #536274; font-size: 11px; overflow-wrap: anywhere; }
-.sswb-diagnostic-body { grid-column: 3; display: grid; gap: 3px; }
+.sswb-diagnostic-body { grid-column: 2; display: grid; gap: 3px; }
 .sswb-diagnostic-title { margin: 0; color: #344456; font-size: 12px; font-weight: 650; }
 .sswb-diagnostic-description { margin: 0; color: #49586a; font-size: 12px; }
 .sswb-diagnostic-action { margin: 0; color: #805400; font-size: 12px; }

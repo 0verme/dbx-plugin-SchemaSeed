@@ -15,6 +15,7 @@ import {
 } from "./generation-rules.mjs";
 import { normalizeTableSchema } from "../schema/schema-model.mjs";
 import { checkSemanticCompatibility, inferSemanticType, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
+import { createEvidence, EVIDENCE_KINDS } from "../semantic/evidence.mjs";
 import { resolvePersonGroups } from "../semantic/person-groups.mjs";
 import { buildConstraintPlan } from "./manual-constraints.mjs";
 
@@ -27,7 +28,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * @typedef {Object} SemanticMapping
  * @property {SemanticType} semanticType
  * @property {"high" | "medium" | "low" | "unknown"} confidence
- * @property {Array<{ source: string, observation: string, explanation: string }>} evidence
+ * @property {Array<{ kind: string, source: string, observation: string, explanation: string, params: Record<string, unknown> }>} evidence
  * @property {string} source
  * @property {string} status
  * @property {boolean} selected
@@ -306,7 +307,13 @@ function selectSemanticMapping(tableIdentity, column, rawType, source, inference
     return {
       semanticType: "unknown",
       confidence: "unknown",
-      evidence: [Object.freeze({ source: source === "confirmed_semantic_mapping" ? "user_confirmed" : "user_override", observation: rawType, explanation: "Semantic generation was explicitly left unknown" })],
+      evidence: [createEvidence({
+        kind: EVIDENCE_KINDS.semanticLeftUnknown,
+        source: source === "confirmed_semantic_mapping" ? "user_confirmed" : "user_override",
+        observation: rawType,
+        explanation: "Semantic generation was explicitly left unknown",
+        params: { semantic: rawType },
+      })],
       source,
       status: "unknown",
       selected: false,
@@ -315,10 +322,12 @@ function selectSemanticMapping(tableIdentity, column, rawType, source, inference
 
   const compatibility = checkSemanticCompatibility(column, rawType, locale);
   const evidence = [...(inference.semanticType === rawType ? inference.evidence : []), ...compatibility.evidence];
-  evidence.push(Object.freeze({
+  evidence.push(createEvidence({
+    kind: source === "confirmed_semantic_mapping" ? EVIDENCE_KINDS.semanticOverrideConfirmed : EVIDENCE_KINDS.semanticOverrideApplied,
     source: source === "confirmed_semantic_mapping" ? "user_confirmed" : "user_override",
     observation: rawType,
     explanation: source === "confirmed_semantic_mapping" ? "Semantic mapping was explicitly confirmed" : "Semantic type was explicitly overridden by the user",
+    params: { semantic: rawType },
   }));
   if (compatibility.compatible !== true) {
     diagnostics.push(makeDiagnostic({

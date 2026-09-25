@@ -285,6 +285,7 @@ describe("i18n key coverage in the Workbench sources", () => {
     "ui/generation-workbench/app.mjs",
     "ui/app.mjs",
     "src/i18n/diagnostics.mjs",
+    "src/i18n/evidence.mjs",
     "src/i18n/labels.mjs",
     "src/i18n/ui-locale.mjs",
     "src/i18n/workbench-messages.mjs",
@@ -327,7 +328,7 @@ describe("i18n key coverage in the Workbench sources", () => {
     for (const level of ["blocking", "warning", "error", "unsupported", "needs_confirmation"]) {
       assert.equal(t.has(`diagnostics.level.${level}`), true, `diagnostics.level.${level}`);
     }
-    for (const fallback of ["export.error.export_error", "confidence.unknown", "semantic.unknown", "schemaType.state.unknown", "status.error", "constraints.capacity.unknown", "export.ready", "uiLocale.zh-CN", "uiLocale.en-US", "ruleSource.schema_type_fallback", "mappingStatus.needsConfirmation", "detected.ambiguous", "diagnostics.fallback.title", "diagnostics.fallback.description"]) {
+    for (const fallback of ["export.error.export_error", "confidence.unknown", "semantic.unknown", "schemaType.state.unknown", "status.error", "constraints.capacity.unknown", "export.ready", "uiLocale.zh-CN", "uiLocale.en-US", "ruleSource.schema_type_fallback", "mappingStatus.needsConfirmation", "detected.ambiguous", "diagnostics.fallback.title", "diagnostics.fallback.description", "evidence.fallback.observation", "evidence.fallback.explanation", "evidence.source.unknown", "evidence.technicalSummary"]) {
       assert.equal(t.has(fallback), true, fallback);
     }
   });

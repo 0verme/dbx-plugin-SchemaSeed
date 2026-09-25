@@ -287,7 +287,7 @@ describe("diagnostics localization: blocking safety semantics are unchanged", ()
     assert.equal(machineResults[0], machineResults[1], "the UI language cannot change the mapping decision");
   });
 
-  it("renders localized rule diagnostics for blocked columns while keeping the code visible", async () => {
+  it("keeps the machine code out of the user-facing rule diagnostic line", async () => {
     const controller = new DbxGenerationWorkbenchController({
       provider: unknownTextLengthProvider(),
       preview: previewCore(),
@@ -295,6 +295,9 @@ describe("diagnostics localization: blocking safety semantics are unchanged", ()
     });
     const view = await controller.setContext(BASE_CONTEXT);
     const described = describeDiagnostic(view.diagnostics[0], zh);
-    assert.equal(zh("columns.ruleDiagnostic", { title: described.headline, code: described.code }), `阻塞：无法确认文本字段的最大长度（${view.diagnostics[0].code}）`);
+    const line = zh("columns.ruleDiagnostic", { title: described.headline, code: described.code });
+    assert.equal(line, "阻塞：无法确认文本字段的最大长度");
+    assert.doesNotMatch(line, /varchar_length_unknown/, "the machine code stays out of the ordinary user view");
+    assert.deepEqual(diagnosticTechnicalRows(described, zh)[0], ["诊断代码", "varchar_length_unknown"], "the code stays reachable behind the technical details");
   });
 });

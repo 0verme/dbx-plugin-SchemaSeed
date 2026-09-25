@@ -52,7 +52,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "columns.empty.none": "No columns to display.",
   "columns.evidenceSummary": "{count} evidence item(s)",
   "columns.evidenceItem": "{source}: {observation} — {explanation}",
-  "columns.ruleDiagnostic": "{title} ({code})",
+  "columns.ruleDiagnostic": "{title}",
   "columns.ruleSelectLabel": "{column} generation rule",
   "columns.none": "—",
 
@@ -205,6 +205,32 @@ export const EN_US_MESSAGES = Object.freeze({
   "diagnostics.fallback.description": "Core returned a diagnostic code that is not localized yet. Raw message: {reason}",
   "diagnostics.genericColumn": "this column",
   "diagnostics.genericSemantic": "that semantic type",
+
+  // Semantic evidence presentation. `kind` / `source` stay machine values in
+  // Core; only this copy is localized. Raw Core fields remain reachable behind
+  // the per-item "raw evidence" disclosure.
+  "evidence.source.column_name": "Column name",
+  "evidence.source.schema_type": "Schema type",
+  "evidence.source.length": "Column length",
+  "evidence.source.user_confirmed": "Confirmed mapping",
+  "evidence.source.user_override": "User override",
+  "evidence.source.unknown": "Evidence",
+  "evidence.technicalSummary": "View raw evidence",
+  "evidence.technical.kind": "Evidence kind",
+  "evidence.technical.source": "Evidence source",
+  "evidence.technical.observation": "Observation",
+  "evidence.technical.explanation": "Raw Core explanation",
+  "evidence.fallback.observation": "Not localized yet",
+  "evidence.fallback.explanation": "SchemaSeed cannot explain this evidence in the current language yet. The raw Core evidence stays available behind “View raw evidence”.",
+  "evidence.column_name_exact_alias.explanation": "The normalized column name exactly matches the known {semantic} alias",
+  "evidence.column_name_alias_token.explanation": "The column name contains {semantic} as a separate alias token",
+  "evidence.schema_type_compatible.explanation": "{schemaFamily} is compatible with the {semantic} semantic type",
+  "evidence.schema_type_incompatible.explanation": "{schemaFamily} is not compatible with the {semantic} semantic type",
+  "evidence.length_accommodates_marker.explanation": "The column length fits the Safe Synthetic {semantic} marker",
+  "evidence.length_insufficient_for_marker.explanation": "The Safe Synthetic {semantic} marker needs at least {minimum} characters, but the column length is {length}",
+  "evidence.semantic_override_confirmed.explanation": "The semantic mapping was explicitly confirmed",
+  "evidence.semantic_override_applied.explanation": "The semantic type was explicitly overridden by the user",
+  "evidence.semantic_left_unknown.explanation": "Semantic generation was explicitly left unknown",
 
   // Preview.
   "preview.title": "Preview",
