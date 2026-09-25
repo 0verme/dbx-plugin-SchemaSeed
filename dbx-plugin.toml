@@ -1,5 +1,11 @@
 # Production package inputs are explicit so fixture providers, the standalone
 # web harness, fixtures, tests, and dev-only workbench server stay out of .dbxp.
+#
+# `npm run build` (scripts/build.mjs) is the authoritative package command: the
+# DBX GitHub Release workflow calls it, and it vendors the `ui/src/**` runtime
+# graph that is not checked in. `dbx-plugin package .` cannot stage this plugin
+# yet because SchemaSeed's backend is the platform-independent Node runtime
+# launched from `bin/universal/`, not a Rust/Go sidecar built from `[backend]`.
 schema_version = 1
 
 [package]
