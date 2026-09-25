@@ -1,4 +1,4 @@
-# Phase 1D — Deterministic Export Core + Workbench Download
+# Phase 1D — Deterministic Export Core + Workbench Save
 
 ## Scope and runtime
 
@@ -15,8 +15,9 @@ ExportDataset
    ├─ exportCsv(dataset)
    ├─ exportJson(dataset)
    └─ exportInsertSql(dataset)
-      ↓ WorkbenchController download descriptor
-Browser Blob → object URL → <a download>
+      ↓ WorkbenchController prepareExport() descriptor { filename, mimeType, content, summary }
+Production DBX Workbench → UTF-8 bytes → window.dbxPlugin.saveFile() → native save dialog → host writes the file
+Standalone browser harness → Blob → object URL → <a download>
 ```
 
 Export Core lives under `src/export/` and has no Workbench DOM, fixture-provider, DBX, host API, or database-driver dependency.
@@ -40,8 +41,8 @@ On a successful refresh, the Workbench controller calls `generateRows(plan)` onc
 - Header is included by default; column order always comes from `dataset.columns`, never `Object.keys(row)`.
 - Records use CRLF separators. Fields containing comma, double quote, CR, or LF are quoted; embedded quotes are doubled. Embedded line breaks remain inside their quoted field.
 - `null` becomes an empty field by default. The Core API optionally accepts a literal `nullToken`; Workbench uses the empty default.
-- Output is Unicode text intended to be encoded as UTF-8. The Core API defaults to no BOM; Workbench CSV download explicitly enables a UTF-8 BOM for Windows / Excel compatibility, including Chinese Safe Synthetic values.
-- `mode: "raw"` preserves string values. `mode: "spreadsheet_safe"` prefixes a leading apostrophe to any string beginning with `=`, `+`, `-`, or `@` (including headers). Workbench downloads use `spreadsheet_safe` by default. This is an explicit serialization-only mitigation, not a change to generated data; Preview and JSON are unchanged. It cannot guarantee uniform treatment by every spreadsheet product.
+- Output is Unicode text intended to be encoded as UTF-8. The Core API defaults to no BOM; the production Workbench CSV export explicitly enables a UTF-8 BOM for Windows / Excel compatibility, including Chinese Safe Synthetic values.
+- `mode: "raw"` preserves string values. `mode: "spreadsheet_safe"` prefixes a leading apostrophe to any string beginning with `=`, `+`, `-`, or `@` (including headers). Workbench exports use `spreadsheet_safe` by default. This is an explicit serialization-only mitigation, not a change to generated data; Preview and JSON are unchanged. It cannot guarantee uniform treatment by every spreadsheet product.
 
 ## JSON
 
@@ -70,17 +71,23 @@ DBX Host API 1.3 does not expose the target database type, so SchemaSeed cannot 
 
 ANSI double quotes work for PostgreSQL, Oracle, GaussDB, SQLite, DB2 and SQL Server. MySQL only treats double quotes as identifier quotes in `ANSI_QUOTES` mode; with the default `sql_mode` the fallback quoting has driver-dependent behavior. SQL-standard `TRUE` / `FALSE` literals are accepted by the verified PostgreSQL / MySQL / SQLite targets; boolean columns on Oracle before 23c and SQL Server need a dialect-specific representation. Those are tracked as Future Work for a dialect-aware serializer once the Host exposes the database type, and are stated in the README, Issue and release notes rather than hidden.
 
-## Filename and download boundary
+## Filename and save boundary
 
 Filenames use the deterministic form `schemaseed-<sanitized-table>-<row-count>rows.<csv|json|sql>`. Table identity is normalized to a safe basename containing Unicode letters/digits, `_`, and `-`; path separators, traversal dots, and platform-reserved punctuation are removed. Seed is deliberately excluded.
 
-The controller returns `{ filename, mimeType, content, summary }`. The UI does not serialize data. In this standalone browser runtime it downloads through `Blob`, `URL.createObjectURL()`, and an `<a download>` element. It does not write arbitrary filesystem paths or use Node filesystem APIs for user data.
+The controller returns `{ filename, mimeType, content, summary }`. The UI does not serialize data.
+
+The production DBX Workbench runs inside a sandboxed iframe, where the browser `Blob` → object URL → `<a download>` pattern cannot reach the OS save dialog or the disk. It therefore saves through the public DBX Host bridge: `ui/generation-workbench/export-save.mjs` encodes `descriptor.content` as UTF-8 bytes and calls `window.dbxPlugin.saveFile({ fileName, contentType }, bytes)`. The host opens the native save dialog and writes the file; the UI reports saved / cancelled / failed from the host result (a null result means the user cancelled). When the runtime exposes no `saveFile` host method, the production Workbench fails closed with an upgrade hint instead of falling back to a browser download. This adapter is deliberately UI-layer: `src/export/` stays free of DBX Host API dependencies.
+
+The standalone browser development harness (`web/`, not part of the `.dbxp` package) keeps its own Blob download path; it is a normal browser page, not the sandboxed plugin iframe.
+
+Neither path writes arbitrary filesystem paths or uses Node filesystem APIs for user data.
 
 ## Availability and diagnostics
 
-Download buttons are enabled only after successful preview generation with a non-blocked plan and at least one row. Both `ready` and `ready_with_warnings` are exportable; warnings remain in the Workbench and are not added as data columns. Blocked plans, generation errors, missing datasets, invalid columns, row shape mismatches, and serialization failures fail closed with codes including `export_no_dataset`, `export_blocked_plan`, `export_invalid_columns`, `export_row_shape_mismatch`, `export_serialization_failed`, and `export_no_table_reference`.
+Export buttons are enabled only after successful preview generation with a non-blocked plan and at least one row. Both `ready` and `ready_with_warnings` are exportable; warnings remain in the Workbench and are not added as data columns. Blocked plans, generation errors, missing datasets, invalid columns, row shape mismatches, serialization failures, and host save failures fail closed with codes including `export_no_dataset`, `export_blocked_plan`, `export_invalid_columns`, `export_row_shape_mismatch`, `export_serialization_failed`, `export_no_table_reference`, `export_host_save_unavailable`, and `export_host_save_failed`.
 
-The Safe Synthetic notice remains visible in the Workbench; no confirmation dialog is required for each download.
+The Safe Synthetic notice remains visible in the Workbench; no confirmation dialog is required for each export.
 
 ## DBX integration boundary
 

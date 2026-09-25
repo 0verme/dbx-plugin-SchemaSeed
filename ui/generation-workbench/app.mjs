@@ -9,8 +9,7 @@ import {
   constraintEditorStateMessage,
   diagnosticsEmptyMessage,
   exportDisabledHint,
-  exportErrorMessage,
-  exportResultMessage,
+  exportSaveMessage,
   exportStatusMessage,
   previewSummary,
   ruleEditorStateMessage,
@@ -20,6 +19,7 @@ import {
 import { DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 import { initialSectionExpansion, sectionSummaries, shouldAutoExpandDiagnostics } from "../src/workbench/workbench-sections.mjs";
+import { saveExportWithHost } from "./export-save.mjs";
 
 const WORKBENCH_MARKUP = `
   <div class="sswb">
@@ -127,7 +127,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     translator: localeStore.getTranslator(),
   });
   const unsubscribeRender = controller.subscribe(render);
+  // Last Host save state (saving / waiting / saved / cancelled / failed). It
+  // keeps the inline message attached to a real save result, and is cleared by
+  // any action that starts a new dataset so a stale success cannot mislead.
+  let exportSaveState = null;
   const unsubscribeContext = host.onContext((context) => {
+    // A new table context invalidates the dataset, so a previously displayed
+    // save result must not keep describing it.
+    exportSaveState = null;
     void controller.setContext(context);
   });
   // Disclosure is page-session state only: it starts collapsed on every open,
@@ -169,13 +176,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (target.matches("#sswb-ui-locale")) {
       // Interface language only: this branch never dispatches a controller
       // action, so it cannot change the generation locale, the plan or the
-      // dataset.
+      // dataset. Re-rendering keeps a finished save message localized.
       const translator = localeStore.setLocale(target.value);
       applyStaticMessages();
       controller.setTranslator(translator);
       render(controller.getViewModel());
       return;
     }
+    exportSaveState = null;
     if (target.matches("#sswb-rows, #sswb-seed, #sswb-locale")) {
       void controller.dispatch({
         type: "update-controls",
@@ -225,7 +233,13 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   function onClick(event) {
     const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-constraint-add], [data-constraint-delete]");
     if (!target) return;
-    const t = localeStore.getTranslator();
+    if (target.dataset.sswbExport) {
+      void saveExport(target.dataset.sswbExport);
+      return;
+    }
+    // Any non-export action may invalidate the dataset, so it also clears a
+    // previously displayed save result.
+    exportSaveState = null;
     if (target.matches("[data-constraint-add]")) {
       void controller.dispatch({ type: "add-constraint", kind: "unique" });
       return;
@@ -234,24 +248,41 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       void controller.dispatch({ type: "delete-constraint", id: target.dataset.constraintId });
       return;
     }
-    if (target.dataset.sswbExport) {
-      try {
-        const descriptor = controller.prepareExport(target.dataset.sswbExport);
-        const objectUrl = URL.createObjectURL(new Blob([descriptor.content], { type: descriptor.mimeType }));
-        const link = document.createElement("a");
-        link.href = objectUrl;
-        link.download = descriptor.filename;
-        document.body.append(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-        element("sswb-export-message").textContent = exportResultMessage(descriptor, t);
-      } catch (error) {
-        element("sswb-export-message").textContent = exportErrorMessage(error, t);
-      }
+    void controller.dispatch({ type: target.dataset.sswbAction });
+  }
+
+  /**
+   * Export through the DBX Host native save path. The controller keeps
+   * owning filename / MIME / serialized content; this function only encodes
+   * the descriptor to UTF-8, hands it to `window.dbxPlugin.saveFile` and
+   * renders the real saved / cancelled / failed outcome. The success state is
+   * never set from the click itself.
+   * @param {string} format
+   */
+  async function saveExport(format) {
+    if (exportSaveState?.status === "saving" || exportSaveState?.status === "waiting") return;
+    let descriptor;
+    try {
+      descriptor = controller.prepareExport(format);
+    } catch (error) {
+      exportSaveState = { status: "prepare_failed", code: typeof error?.code === "string" ? error.code : "export_error" };
+      render(controller.getViewModel());
       return;
     }
-    void controller.dispatch({ type: target.dataset.sswbAction });
+    exportSaveState = { status: "saving", descriptor };
+    render(controller.getViewModel());
+    exportSaveState = { status: "waiting", descriptor };
+    render(controller.getViewModel());
+
+    let result;
+    try {
+      const saveFile = typeof host?.saveFile === "function" ? host.saveFile.bind(host) : undefined;
+      result = await saveExportWithHost(saveFile, descriptor);
+    } catch {
+      result = { status: "failed", code: "export_host_save_failed" };
+    }
+    exportSaveState = { ...result, descriptor };
+    render(controller.getViewModel());
   }
 
   function render(viewModel) {
@@ -287,13 +318,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     renderConstraints(viewModel, t);
     renderDiagnostics(viewModel, t);
     renderPreview(viewModel, t);
-    const exportDisabled = !viewModel.export.enabled || viewModel.status === "loading";
-    const exportHint = exportDisabled ? exportDisabledHint(viewModel, t) : "";
+    const exportBusy = exportSaveState?.status === "saving" || exportSaveState?.status === "waiting";
+    const exportDisabled = !viewModel.export.enabled || viewModel.status === "loading" || exportBusy;
+    const exportHint = exportDisabled && !exportBusy ? exportDisabledHint(viewModel, t) : "";
     for (const id of ["sswb-export-csv", "sswb-export-json", "sswb-export-sql"]) {
       element(id).disabled = exportDisabled;
       element(id).title = exportHint;
     }
-    const exportMessage = exportStatusMessage(viewModel, t);
+    const exportMessage = exportSaveState ? exportSaveMessage(exportSaveState, t) : exportStatusMessage(viewModel, t);
     if (exportMessage !== null) element("sswb-export-message").textContent = exportMessage;
   }
 

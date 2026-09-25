@@ -10,7 +10,7 @@ import {
   diagnosticsEmptyMessage,
   exportDisabledHint,
   exportErrorMessage,
-  exportResultMessage,
+  exportSaveMessage,
   exportStatusMessage,
   stateMessage,
   statusLabel,
@@ -220,7 +220,11 @@ describe("diagnostics localization: Workbench state copy", () => {
     assert.match(stateMessage(capability, zh), /未提供 Schema Metadata/);
 
     assert.match(exportStatusMessage({ status: "ready", export: { enabled: true } }, zh), /与当前预览完全相同/);
-    assert.match(exportResultMessage({ summary: { rowCount: 20, format: "CSV" } }, zh), /20 行 · CSV · UTF-8/);
+    const descriptor = { filename: "schemaseed-audit_results-20rows.csv", summary: { rowCount: 20, format: "CSV" } };
+    assert.match(exportSaveMessage({ status: "saved", descriptor }, zh), /^已保存 schemaseed-audit_results-20rows\.csv（20 行 · CSV · UTF-8）$/);
+    assert.match(exportSaveMessage({ status: "saved", path: "C:/out/a.csv", descriptor }, en), /^Saved to: C:\/out\/a\.csv$/);
+    assert.match(exportSaveMessage({ status: "cancelled" }, zh), /^已取消保存。$/);
+    assert.match(exportSaveMessage({ status: "failed", code: "export_host_save_failed" }, en), /^Save failed: export_host_save_failed · /);
     assert.match(exportStatusMessage({ status: "loading", export: { enabled: false } }, zh), /生成预览成功后才可导出/);
     assert.match(exportErrorMessage({ code: "export_blocked_plan", message: "Blocked plans cannot be exported" }, zh), /export_blocked_plan/);
     assert.match(exportErrorMessage({ code: "export_blocked_plan" }, en), /blocked and cannot be exported/);

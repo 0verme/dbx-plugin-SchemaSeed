@@ -156,6 +156,9 @@ test("manifest declares the production Workbench and DBX v0.6.23 table action co
   assert.match(productionApp, /data-rule-selector/);
   assert.match(productionApp, /data-rule-field/);
   assert.match(productionApp, /data-constraint-kind/);
+  assert.match(productionApp, /saveExportWithHost/, "the production Workbench saves through the DBX Host adapter");
+  assert.match(productionApp, /host\.saveFile/, "the production Workbench calls the public window.dbxPlugin.saveFile host API");
+  assert.doesNotMatch(productionApp, /URL\.createObjectURL|new Blob\(|\.download\s*=|link\.click\(\)/, "the production Workbench must not fall back to a sandboxed browser download");
   assert.match(productionApp, /data-i18n="app\.titleSuffix"/, "Workbench copy is bound to i18n message keys");
   assert.match(productionApp, /describeDiagnostics/);
   assert.match(productionApp, /data-i18n="diagnostics\.technicalSummary"|diagnostics\.technicalSummary/);
@@ -245,6 +248,7 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "ui/app.mjs",
     "ui/probe-app.mjs",
     "ui/generation-workbench/app.mjs",
+    "ui/generation-workbench/export-save.mjs",
     "ui/generation-workbench.css",
     "ui/schema-metadata-probe.mjs",
     "checksums.json",
