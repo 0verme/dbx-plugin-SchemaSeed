@@ -119,7 +119,7 @@ test("MySQL, PostgreSQL, and SQLite contract schemas flow through planning and g
         { name: "id", dataType: "integer", nullable: false, default: null },
         { name: "label", dataType: "text", nullable: true, default: "untitled" },
       ], { length: "unsupported", precision: "unsupported", scale: "unsupported", default: "supported" }),
-      expectedStatus: "blocked",
+      expectedStatus: "ready",
     },
   ];
 
@@ -138,8 +138,15 @@ test("MySQL, PostgreSQL, and SQLite contract schemas flow through planning and g
         const label = schema.columns.find((column) => column.name === "label");
         assert.equal(label.length.state, "unsupported");
         assert.equal(label.length.value, undefined);
-        assert.equal(plan.diagnostics.some((diagnostic) => diagnostic.code === "varchar_length_unknown"), true);
-        assert.deepEqual(generated.rows, []);
+        assert.equal(plan.diagnostics.some((diagnostic) => diagnostic.code === "varchar_length_unknown"), false,
+          "SQLite TEXT has no explicit maximum length; the missing structured length is not metadata loss");
+        assert.equal(generated.rows.length, 8);
+        const labels = generated.rows.map((row) => row.label).filter((value) => value !== null);
+        assert.ok(labels.length >= 1, "nullable text still generates non-null values");
+        for (const value of labels) {
+          assert.equal(typeof value, "string");
+          assert.ok(value.length >= 1 && value.length <= 16, "unbounded text stays inside the generation budget");
+        }
       } else {
         assert.equal(generated.rows.length, 8);
         assert.equal(generated.rows[0].id !== undefined, true);

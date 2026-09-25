@@ -1,4 +1,4 @@
-import { formatDecimalUnits, formatTimestamp, parseTimestamp } from "./generation-rules.mjs";
+import { formatDecimalUnits, formatTimestamp, parseTimestamp, resolveStringGenerationMaxLength } from "./generation-rules.mjs";
 import { toHex } from "./sha256.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -79,9 +79,7 @@ export function describeConstraintDomain(columnPlan, rowCount) {
       return known("decimal_units", capacity, (index) => formatDecimalUnits(index, p.scale));
     }
     case "varchar": {
-      const schemaMax = p.schemaMaxLength;
-      const maximum = Math.min(Number.isSafeInteger(p.maxLength) ? p.maxLength : 16,
-        Number.isSafeInteger(schemaMax) ? schemaMax : 16);
+      const maximum = resolveStringGenerationMaxLength(p.maxLength, p.schemaMaxLength);
       if (!Number.isSafeInteger(maximum) || maximum <= 0) return unsupported("Varchar length is not a usable finite bound");
       let capacity = 0n;
       let width = BigInt(STRING_ALPHABET.length);

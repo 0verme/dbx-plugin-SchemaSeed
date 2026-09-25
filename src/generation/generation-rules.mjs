@@ -1,6 +1,6 @@
 import { sha256Hex } from "./sha256.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
-import { interpretColumnType } from "../schema/schema-interpreter.mjs";
+import { interpretColumnType, interpretStringCapacity } from "../schema/schema-interpreter.mjs";
 import { checkSemanticCompatibility, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
 
 export const GENERATION_RULE_KINDS = Object.freeze([
@@ -55,6 +55,31 @@ const SEMANTIC_OPTIONS = Object.freeze(SEMANTIC_TYPES.filter((type) => type !== 
 const DAY_MS = 86_400_000n;
 
 /**
+ * SchemaSeed-owned generation budget for string output. It bounds what a
+ * generator may emit when the schema does not provide a usable maximum. It is
+ * a generation-side budget, not a database maximum, and it must never be
+ * written back into schema capacity metadata.
+ */
+export const DEFAULT_STRING_GENERATION_MAX_LENGTH = 16;
+
+/**
+ * Resolve the effective string fallback length. Both the requested rule length
+ * and the schema maximum fall back to the generation budget, naming the
+ * historical default explicitly instead of embedding a literal.
+ * @param {unknown} requestedMaxLength
+ * @param {unknown} schemaMaxLength
+ */
+export function resolveStringGenerationMaxLength(requestedMaxLength, schemaMaxLength) {
+  const requested = Number.isSafeInteger(requestedMaxLength) && requestedMaxLength > 0
+    ? requestedMaxLength
+    : DEFAULT_STRING_GENERATION_MAX_LENGTH;
+  const schemaMax = Number.isSafeInteger(schemaMaxLength) && schemaMaxLength > 0
+    ? schemaMaxLength
+    : DEFAULT_STRING_GENERATION_MAX_LENGTH;
+  return Math.min(requested, schemaMax);
+}
+
+/**
  * The one authoritative rule availability API. The result is a UI hint; the
  * validator below remains authoritative when a particular config is supplied.
  * @param {import("../schema/schema-model.mjs").ColumnSchema} column
@@ -64,8 +89,9 @@ export function getCompatibleGenerationRules(column) {
   const rules = ["auto"];
   const type = interpretColumnType(column);
   const family = type?.kind;
-  const lengthState = column.length?.state;
-  const usableLength = lengthState === "known" || lengthState === "absent" || lengthState === "not_applicable";
+  const capacity = family === "varchar" ? type.capacity : null;
+  const usableCapacity = capacity !== null && capacity !== undefined
+    && capacity.model !== "unknown" && capacity.model !== "invalid";
   const supported = new Set(["integer", "decimal", "varchar", "boolean", "date", "timestamp"]);
   if (family === "varchar" && !varcharBound(column).ok) return rules;
   if (family === "decimal" && !decimalShape(column).ok) return rules;
@@ -75,7 +101,7 @@ export function getCompatibleGenerationRules(column) {
     if (family === "integer" || family === "decimal") rules.push("sequence");
     if (family === "integer") rules.push("random_integer");
     if (family === "decimal") rules.push("random_decimal");
-    if (family === "varchar" && usableLength) rules.push("random_string");
+    if (family === "varchar" && usableCapacity) rules.push("random_string");
     if (family === "boolean") rules.push("boolean_ratio");
     if (family === "date") rules.push("date_range");
     if (family === "timestamp") rules.push("timestamp_range");
@@ -83,8 +109,8 @@ export function getCompatibleGenerationRules(column) {
   } else if (isUuidType(column)) {
     rules.push("null_ratio");
   }
-  if (isUuidType(column) || (family === "varchar" && usableLength
-    && (lengthState !== "known" || column.length.value >= 36))) rules.push("uuid");
+  if (isUuidType(column) || (family === "varchar" && usableCapacity
+    && (capacity.model === "unbounded" || capacity.maxLength >= 36))) rules.push("uuid");
   if (getCompatibleSemanticTypes(column).length > 0) rules.push("semantic");
   return [...new Set(rules)];
 }
@@ -132,8 +158,11 @@ export function createGenerationRuleDraft(column, kind) {
       const max = schemaMax < one ? schemaMax : one;
       return { kind, min: formatDecimalUnits(0n, scale), max: formatDecimalUnits(max, scale) };
     }
-    case "random_string":
-      return { kind, length: column.length?.state === "known" ? Math.min(8, column.length.value) : 8 };
+    case "random_string": {
+      const capacity = family === "varchar" ? type.capacity : null;
+      const maximum = capacity?.model === "bounded" ? capacity.maxLength : DEFAULT_STRING_GENERATION_MAX_LENGTH;
+      return { kind, length: Math.min(8, maximum) };
+    }
     case "enum":
       return { kind, values: [] };
     case "boolean_ratio":
@@ -546,15 +575,14 @@ function decimalShape(column) {
 
 /** @param {import("../schema/schema-model.mjs").ColumnSchema} column */
 function varcharBound(column) {
-  const fact = column.length;
-  if (fact?.state === "known") {
-    if (!Number.isSafeInteger(fact.value) || fact.value <= 0) {
-      return { ok: false, code: "invalid_length", severity: "error", reason: `varchar length must be a positive safe integer; received ${String(fact.value)}` };
-    }
-    return { ok: true, max: fact.value };
+  const capacity = interpretStringCapacity(column);
+  if (!capacity) {
+    return { ok: false, code: "generation_rule_incompatible", severity: "error", reason: "Schema type is not a supported string family" };
   }
-  if (fact?.state === "absent" || fact?.state === "not_applicable") return { ok: true, max: null };
-  return { ok: false, code: "varchar_length_unknown", severity: "unsupported", reason: `varchar maximum length is ${fact?.state ?? "unknown"}; the explicit rule cannot prove that output fits${fact?.reason ? `: ${fact.reason}` : ""}` };
+  if (capacity.model === "bounded") return { ok: true, max: capacity.maxLength };
+  if (capacity.model === "unbounded") return { ok: true, max: null };
+  if (capacity.model === "invalid") return { ok: false, code: "invalid_length", severity: "error", reason: capacity.reason };
+  return { ok: false, code: "varchar_length_unknown", severity: "unsupported", reason: capacity.reason };
 }
 
 /** @param {import("../schema/schema-model.mjs").ColumnSchema} column */
