@@ -32,18 +32,21 @@ test("production runtime builds the existing GenerationPlan and generates determ
   assert.deepEqual(first.result.generated.rows, replay.result.generated.rows);
 });
 
-test("runtime transports canonical GenerationRules and supports validation-only requests", () => {
+test("runtime transports GenerationRules and manual constraints through validation-only requests", () => {
   const optionsWithRules = {
     ...options,
     rules: { customer_id: { kind: "sequence", start: 5, step: 3 } },
+    constraints: [{ id: "customer-id", kind: "unique", column: "customer_id" }],
   };
   const preview = handleRuntimeRpcRequest(request({ schema, options: optionsWithRules }));
   assert.equal(preview.result.plan.columns[0].generationRule.kind, "sequence");
+  assert.equal(preview.result.plan.constraintPlan.constraints[0].kind, "unique");
   assert.deepEqual(preview.result.generated.rows.map((row) => row.customer_id), [5, 8, 11, 14, 17]);
 
   const validation = handleRuntimeRpcRequest(request({ schema, options: { ...optionsWithRules, validateOnly: true } }));
   assert.equal(validation.error, undefined);
   assert.equal(validation.result.plan.status, "ready");
+  assert.equal(validation.result.plan.constraintPlan.constraints[0].satisfiable, true);
   assert.deepEqual(validation.result.generated.rows, []);
   assert.equal(validation.result.generated.status, "ready");
 
@@ -54,6 +57,14 @@ test("runtime transports canonical GenerationRules and supports validation-only 
   assert.equal(invalid.result.plan.status, "blocked");
   assert.deepEqual(invalid.result.generated.rows, []);
   assert.ok(invalid.result.generated.diagnostics.some((entry) => entry.code === "generation_rule_incompatible"));
+
+  const invalidConstraint = handleRuntimeRpcRequest(request({
+    schema,
+    options: { ...options, constraints: [{ id: "bad", kind: "unique", column: "missing" }] },
+  }));
+  assert.equal(invalidConstraint.result.plan.status, "blocked");
+  assert.ok(invalidConstraint.result.plan.diagnostics.some((entry) => entry.code === "unknown_constraint_column"));
+  assert.deepEqual(invalidConstraint.result.generated.rows, []);
 });
 
 test("runtime rejects oversized or malformed preview input without generating rows", () => {

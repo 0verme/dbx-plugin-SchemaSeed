@@ -15,6 +15,7 @@ import {
 import { normalizeTableSchema } from "../schema/schema-model.mjs";
 import { checkSemanticCompatibility, inferSemanticType, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
 import { resolvePersonGroups } from "../semantic/person-groups.mjs";
+import { buildConstraintPlan } from "./manual-constraints.mjs";
 
 const SUPPORTED_RULES = new Set(["integer", "decimal", "varchar", "string", "boolean", "date", "timestamp"]);
 const MAX_ROW_COUNT = 1_000_000;
@@ -51,6 +52,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * @property {string} locale
  * @property {string} mode
  * @property {"sha256-addressed-v1"} determinismProfile
+ * @property {import("./manual-constraints.mjs").ConstraintPlan} constraintPlan
  * @property {GenerationDiagnostic[]} diagnostics
  * @property {"ready" | "ready_with_warnings" | "blocked"} status
  */
@@ -59,7 +61,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * Convert normalized schema facts, semantic mappings, groups, and user rules
  * into an inspectable plan. No provider, UI, Faker, or database is called.
  * @param {unknown} tableInput
- * @param {{ seed?: string | number, rowCount?: number, rules?: Record<string, unknown>, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string }} options
+ * @param {{ seed?: string | number, rowCount?: number, rules?: Record<string, unknown>, constraints?: unknown, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string }} options
  * @returns {GenerationPlan}
  */
 export function buildGenerationPlan(tableInput, options = {}) {
@@ -190,6 +192,13 @@ export function buildGenerationPlan(tableInput, options = {}) {
     semanticTypes: Object.freeze([...column.semanticTypes]),
     ruleFields: Object.freeze(column.ruleFields.map((field) => Object.freeze({ ...field }))),
   }));
+  const constraintPlan = buildConstraintPlan(schema, finalizedColumns, {
+    constraints: options.constraints,
+    rowCount,
+    seed,
+    tableIdentity: schema.tableIdentity,
+  });
+  diagnostics.push(...constraintPlan.diagnostics);
   const frozenDiagnostics = Object.freeze(diagnostics);
   return Object.freeze({
     table: schema,
@@ -200,6 +209,7 @@ export function buildGenerationPlan(tableInput, options = {}) {
     locale,
     mode,
     determinismProfile: "sha256-addressed-v1",
+    constraintPlan,
     diagnostics: frozenDiagnostics,
     status: planStatus(diagnostics),
   });

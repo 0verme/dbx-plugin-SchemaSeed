@@ -67,6 +67,8 @@ test("manifest declares the production Workbench and #10244 table action contrac
   assert.doesNotMatch(browserViewModel, /node:/, "the DBX browser UI view model must remain browser-safe");
   assert.match(productionApp, /data-rule-selector/);
   assert.match(productionApp, /data-rule-field/);
+  assert.match(productionApp, /data-constraint-kind/);
+  assert.match(productionApp, /SchemaSeed 数据生成/);
   assert.match(productionApp, /DbxHostSchemaMetadataProvider/);
   assert.match(productionApp, /onContext/);
   assert.doesNotMatch(productionApp, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider/);
@@ -87,8 +89,12 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "backend/schema-seed-runtime.mjs",
     "src/diagnostics.mjs",
     "src/export/export-dataset.mjs",
+    "src/generation/constraint-allocation.mjs",
+    "src/generation/constraint-domain.mjs",
     "src/generation/generation-engine.mjs",
+    "src/generation/generation-identity.mjs",
     "src/generation/generation-plan.mjs",
+    "src/generation/manual-constraints.mjs",
     "src/generation/generation-rules.mjs",
     "src/generation/generation-runtime-contract.mjs",
     "src/generation/generation-runtime-protocol.mjs",

@@ -69,6 +69,7 @@ DBX Sidebar table
 - **Production metadata adapter（#30）**：`DbxHostSchemaMetadataProvider` 将公开 Host response 映射为 SchemaSeed-owned facts；现已在正式 Workbench path 中调用，并将 normalized schema 送入现有 Generation Core。
 - **正式 DBX Generation Workbench（#31）**：显示当前 database / schema / table、字段类型、generator / semantic mapping、diagnostics、Rows / Seed / Locale、Preview 与 CSV / JSON。Manifest 通过 `context-menu` 的 `open-workbench` action 直接接入 #10244。
 - **Column Generation Rules v0.1（#32 implementation ready）**：Core 与正式 Rule Editor 支持冻结的 13 种 tagged rules、统一 schema/诊断 validation、deterministic per-column identity；修改规则立即失效旧 Preview / Export，禁止规则无效时生成或导出。规则定义见 [Column Generation Rules](docs/COLUMN_GENERATION_RULES.md)。
+- **Manual Single-table Constraints v0.1（#37）**：显式配置的 Unique、Composite Unique 与 Required + Unique 使用独立 ConstraintPlan、容量规划、确定性无碰撞分配和最终 dataset validator；不发现或声称数据库真实 PK / UNIQUE。权威语义见 [Manual Constraints](docs/MANUAL_CONSTRAINTS.md)。
 - **Runtime compatibility**：DBX v0.6.22 不含 #10244，且旧 runtime 严格拒绝未知 `action` 字段；正式版本 floor 与 runtime smoke 等上游正式 release 后确认。
 
 ## 当前界面 / Workbench
@@ -145,7 +146,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 - Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已关闭：已验证范围是 DBX v0.6.21 Windows Desktop 上的 Probe metadata acquisition path；这不代表 SchemaSeed production-ready。
 - `.dbxp` packaging implementation 已包含正式 Generation Workbench；由于 DBX v0.6.22 未包含 #10244，目前保持 `IMPLEMENTATION_READY_RUNTIME_SMOKE_PENDING`，不作为正式发行包。
 - Fixture-driven Workbench 仍只是独立开发 harness；production Workbench 不包含 fixture fallback 或 fixture runtime dependency。
-- SQL export deferred；当前不生成 relational datasets，不实现 PK / UNIQUE / CHECK / FK 等复杂 constraint engine。
+- SQL export deferred；当前不生成 relational datasets，不自动发现数据库 PK / UNIQUE / CHECK，不实现 CHECK、FK、Identity 或关系约束生成。
 - `validator_compatible` 与中国身份证号校验等能力 unsupported / future；当前 Safe Synthetic 不承诺真实号码校验。
 - ambiguous / low-confidence semantic mapping 不会自动作为确定事实；需要 fallback、diagnostics 或显式确认。
 - 当前不执行 database write，也不自动导入生成数据。
@@ -204,6 +205,7 @@ dbx-plugin.toml  DBX plugin package configuration
 - [Roadmap](docs/ROADMAP.md)：阶段状态、Gate 与后续方向。
 - [Generation Model](docs/GENERATION_MODEL.md)：schema / semantic / constraints / deterministic seed 的模型边界。
 - [Column Generation Rules v0.1](docs/COLUMN_GENERATION_RULES.md)：冻结的 13-rule 配置、兼容性、边界验证、deterministic identity 与 Rule Editor 状态契约。
+- [Manual Constraints v0.1](docs/MANUAL_CONSTRAINTS.md)：唯一权威的显式单表约束、NULL、provenance、capacity、determinism 与 validator 合同。
 - [Phase 1A Architecture](docs/PHASE1A_ARCHITECTURE.md)：Generation Core 与 fixture Preview。
 - [Phase 1B Architecture](docs/PHASE1B_ARCHITECTURE.md)：Semantic Mapping 与 Safe Synthetic。
 - [Phase 1C Workbench](docs/PHASE1C_WORKBENCH.md)：fixture Workbench、UI 状态与运行时边界。

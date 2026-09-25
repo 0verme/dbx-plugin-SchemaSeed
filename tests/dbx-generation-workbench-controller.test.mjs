@@ -239,14 +239,68 @@ describe("DBX Generation Workbench production controller", () => {
     assert.throws(() => controller.prepareExport("csv"), (error) => error.code === "export_blocked_plan");
   });
 
-  it("clears table-session rules on context refresh", async () => {
+  it("adds, edits, and deletes manual constraints through validation-only Core calls", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "add-constraint", kind: "unique" });
+    assert.equal(view.status, "dirty");
+    assert.equal(view.constraints.length, 1);
+    assert.equal(view.constraintPlan.constraints[0].kind, "unique");
+    assert.deepEqual(calls.at(-1).options.constraints, [{ id: "manual-1", kind: "unique", column: "customer_id" }]);
+    assert.equal(calls.at(-1).options.validateOnly, true);
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
+
+    view = await controller.dispatch({ type: "update-constraint", constraint: {
+      id: "manual-1", kind: "composite_unique", columns: ["display_name", "customer_id"],
+    } });
+    assert.equal(view.status, "dirty");
+    assert.deepEqual(view.constraints[0].columns, ["display_name", "customer_id"]);
+    assert.deepEqual(view.constraintPlan.constraints[0].columns, ["display_name", "customer_id"]);
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
+
+    view = await controller.dispatch({ type: "update-constraint", constraint: {
+      id: "manual-1", kind: "composite_unique", columns: ["customer_id"],
+    } });
+    assert.equal(view.status, "blocked");
+    assert.ok(view.diagnostics.some((entry) => entry.code === "invalid_constraint_config"));
+    assert.equal(view.export.enabled, false);
+    assert.deepEqual(view.preview.rows, []);
+    assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_blocked_plan");
+
+    view = await controller.dispatch({ type: "update-constraint", constraint: {
+      id: "manual-1", kind: "composite_unique", columns: ["customer_id", "display_name"],
+    } });
+    assert.equal(view.status, "dirty");
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "warning");
+    assert.equal(view.preview.rows.length, 20);
+    assert.equal(view.export.enabled, true);
+
+    view = await controller.dispatch({ type: "delete-constraint", id: "manual-1" });
+    assert.deepEqual(view.constraints, []);
+    assert.equal(view.status, "dirty");
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "warning");
+    assert.equal(view.preview.rows.length, 20);
+    assert.equal(view.export.enabled, true);
+  });
+
+  it("clears table-session rules and constraints on context refresh", async () => {
     const controller = createController();
     await controller.setContext({ connectionId: "conn", table: "alpha" });
     await controller.dispatch({ type: "update-rule", column: "alpha_id", rule: { kind: "sequence", start: 4, step: 3 } });
+    await controller.dispatch({ type: "add-constraint", kind: "unique" });
     await controller.dispatch({ type: "generate" });
     assert.equal(controller.rules.alpha_id.kind, "sequence");
+    assert.equal(controller.constraints.length, 1);
     const view = await controller.setContext({ connectionId: "conn", table: "beta" });
     assert.deepEqual(controller.rules, {});
+    assert.deepEqual(controller.constraints, []);
     assert.equal(view.columns[0].generationRule.kind, "auto");
     assert.ok(view.preview.rows.every((row) => Object.hasOwn(row, "beta_id")));
     assert.equal(view.export.enabled, true);

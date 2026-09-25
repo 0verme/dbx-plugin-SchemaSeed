@@ -39,6 +39,7 @@ export class DbxGenerationWorkbenchController {
     this.plan = null;
     this.currentDataset = null;
     this.rules = {};
+    this.constraints = [];
     this.diagnostics = [];
     this.error = null;
     this.actionError = null;
@@ -66,6 +67,7 @@ export class DbxGenerationWorkbenchController {
     this.plan = null;
     this.currentDataset = null;
     this.rules = {};
+    this.constraints = [];
     this.diagnostics = [];
     this.error = null;
     this.actionError = null;
@@ -106,6 +108,15 @@ export class DbxGenerationWorkbenchController {
           break;
         case "update-rule":
           await this.updateRule(action.column, action.rule);
+          break;
+        case "add-constraint":
+          await this.addConstraint(action.kind ?? "unique");
+          break;
+        case "update-constraint":
+          await this.updateConstraint(action.constraint);
+          break;
+        case "delete-constraint":
+          await this.deleteConstraint(action.id);
           break;
         case "new-seed": {
           const seed = String(this.seedFactory());
@@ -152,6 +163,7 @@ export class DbxGenerationWorkbenchController {
         ...this.controls,
         mode: "safe_synthetic",
         rules: structuredClone(this.rules),
+        constraints: structuredClone(this.constraints),
         validateOnly: true,
         semanticOverrides: {},
         semanticMappings: {},
@@ -159,6 +171,78 @@ export class DbxGenerationWorkbenchController {
       if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
       if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
         throw new Error("Generation Core runtime returned an invalid rule validation response");
+      }
+      this.plan = response.plan;
+      this.diagnostics = Array.isArray(response.plan.diagnostics)
+        ? response.plan.diagnostics
+        : Array.isArray(response.generated.diagnostics) ? response.generated.diagnostics : [];
+      this.status = response.plan.status === "blocked" || response.generated.status === "blocked" ? "blocked" : "dirty";
+      this.stage = "ready";
+      this.currentDataset = null;
+      this.emit();
+    } catch (error) {
+      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
+      this.fail(error, "generation");
+    }
+    return this.getViewModel();
+  }
+
+  /** Add an editor draft; strict validation remains in the Core. @param {string} kind */
+  async addConstraint(kind = "unique") {
+    if (!this.context || !this.schema) throw new Error("Load a DBX table before editing constraints");
+    let suffix = 1;
+    while (this.constraints.some((constraint) => constraint.id === `manual-${suffix}`)) suffix += 1;
+    const id = `manual-${suffix}`;
+    const names = this.schema.columns.map((column) => column.name);
+    const constraint = kind === "composite_unique"
+      ? { id, kind, columns: names.slice(0, 2) }
+      : { id, kind, column: names[0] ?? "" };
+    return this.replaceConstraints([...this.constraints, constraint]);
+  }
+
+  /** @param {unknown} constraint */
+  async updateConstraint(constraint) {
+    if (!this.context || !this.schema) throw new Error("Load a DBX table before editing constraints");
+    if (!isRecord(constraint) || typeof constraint.id !== "string") throw new TypeError("Constraint editor needs a constraint object with an id");
+    const index = this.constraints.findIndex((entry) => entry.id === constraint.id);
+    if (index < 0) throw new Error(`Unknown manual constraint ${constraint.id}`);
+    const updated = [...this.constraints];
+    updated[index] = structuredClone(constraint);
+    return this.replaceConstraints(updated);
+  }
+
+  /** @param {string} id */
+  async deleteConstraint(id) {
+    if (typeof id !== "string") throw new TypeError("Constraint id must be text");
+    if (!this.constraints.some((constraint) => constraint.id === id)) throw new Error(`Unknown manual constraint ${id}`);
+    return this.replaceConstraints(this.constraints.filter((constraint) => constraint.id !== id));
+  }
+
+  async replaceConstraints(constraints) {
+    this.constraints = structuredClone(constraints);
+    const contextRevision = this.contextRevision;
+    const operation = ++this.operationRevision;
+    this.plan = null;
+    this.currentDataset = null;
+    this.diagnostics = [];
+    this.error = null;
+    this.actionError = null;
+    this.stage = "constraint-validation";
+    this.status = "dirty";
+    this.emit();
+    try {
+      const response = await this.preview(this.schema, {
+        ...this.controls,
+        mode: "safe_synthetic",
+        rules: structuredClone(this.rules),
+        constraints: structuredClone(this.constraints),
+        validateOnly: true,
+        semanticOverrides: {},
+        semanticMappings: {},
+      });
+      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
+      if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
+        throw new Error("Generation Core runtime returned an invalid constraint validation response");
       }
       this.plan = response.plan;
       this.diagnostics = Array.isArray(response.plan.diagnostics)
@@ -202,6 +286,20 @@ export class DbxGenerationWorkbenchController {
         table: this.context.table,
       } : null,
       controls: { ...this.controls },
+      constraints: structuredClone(this.constraints),
+      constraintPlan: plan?.constraintPlan ? {
+        status: plan.constraintPlan.status,
+        blocking: plan.constraintPlan.blocking,
+        constraints: plan.constraintPlan.constraints.map((constraint) => ({
+          id: constraint.id,
+          kind: constraint.kind,
+          columns: [...constraint.columns],
+          capacity: { ...constraint.capacity },
+          satisfiable: constraint.satisfiable,
+          blocking: constraint.blocking,
+          diagnostics: constraint.diagnostics.map((diagnostic) => ({ ...diagnostic })),
+        })),
+      } : null,
       columns: plan?.columns.map((column) => toColumnViewModel(column, this.diagnostics)) ?? [],
       diagnostics: this.diagnostics.map((diagnostic) => ({ ...diagnostic })),
       preview: {
@@ -223,6 +321,11 @@ export class DbxGenerationWorkbenchController {
       ruleEditor: { issue: 32, scope: "current-table-session", state: this.status === "loading"
         ? (this.stage === "metadata" ? "loading" : "generating")
         : this.status === "dirty" ? (this.stage === "rule-validation" ? "validating" : "dirty")
+          : this.status === "blocked" ? "blocked" : this.status === "warning" ? "warning"
+            : this.status === "error" ? "error" : "ready" },
+      constraintEditor: { scope: "current-table-session", state: this.status === "loading"
+        ? (this.stage === "metadata" ? "loading" : "generating")
+        : this.status === "dirty" ? (this.stage === "constraint-validation" ? "validating" : "dirty")
           : this.status === "blocked" ? "blocked" : this.status === "warning" ? "warning"
             : this.status === "error" ? "error" : "ready" },
       safeSyntheticNotice: SAFE_SYNTHETIC_NOTICE,
@@ -296,6 +399,7 @@ export class DbxGenerationWorkbenchController {
         ...this.controls,
         mode: "safe_synthetic",
         rules: structuredClone(this.rules),
+        constraints: structuredClone(this.constraints),
         semanticOverrides: {},
         semanticMappings: {},
       });
