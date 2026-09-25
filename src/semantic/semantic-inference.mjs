@@ -1,4 +1,5 @@
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
+import { createEvidence, EVIDENCE_KINDS } from "./evidence.mjs";
 
 export const SEMANTIC_TYPES = Object.freeze([
   "unknown",
@@ -40,12 +41,14 @@ export function inferSemanticType(column, locale = "zh-CN") {
 
   const matches = exactMatches.length > 0 ? exactMatches : findTokenMatches(normalizedName);
   const semanticCandidates = [...new Set(matches.map((match) => match.semanticType))];
-  const nameEvidence = matches.map((match) => Object.freeze({
+  const nameEvidence = matches.map((match) => createEvidence({
+    kind: match.quality === "exact" ? EVIDENCE_KINDS.columnNameExactAlias : EVIDENCE_KINDS.columnNameAliasToken,
     source: "column_name",
     observation: `${column.name} → ${match.alias}`,
     explanation: match.quality === "exact"
       ? `Normalized column name exactly matches a known ${match.semanticType} alias`
       : `Column name contains a ${match.semanticType} alias as a separate token`,
+    params: { column: column.name, alias: match.alias, semantic: match.semanticType },
   }));
 
   if (semanticCandidates.length === 0) {
@@ -140,18 +143,22 @@ export function checkSemanticCompatibility(column, semanticType, locale = "zh-CN
       compatible: false,
       lengthKnown: false,
       reason: `Semantic type ${semanticType} requires schema family ${expectedFamily}; received ${interpreted.kind}`,
-      evidence: [Object.freeze({
+      evidence: [createEvidence({
+        kind: EVIDENCE_KINDS.schemaTypeIncompatible,
         source: "schema_type",
         observation: String(column.dataType.value),
         explanation: `${interpreted.kind} is incompatible with semantic type ${semanticType}`,
+        params: { schemaFamily: interpreted.kind, schemaType: String(column.dataType.value), semantic: semanticType },
       })],
     };
   }
 
-  const evidence = [Object.freeze({
+  const evidence = [createEvidence({
+    kind: EVIDENCE_KINDS.schemaTypeCompatible,
     source: "schema_type",
     observation: String(column.dataType.value),
     explanation: `${interpreted.kind} is compatible with semantic type ${semanticType}`,
+    params: { schemaFamily: interpreted.kind, schemaType: String(column.dataType.value), semantic: semanticType },
   })];
   if (expectedFamily !== "varchar") {
     return { compatible: true, lengthKnown: true, evidence };
@@ -165,18 +172,22 @@ export function checkSemanticCompatibility(column, semanticType, locale = "zh-CN
   const minimum = minimumSafeSyntheticLength(semanticType, locale);
   if (!Number.isSafeInteger(length.value) || length.value < minimum) {
     const reason = `Safe Synthetic ${semanticType} needs at least ${minimum} characters for its test marker; schema length is ${String(length.value)}`;
-    evidence.push(Object.freeze({
+    evidence.push(createEvidence({
+      kind: EVIDENCE_KINDS.lengthInsufficientForMarker,
       source: "length",
       observation: String(length.value),
       explanation: reason,
+      params: { length: String(length.value), minimum, semantic: semanticType },
     }));
     return { compatible: false, lengthKnown: true, reason, evidence };
   }
 
-  evidence.push(Object.freeze({
+  evidence.push(createEvidence({
+    kind: EVIDENCE_KINDS.lengthAccommodatesMarker,
     source: "length",
     observation: String(length.value),
     explanation: `Schema length accommodates the Safe Synthetic ${semanticType} marker`,
+    params: { length: String(length.value), semantic: semanticType },
   }));
   return { compatible: true, lengthKnown: true, evidence };
 }

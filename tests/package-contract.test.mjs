@@ -196,6 +196,7 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "src/i18n/catalog.mjs",
     "src/i18n/diagnostics.mjs",
     "src/i18n/en-US.mjs",
+    "src/i18n/evidence.mjs",
     "src/i18n/index.mjs",
     "src/i18n/labels.mjs",
     "src/i18n/ui-locale.mjs",

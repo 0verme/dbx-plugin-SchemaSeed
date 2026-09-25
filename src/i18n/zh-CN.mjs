@@ -47,7 +47,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "columns.empty.none": "暂无可展示的字段。",
   "columns.evidenceSummary": "{count} 条识别证据",
   "columns.evidenceItem": "{source}：{observation} —— {explanation}",
-  "columns.ruleDiagnostic": "{title}（{code}）",
+  "columns.ruleDiagnostic": "{title}",
   "columns.ruleSelectLabel": "{column} 的生成策略",
   "columns.none": "—",
 
@@ -200,6 +200,31 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "diagnostics.fallback.description": "Core 返回了当前界面尚未本地化的诊断代码。原始技术信息：{reason}",
   "diagnostics.genericColumn": "该字段",
   "diagnostics.genericSemantic": "该语义",
+
+  // 语义识别证据展示。`kind` / `source` 仍为 Core 的 machine 值，
+  // 这里只本地化用户文案；原始 Core 字段仍可在每条证据的“查看原始证据”中查看。
+  "evidence.source.column_name": "字段名",
+  "evidence.source.schema_type": "字段类型",
+  "evidence.source.length": "字段长度",
+  "evidence.source.user_confirmed": "已确认映射",
+  "evidence.source.user_override": "用户指定覆盖",
+  "evidence.source.unknown": "识别证据",
+  "evidence.technicalSummary": "查看原始证据",
+  "evidence.technical.kind": "证据类型",
+  "evidence.technical.source": "证据来源",
+  "evidence.technical.observation": "原始观察值",
+  "evidence.technical.explanation": "Core 原始解释",
+  "evidence.fallback.observation": "尚未本地化",
+  "evidence.fallback.explanation": "当前语言暂时无法解释这条识别证据；原始 Core 证据可在“查看原始证据”中查看。",
+  "evidence.column_name_exact_alias.explanation": "字段名规范化后与已知的「{semantic}」别名完全一致",
+  "evidence.column_name_alias_token.explanation": "字段名中包含独立的「{semantic}」语义别名",
+  "evidence.schema_type_compatible.explanation": "{schemaFamily} 类型与「{semantic}」语义兼容",
+  "evidence.schema_type_incompatible.explanation": "{schemaFamily} 类型与「{semantic}」语义不兼容",
+  "evidence.length_accommodates_marker.explanation": "字段长度可以容纳 Safe Synthetic「{semantic}」测试标记",
+  "evidence.length_insufficient_for_marker.explanation": "Safe Synthetic「{semantic}」测试标记至少需要 {minimum} 个字符，而字段长度为 {length}",
+  "evidence.semantic_override_confirmed.explanation": "语义映射已由用户显式确认",
+  "evidence.semantic_override_applied.explanation": "语义类型已由用户显式覆盖",
+  "evidence.semantic_left_unknown.explanation": "已显式选择不启用语义生成",
 
   // Preview.
   "preview.title": "数据预览",
