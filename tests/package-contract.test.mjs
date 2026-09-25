@@ -68,7 +68,11 @@ test("manifest declares the production Workbench and #10244 table action contrac
   assert.match(productionApp, /data-rule-selector/);
   assert.match(productionApp, /data-rule-field/);
   assert.match(productionApp, /data-constraint-kind/);
-  assert.match(productionApp, /SchemaSeed 数据生成/);
+  assert.match(productionApp, /data-i18n="app\.titleSuffix"/, "Workbench copy is bound to i18n message keys");
+  assert.match(productionApp, /describeDiagnostics/);
+  assert.match(productionApp, /data-i18n="diagnostics\.technicalSummary"|diagnostics\.technicalSummary/);
+  assert.doesNotMatch(productionApp, /locale === "zh-CN" \?/, "no inline locale conditionals in the Workbench UI");
+  assert.doesNotMatch(productionApp, /fixture-schema-metadata-provider/);
   assert.match(productionApp, /DbxHostSchemaMetadataProvider/);
   assert.match(productionApp, /onContext/);
   assert.doesNotMatch(productionApp, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider/);
@@ -99,6 +103,14 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "src/generation/generation-runtime-contract.mjs",
     "src/generation/generation-runtime-protocol.mjs",
     "src/host/dbx-schema-metadata-probe.mjs",
+    "src/i18n/catalog.mjs",
+    "src/i18n/diagnostics.mjs",
+    "src/i18n/en-US.mjs",
+    "src/i18n/index.mjs",
+    "src/i18n/labels.mjs",
+    "src/i18n/ui-locale.mjs",
+    "src/i18n/workbench-messages.mjs",
+    "src/i18n/zh-CN.mjs",
     "src/probe-protocol.mjs",
     "src/providers/dbx-host-schema-metadata-provider.mjs",
     "src/workbench/dbx-generation-workbench-controller.mjs",

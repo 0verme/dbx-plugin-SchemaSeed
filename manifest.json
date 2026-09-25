@@ -73,8 +73,8 @@
           "description": "查看 DBX 公开 Schema Metadata Host API 返回结果。"
         },
         "io.github.0verme.schema-seed.generation-workbench": {
-          "label": "SchemaSeed 生成工作台",
-          "description": "根据当前 DBX 表生成并预览确定性的 synthetic 测试数据。"
+          "label": "SchemaSeed 测试数据生成",
+          "description": "根据当前 DBX 表生成并预览确定性的 synthetic 测试数据，支持中英文界面与本地化诊断信息。"
         },
         "io.github.0verme.schema-seed.generate-test-data": {
           "label": "生成测试数据",
