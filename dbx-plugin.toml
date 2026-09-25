@@ -21,10 +21,12 @@ include = [
   "src/workbench/workbench-view-model.mjs",
   "ui/app.mjs",
   "ui/generation-workbench",
+  "ui/generation-workbench.css",
   "ui/index.html",
   "ui/probe-app.mjs",
   "ui/probe.css",
   "ui/schema-metadata-probe.mjs",
+  "ui/src",
 ]
 
 [dev]

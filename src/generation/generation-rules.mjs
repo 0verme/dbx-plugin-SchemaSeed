@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 import { checkSemanticCompatibility, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
@@ -475,7 +475,7 @@ function validRule(normalized, diagnostics) {
 /** Stable canonical tagged-rule identity; independent of object insertion order. @param {Record<string, unknown>} rule */
 export function generationRuleIdentity(rule) {
   const canonical = canonicalSerialize(rule);
-  const digest = createHash("sha256").update(`SchemaSeed.GenerationRule.v1\0${canonical}`, "utf8").digest("hex");
+  const digest = sha256Hex(`SchemaSeed.GenerationRule.v1\0${canonical}`);
   return `rule:${String(rule.kind)}:v1:${digest.slice(0, 24)}`;
 }
 

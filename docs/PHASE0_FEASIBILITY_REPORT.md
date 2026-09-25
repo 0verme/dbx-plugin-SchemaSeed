@@ -21,7 +21,7 @@ PostgreSQL PASS
 Current follow-up status:
 Issue #6: CLOSED by merged PR #33
 Production adapter: implemented in Issue #30; DBX Workbench integration remains #31
-Upstream TableContext → Workbench handoff: t8y2/dbx#10244 MERGED
+Upstream TableContext → Workbench handoff: t8y2/dbx#10244 MERGED; RELEASED in DBX v0.6.23
 ```
 
 ### Frozen Schema Acquisition Path
@@ -40,7 +40,7 @@ Facts below were checked against the merged upstream contract, official `plugin-
 
 ## Public Table Context Contract
 
-The table contribution is invoked as:
+The historical Phase 0 table contribution was invoked as:
 
 ```text
 context-menu (`menu: "table")
@@ -48,16 +48,18 @@ context-menu (`menu: "table")
 → JSONL sidecar
 ```
 
+> The `table-context-probe` contribution and its zh-CN「SchemaSeed：保存 Table Context」label were removed from the production manifest in the DBX v0.6.23 runtime-validation cleanup. This section documents the historical v0.6.21 Phase 0 contract only; the current production table right-click entry is `io.github.0verme.schema-seed.generate-test-data` → `open-workbench`.
+
 DBX sends `params.table` with `connectionId`, `table`, and optional `database` / `schema`. It contains table identity only, not credentials, connection strings, or raw connection configuration. The sidecar validates and normalizes this into SchemaSeed's internal `TableContext`.
 
 ## Table Context → Workbench Handoff
 
 ```text
-DBX v0.6.21 Phase 0 Probe runtime: TWO_STEP_HANDOFF
-Current upstream contract: t8y2/dbx#10244 MERGED
+DBX v0.6.21 Phase 0 Probe runtime: TWO_STEP_HANDOFF (historical)
+Current upstream contract: t8y2/dbx#10244 RELEASED in DBX v0.6.23
 ```
 
-The DBX v0.6.21 runtime evidence remains the historical two-step Phase 0 Probe flow: right-click a table → `SchemaSeed：保存 Table Context` → sidecar temporarily stores identity-only context → user manually opens the Schema Metadata Probe Workbench. Separately, upstream PR [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) has now merged the direct `context-menu → open-workbench` handoff, passing the current connection/table context and refreshing it when a Workbench tab is reused. This newer upstream contract is intended for #31; it is not part of #30 and does not block the provider. Runtime smoke for a DBX release containing #10244 belongs to #31.
+The DBX v0.6.21 runtime evidence remains the historical two-step Phase 0 Probe flow: right-click a table → `SchemaSeed：保存 Table Context` → sidecar temporarily stores identity-only context → user manually opens the Schema Metadata Probe Workbench. Separately, upstream PR [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) merged and shipped in DBX v0.6.23, providing the direct `context-menu → open-workbench` handoff, passing the current connection/table context and refreshing it when a Workbench tab is reused. This newer upstream contract is intended for #31; it is not part of #30 and does not block the provider. Runtime smoke on DBX v0.6.23 belongs to #31 and remains pending. The production table context-menu entry for the historical probe has been removed as of the v0.6.23 runtime-validation cleanup; the Probe Workbench itself remains manually openable from the plugin details page.
 
 The Probe uses the narrow public two-step alternative:
 
@@ -179,6 +181,6 @@ The one-shot handoff replay path is also automated: after the pending context is
 READY_WITH_FOLLOWUPS
 ```
 
-The original Gate decision was **READY_WITH_FOLLOWUPS**: the public v0.1 Schema Acquisition Path was proven end-to-end for MySQL, SQLite, and PostgreSQL. At that decision point, Host API 1.3 did not expose PK, FK, UNIQUE, CHECK, Comment, or Identity metadata, and the direct context-menu → Workbench handoff was not yet merged; those gaps were non-blocking. Upstream #10244 has since merged the handoff contract, while the future metadata fields remain unexposed. `not_exposed` is not equivalent to provider `unsupported`; it describes the Host API exposure boundary and makes no claim about whether a database or driver supports the capability. This was not `BLOCKED` because every v0.1 blocking capability and the legal public acquisition path had runtime evidence in DBX v0.6.21 Windows Desktop.
+The original Gate decision was **READY_WITH_FOLLOWUPS**: the public v0.1 Schema Acquisition Path was proven end-to-end for MySQL, SQLite, and PostgreSQL. At that decision point, Host API 1.3 did not expose PK, FK, UNIQUE, CHECK, Comment, or Identity metadata, and the direct context-menu → Workbench handoff was not yet merged; those gaps were non-blocking. Upstream #10244 has since merged and shipped the handoff contract in DBX v0.6.23, while the future metadata fields remain unexposed. `not_exposed` is not equivalent to provider `unsupported`; it describes the Host API exposure boundary and makes no claim about whether a database or driver supports the capability. This was not `BLOCKED` because every v0.1 blocking capability and the legal public acquisition path had runtime evidence in DBX v0.6.21 Windows Desktop.
 
 The original Gate-closing PR used `Closes #6`; Issue #6 is now CLOSED by merged PR #33. This Gate decision means only that SchemaSeed v0.1's public, legal Schema Acquisition Path is proven feasible and production integration / productization may proceed. At the time of that Gate decision it did not mean that a production `DbxHostSchemaMetadataProvider` or Generation Workbench existed. Current follow-up status: #30 implements the production metadata adapter and its Core contract path; #31 still owns the packaged DBX Generation Workbench/runtime integration, and Column Rules / Constraint Engine remain separate scope.

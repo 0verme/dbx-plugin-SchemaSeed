@@ -8,7 +8,7 @@
   "description": "Generate test data quickly from database table schemas for development, integration testing, and functional validation.",
   "icon": "assets/plugin.svg",
   "engines": {
-    "dbx": ">=0.6.19",
+    "dbx": ">=0.6.23",
     "host_api": "^1.3"
   },
   "permissions": [
@@ -26,13 +26,6 @@
     }
   },
   "contributions": [
-    {
-      "type": "context-menu",
-      "id": "io.github.0verme.schema-seed.table-context-probe",
-      "label": "SchemaSeed: Show table context",
-      "description": "Save the DBX table identity for the separate Phase 0 metadata probe.",
-      "menu": "table"
-    },
     {
       "type": "workbench",
       "id": "io.github.0verme.schema-seed.schema-metadata-probe",
@@ -64,10 +57,6 @@
       "name": "SchemaSeed",
       "description": "根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。",
       "contributions": {
-        "io.github.0verme.schema-seed.table-context-probe": {
-          "label": "SchemaSeed：保存 Table Context",
-          "description": "为 Phase 0 metadata probe 暂存 DBX #9918 table identity。"
-        },
         "io.github.0verme.schema-seed.schema-metadata-probe": {
           "label": "Schema Metadata Probe",
           "description": "查看 DBX 公开 Schema Metadata Host API 返回结果。"

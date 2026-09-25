@@ -1,4 +1,4 @@
-import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "../src/i18n/ui-locale.mjs";
+import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "./src/i18n/ui-locale.mjs";
 
 const GENERATION_WORKBENCH_ID = "io.github.0verme.schema-seed.generation-workbench";
 const PHASE0_WORKBENCH_ID = "io.github.0verme.schema-seed.schema-metadata-probe";

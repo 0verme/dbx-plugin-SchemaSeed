@@ -3,10 +3,17 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'">
     <title>SchemaSeed</title>
+    <!--
+      No plugin-declared Content-Security-Policy and no base element here.
+      DBX injects its sandbox CSP (script-src 'unsafe-inline' blob: + the
+      plugin asset origin), the SDK and the plugin asset base into this
+      document; multiple CSP policies intersect, so a second policy that lacks
+      'unsafe-inline' and the asset origin blocks the injected SDK and the
+      inlined entry module, and base-uri 'none' discards the host base.
+    -->
     <link rel="stylesheet" href="./probe.css">
-    <link rel="stylesheet" href="./generation-workbench/styles.css">
+    <link rel="stylesheet" href="./generation-workbench.css">
     <script type="module" src="./app.mjs"></script>
   </head>
   <body>

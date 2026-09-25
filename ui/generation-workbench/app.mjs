@@ -1,8 +1,8 @@
-import { GENERATION_PREVIEW_METHOD } from "../../src/generation/generation-runtime-contract.mjs";
-import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../../src/i18n/diagnostics.mjs";
-import { createI18n, SUPPORTED_UI_LOCALES } from "../../src/i18n/index.mjs";
-import { constraintKindOptions, constraintPlanLabel } from "../../src/i18n/labels.mjs";
-import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "../../src/i18n/ui-locale.mjs";
+import { GENERATION_PREVIEW_METHOD } from "../src/generation/generation-runtime-contract.mjs";
+import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
+import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
+import { constraintKindOptions, constraintPlanLabel } from "../src/i18n/labels.mjs";
+import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "../src/i18n/ui-locale.mjs";
 import {
   actionErrorMessage,
   constraintEditorStateMessage,
@@ -15,9 +15,9 @@ import {
   ruleEditorStateMessage,
   stateMessage,
   statusLabel,
-} from "../../src/i18n/workbench-messages.mjs";
-import { DbxHostSchemaMetadataProvider } from "../../src/providers/dbx-host-schema-metadata-provider.mjs";
-import { DbxGenerationWorkbenchController } from "../../src/workbench/dbx-generation-workbench-controller.mjs";
+} from "../src/i18n/workbench-messages.mjs";
+import { DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
+import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 
 const WORKBENCH_MARKUP = `
   <div class="sswb">
