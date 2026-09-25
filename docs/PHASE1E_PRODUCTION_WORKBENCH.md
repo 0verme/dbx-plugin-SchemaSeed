@@ -19,7 +19,7 @@ DBX Sidebar table
   → GenerationPlan + per-column GenerationRules (existing Core, via local sidecar RPC)
   → generateRows() (existing deterministic Core)
   → ExportDataset
-  → Preview / CSV / JSON
+  → Preview / CSV / JSON / INSERT SQL
 ```
 
 The browser Workbench invokes the public `window.dbxPlugin.getTableMetadata()` bridge through `DbxHostSchemaMetadataProvider`. It passes the normalized SchemaSeed-owned schema, column rules and generation settings to the package's local JSONL runtime; that runtime calls the existing `buildGenerationPlan()` and `generateRows()`. Rule validation-only calls reuse the `generation/preview` RPC contract and return Core plan diagnostics without rows. It performs no network request, database access, credential lookup, or second connection. The Phase 0 Probe remains a separate UI surface and RPC method on the same plugin process; neither path is used as a fallback for the other. The historical Probe table context-menu contribution has been removed from the production manifest, so the legacy sidecar handoff is no longer reachable from the table menu; the Probe Workbench itself is retained and can be opened manually from the plugin details page.
@@ -43,13 +43,13 @@ The Workbench subscribes to Host `onContext`. A changed context immediately clea
 
 ### UI and state
 
-The production UI displays database / schema / table, column name, normalized schema type, current Core generator / semantic mapping, evidence / diagnostics, Rows, Seed, Locale, Generate, Regenerate Same Seed, New Seed, Preview and CSV / JSON export. Issue #32 replaces the prior Rule Editor integration slot with one Core-driven per-column editor for the frozen 13 tagged GenerationRules. Core compatibility choices, field descriptors and diagnostics are rendered without a duplicate UI schema; rules remain table-session state and are cleared on context refresh. Any edit immediately invalidates Preview and Export until the current rule plan is validated and generated; invalid rules block Generate/Export and never fall back silently. See [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md) for the full contract.
+The production UI displays database / schema / table, column name, normalized schema type, current Core generator / semantic mapping, evidence / diagnostics, Rows, Seed, Locale, Generate, Regenerate Same Seed, New Seed, Preview and CSV / JSON / INSERT SQL export. Issue #32 replaces the prior Rule Editor integration slot with one Core-driven per-column editor for the frozen 13 tagged GenerationRules. Core compatibility choices, field descriptors and diagnostics are rendered without a duplicate UI schema; rules remain table-session state and are cleared on context refresh. Any edit immediately invalidates Preview and Export until the current rule plan is validated and generated; invalid rules block Generate/Export and never fall back silently. See [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md) for the full contract.
 
 UI state includes `loading`, `dirty`, `ready`, `warning`, `blocked`, and `error`. Provider errors retain the provider's actionable diagnostic; planning/generation diagnostics come from existing Core APIs. Metadata capability unavailable and invalid context are blocked states; Host request/runtime failures are errors; Core warning plans remain previewable/exportable; blocked plans cannot produce or export a dataset.
 
 ### Preview / Export
 
-A successful Core generation result creates one `ExportDataset`. Preview renders that dataset. CSV / JSON serialize that same object and never call `generateRows()`, rebuild a plan, or re-run inference/mapping. Regenerate Same Seed repeats the deterministic Core call with unchanged schema/plan/settings; New Seed updates the seed and creates a new current dataset.
+A successful Core generation result creates one `ExportDataset`. Preview renders that dataset. CSV / JSON / INSERT SQL serialize that same object and never call `generateRows()`, rebuild a plan, or re-run inference/mapping. Regenerate Same Seed repeats the deterministic Core call with unchanged schema/plan/settings; New Seed updates the seed and creates a new current dataset.
 
 ## Manifest and package boundary
 
@@ -90,7 +90,7 @@ DBX v0.6.23 is published. Install the updated `.dbxp` on v0.6.23 and verify:
 1. table right-click shows only the SchemaSeed 「生成测试数据」 entry and no 「SchemaSeed：保存 Table Context」 entry;
 2. table context menu opens the declared Workbench with direct TableContext;
 3. current metadata and schema types load and Generate produces Preview;
-4. CSV / JSON equal the current Preview dataset;
+4. CSV / JSON / INSERT SQL equal the current Preview dataset;
 5. opening table B while table A's Workbench is reused refreshes context, metadata, plan, preview and exports;
 6. repeat table switch (A→B→C) and confirm no stale response survives.
 

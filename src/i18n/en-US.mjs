@@ -264,6 +264,7 @@ export const EN_US_MESSAGES = Object.freeze({
   // Export.
   "export.csv": "Export CSV",
   "export.json": "Export JSON",
+  "export.sql": "Export INSERT SQL",
   "export.unavailable": "Export is available after a successful preview.",
   "export.ready": "Export reuses the same dataset as the current Preview.",
   "export.disabledHint": "Export stays disabled while Preview is unavailable or a blocking diagnostic is present.",
@@ -271,6 +272,8 @@ export const EN_US_MESSAGES = Object.freeze({
   "export.failed": "Export failed: {code} · {message}",
   "export.error.export_blocked_plan": "The current GenerationPlan is blocked and cannot be exported.",
   "export.error.export_no_dataset": "Export needs a successfully generated preview of the current table.",
+  "export.error.export_no_table_reference": "The current table has no database / schema / table reference, so INSERT SQL cannot be generated.",
+  "export.error.export_serialization_failed": "A value cannot be safely serialized, so the export stopped.",
   "export.error.export_error": "Export failed.",
 
   // Errors surfaced by Workbench actions.

@@ -63,6 +63,7 @@ const coreFiles = [
   "src/export/export-dataset.mjs",
   "src/export/csv-exporter.mjs",
   "src/export/json-exporter.mjs",
+  "src/export/sql-exporter.mjs",
   "src/providers/fixture-schema-metadata-provider.mjs",
   "src/workbench/workbench-controller.mjs",
   "src/workbench/workbench-server.mjs",

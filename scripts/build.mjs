@@ -36,6 +36,7 @@ try {
     "src/export/csv-exporter.mjs",
     "src/export/export-dataset.mjs",
     "src/export/json-exporter.mjs",
+    "src/export/sql-exporter.mjs",
     "src/generation/constraint-allocation.mjs",
     "src/generation/constraint-domain.mjs",
     "src/generation/generation-engine.mjs",

@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成，**正式 DBX runtime smoke 尚未完成**。DBX v0.6.23（2026-09-25 发布）是首个正式包含上游 `t8y2/dbx#10244`（table context-menu → Workbench）的 released runtime；本仓库已将 `engines.dbx` 对齐 `>=0.6.23` 并移除 Phase 0 遗留的 table 右键入口。SchemaSeed v0.1.0 定位为项目功能里程碑（GitHub Release）；runtime smoke 完成前，unsigned universal `.dbxp` 不代表 DBX v0.6.23 已验证，也不代表 Store-ready。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON / INSERT SQL 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成，**正式 DBX runtime smoke 尚未完成**。DBX v0.6.23（2026-09-25 发布）是首个正式包含上游 `t8y2/dbx#10244`（table context-menu → Workbench）的 released runtime；本仓库已将 `engines.dbx` 对齐 `>=0.6.23` 并移除 Phase 0 遗留的 table 右键入口。SchemaSeed v0.1.0 定位为项目功能里程碑（GitHub Release）；runtime smoke 完成前，unsigned universal `.dbxp` 不代表 DBX v0.6.23 已验证，也不代表 Store-ready。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
 
 > Runtime floor 现为 DBX `>=0.6.23`；Host API 仍为 `^1.3`。选择 v0.6.23 的依据是它是首个正式包含 `context-menu.action.open-workbench`（上游 #10244）的 released runtime；DBX v0.6.22 及更早 runtime 对未知 context-menu 字段采用严格解析，会拒绝包含新 `action` 的 manifest，因此不是有效安装目标。该 floor 是 runtime 前置条件，不代表 smoke 已完成。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity，这些仍是非阻塞 follow-ups。
 
@@ -52,7 +52,7 @@ DBX Sidebar table
   → DbxHostSchemaMetadataProvider
   → SchemaSeed TableSchema
   → Core GenerationPlan + per-column GenerationRules
-  → generateRows() → Preview → CSV / JSON
+  → generateRows() → Preview → CSV / JSON / INSERT SQL
 ```
 
 正式 Workbench 使用公开 Host metadata API 与现有 Core。Preview / export 共用同一 dataset；A→B→C context refresh 会立即清空旧 metadata、plan 和 dataset，并丢弃迟到的旧请求。
@@ -65,9 +65,10 @@ DBX Sidebar table
 - **Safe Synthetic person data**：使用明确的测试模式，不读取或复制真实 PII；邮箱使用保留的 `example.com` 测试域名，姓名、手机号和地址使用可识别的测试标记。测试标记不构成零碰撞保证。
 - **Generation preview**：本地 Workbench 可检查字段类型、mapping、evidence、diagnostics 和生成样例；只有通过确认的 mapping / override 才会作为相应语义规则使用。
 - **CSV / JSON export**：导出 Workbench 当前 preview 使用的同一份 deterministic dataset，不另行生成一份数据。
+- **INSERT SQL export**：为当前 preview 的每一行生成一条普通 `INSERT INTO ... VALUES (...)`，与 CSV / JSON 消费同一个 frozen dataset，不重新 generate、不执行 SQL、不写入数据库。列名 / schema / table 名称来自当前 Workbench table context；Host API 1.3 未暴露 database type，identifier quoting 与 boolean literal 采用文档化的最小跨方言策略（见 [Export](#export)）。
 - **Schema Metadata consumer probe**：安装包通过公开 DBX Host API 1.3 获取 table metadata；Probe 的 Table Context → Host API → columns metadata → SchemaSeed normalization 路径已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 验证通过（historical Phase 0 evidence）。其 production table 右键入口已在 v0.6.23 runtime-validation 清理中移除；Probe Workbench 保留为插件详情页手动入口。
 - **Production metadata adapter（#30）**：`DbxHostSchemaMetadataProvider` 将公开 Host response 映射为 SchemaSeed-owned facts；现已在正式 Workbench path 中调用，并将 normalized schema 送入现有 Generation Core。
-- **正式 DBX Generation Workbench（#31）**：显示当前 database / schema / table、字段类型、generator / semantic mapping、diagnostics、Rows / Seed / Data language、Preview 与 CSV / JSON；界面语言与 diagnostics 文案支持 English / 简体中文。Manifest 通过 `context-menu` 的 `open-workbench` action 直接接入 #10244。
+- **正式 DBX Generation Workbench（#31）**：显示当前 database / schema / table、字段类型、generator / semantic mapping、diagnostics、Rows / Seed / Data language、Preview 与 CSV / JSON / INSERT SQL；界面语言与 diagnostics 文案支持 English / 简体中文。Manifest 通过 `context-menu` 的 `open-workbench` action 直接接入 #10244。
 - **Column Generation Rules v0.1（#32 implementation ready）**：Core 与正式 Rule Editor 支持冻结的 13 种 tagged rules、统一 schema/诊断 validation、deterministic per-column identity；修改规则立即失效旧 Preview / Export，禁止规则无效时生成或导出。规则定义见 [Column Generation Rules](docs/COLUMN_GENERATION_RULES.md)。
 - **Manual Single-table Constraints v0.1（#37）**：显式配置的 Unique、Composite Unique 与 Required + Unique 使用独立 ConstraintPlan、容量规划、确定性无碰撞分配和最终 dataset validator；不发现或声称数据库真实 PK / UNIQUE。权威语义见 [Manual Constraints](docs/MANUAL_CONSTRAINTS.md)。
 - **Workbench i18n（English / 简体中文）**：正式 Workbench 的界面文案由统一 i18n dictionary + `t()` 提供，缺失 key 或未支持语言一律 fallback 到 `en-US`；diagnostics 按稳定 `code` 本地化为“级别 + 原因 + 处理建议”，原始 Core message 折叠在“查看技术详情”中。设计见 [Workbench i18n](docs/I18N.md)。
@@ -118,7 +119,7 @@ npm run workbench
 1. 选择一个仓库内的 schema fixture，设置行数、seed 与 locale。
 2. 检查 detected semantic、confidence、evidence 和 diagnostics；按需确认 mapping 或设置 explicit override。
 3. 查看 preview。使用相同 seed 与相同 plan 可复现结果；更换 seed 可生成另一组数据。
-4. 下载 CSV 或 JSON。导出复用当前 preview 的 dataset。
+4. 下载 CSV 或 JSON。导出复用当前 preview 的 dataset（INSERT SQL 导出仅在正式 DBX Workbench 提供，因为需要 production table context）。
 
 该流程是 fixture 驱动的本地开发体验，不会自动选中 DBX 中打开的表，也不会向业务数据库写入数据。
 
@@ -134,13 +135,14 @@ schema type 与业务语义是两类信息。例如 `VARCHAR(18)` 只表示受�
 
 ## Export
 
-当前实现 CSV 与 JSON Export，序列化 Workbench 已生成的数据集：
+当前实现 CSV、JSON 与 INSERT SQL Export，序列化 Workbench 已生成的数据集（INSERT SQL 仅在正式 DBX Workbench 提供；独立 fixture harness 只提供 CSV / JSON）：
 
 - CSV 保持 schema 列顺序，处理分隔符与引号；Workbench 下载默认使用 UTF-8 BOM 和 spreadsheet-safe 字符串处理。
 - JSON 保留 `null` / boolean 等类型；decimal 值以精确字符串保留。
-- Preview 和两种导出格式使用相同的当前 dataset。
+- INSERT SQL 按 preview 每一行生成一条普通 `INSERT INTO ... VALUES (...)`，不做多行 `VALUES` 合并、不生成 UPSERT / MERGE / TRUNCATE / DELETE、不执行任何 SQL。`null` 输出 `NULL`，字符串单引号并转义 `'`，number 不加引号，空字符串保持 `''`。
+- Preview 和三种导出格式使用相同的当前 dataset。
 
-SQL export deferred：在没有正式 DBX metadata / dialect 集成及可靠方言语义前，不生成通用 INSERT SQL。
+INSERT SQL 的已知方言边界：DBX Host API 1.3 未暴露目标 database type / dialect，因此 SchemaSeed 使用明确的最小策略——普通小写且非保留字标识符不加引号，其余标识符使用 ANSI 双引号并转义 `"`；boolean 使用 SQL 标准 `TRUE` / `FALSE`。该策略在已人工验证的 PostgreSQL / MySQL / SQLite 上可用；MySQL 默认 `sql_mode`（未启用 `ANSI_QUOTES`）对双引号标识符的解释与标准不同，Oracle 23c 之前与 SQL Server 的 boolean 列需要方言适配。完整方言支持属于 Future Work，不在本版本展开。
 
 ## 安全边界
 
@@ -165,7 +167,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 - Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已关闭：已验证范围是 DBX v0.6.21 Windows Desktop 上的 Probe metadata acquisition path；这不代表 SchemaSeed production-ready。
 - `.dbxp` packaging implementation 已包含正式 Generation Workbench，并面向 DBX v0.6.23（首个包含 #10244 的 release）构建；目前保持 `READY_FOR_DBX_0.6.23_RUNTIME_SMOKE`。SchemaSeed v0.1.0 GitHub Release 是项目功能里程碑；v0.6.23 smoke 完成前不代表 Store-ready。
 - Fixture-driven Workbench 仍只是独立开发 harness；production Workbench 不包含 fixture fallback 或 fixture runtime dependency。
-- SQL export deferred；当前不生成 relational datasets，不自动发现数据库 PK / UNIQUE / CHECK，不实现 CHECK、FK、Identity 或关系约束生成。
+- INSERT SQL 输出范围限于普通单行 `INSERT`；不生成 relational datasets，不自动发现数据库 PK / UNIQUE / CHECK，不实现 CHECK、FK、Identity 或关系约束生成；方言边界见上方 Export 小节。
 - `validator_compatible` 与中国身份证号校验等能力 unsupported / future；当前 Safe Synthetic 不承诺真实号码校验。
 - ambiguous / low-confidence semantic mapping 不会自动作为确定事实；需要 fallback、diagnostics 或显式确认。
 - 当前不执行 database write，也不自动导入生成数据。
@@ -178,7 +180,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 | Phase 1A | Implemented | Generation Core + fixture Preview |
 | Phase 1B | Implemented | Semantic Mapping + Safe Synthetic |
 | Phase 1C | Implemented | Fixture-driven standalone Workbench |
-| Phase 1D | Implemented | CSV / JSON Export |
+| Phase 1D | Implemented | CSV / JSON / INSERT SQL Export |
 | Production DBX metadata adapter (#30) | Implemented | Public Host metadata → SchemaSeed facts → existing Generation Core |
 | Generation Workbench (#31) | READY_FOR_DBX_0.6.23_RUNTIME_SMOKE | Packaged production UI / runtime / direct table action; candidate aligned to DBX v0.6.23; manual runtime smoke pending |
 | Column Generation Rules (#32) | IMPLEMENTATION_READY_RUNTIME_E2E_PENDING | Frozen 13-rule Core + production Rule Editor + package contract; runtime E2E pending manual execution on DBX v0.6.23 |
@@ -194,7 +196,7 @@ DBX Sidebar Table
   → context-menu: open-workbench（#10244）
   → Workbench receives direct TableContext
   → DbxHostSchemaMetadataProvider → TableSchema
-  → GenerationPlan → generateRows() → Preview / CSV / JSON
+  → GenerationPlan → generateRows() → Preview / CSV / JSON / INSERT SQL
 ```
 
 #10244 合同传给 Workbench 的是 TableContext 本身（不是 legacy `{ table: ... }` envelope）；`database` / `schema` 仍为 optional。重用 Workbench tab 时 `onContext` 刷新触发 metadata / plan / preview 失效，并保护免于迟到请求覆盖新表。Phase 0 Probe Workbench 仍保留，但其 production table 右键入口已移除；历史 v0.6.21 smoke 曾使用 legacy 暂存 context 的两步流程。DBX v0.6.23 是首个正式包含 #10244 的 release，manifest floor 已对齐 `>=0.6.23`；v0.6.23 runtime smoke 仍 pending manual execution。两条路径均不读取 private Store、credential、private frontend/Tauri API，也不建立第二连接。
@@ -229,7 +231,7 @@ dbx-plugin.toml  DBX plugin package configuration
 - [Phase 1A Architecture](docs/PHASE1A_ARCHITECTURE.md)：Generation Core 与 fixture Preview。
 - [Phase 1B Architecture](docs/PHASE1B_ARCHITECTURE.md)：Semantic Mapping 与 Safe Synthetic。
 - [Phase 1C Workbench](docs/PHASE1C_WORKBENCH.md)：fixture Workbench、UI 状态与运行时边界。
-- [Phase 1D Export](docs/PHASE1D_EXPORT.md)：CSV / JSON dataset 与 Export 约定。
+- [Phase 1D Export](docs/PHASE1D_EXPORT.md)：CSV / JSON / INSERT SQL dataset 与 Export 约定。
 - [Phase 1E Production Workbench](docs/PHASE1E_PRODUCTION_WORKBENCH.md)：DBX runtime 架构、context refresh、package 边界与 release smoke gate。
 - [Host API Audit](docs/HOST_API_AUDIT.md)：公开 Host API 能力审计。
 - [Host API Requirements](docs/HOST_API_REQUIREMENTS.md)：DBX schema metadata 集成要求。

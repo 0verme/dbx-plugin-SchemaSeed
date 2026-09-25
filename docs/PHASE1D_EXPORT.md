@@ -2,7 +2,7 @@
 
 ## Scope and runtime
 
-Phase 1D exports CSV and JSON from the fixture-driven Workbench's already-generated dataset. It does not introduce generation rules, a second random path, a provider, a database connection, or a DBX adapter. The Workbench remains a standalone browser development harness started with `npm run workbench`; it is not packaged in DBX.
+Phase 1D exports CSV / JSON / INSERT SQL from an already-generated dataset. It does not introduce generation rules, a second random path, a provider, a database connection, or a DBX adapter, and it is never a database write path. INSERT SQL is delivered by the packaged DBX Workbench because it needs the production database / schema / table reference; the standalone `npm run workbench` fixture harness keeps CSV / JSON.
 
 ## Architecture and dataset contract
 
@@ -10,10 +10,11 @@ Phase 1D exports CSV and JSON from the fixture-driven Workbench's already-genera
 GenerationPlan
       ↓ generateRows(plan) — once per preview refresh
 Generated result
-      ↓ createExportDataset(plan, result)
+      ↓ createExportDataset(plan, result, { table })
 ExportDataset
    ├─ exportCsv(dataset)
-   └─ exportJson(dataset)
+   ├─ exportJson(dataset)
+   └─ exportInsertSql(dataset)
       ↓ WorkbenchController download descriptor
 Browser Blob → object URL → <a download>
 ```
@@ -23,15 +24,16 @@ Export Core lives under `src/export/` and has no Workbench DOM, fixture-provider
 `ExportDataset` contains only:
 
 - `tableIdentity`
+- `table`: the database / schema / table reference captured with the snapshot (optional; required before INSERT SQL can run)
 - `columns`: unique column names in explicit `TableSchema` order
 - `rows`: generated scalar-value records with exactly those columns; missing and unexpected fields fail closed
 - `generationContext`: seed, locale, row count, and determinism profile
 
-`createExportDataset(plan, generatedResult)` snapshots the ordered columns and the rows returned by the Core. It does not retain or copy the full GenerationPlan, diagnostics, semantic mappings, or unrelated provenance. Structural errors throw an `ExportError` with a stable code; they are not silently repaired or emitted as warnings.
+`createExportDataset(plan, generatedResult, { table })` snapshots the ordered columns, the rows returned by the Core, and the current database / schema / table reference. It does not retain or copy the full GenerationPlan, diagnostics, semantic mappings, or unrelated provenance. Structural errors throw an `ExportError` with a stable code; they are not silently repaired or emitted as warnings.
 
 ## Preview / export consistency
 
-On a successful refresh, `WorkbenchController` calls `generateRows(plan)` once and stores the resulting `ExportDataset` as `currentDataset`. Preview is rendered from `currentDataset.rows`; CSV and JSON serialize that same object. `prepareExport()` only serializes it and never calls `generateRows()`, rebuilds a plan/mapping, or creates Person values. Mapping, controls, fixture, and seed changes replace the dataset only through the regular plan → generation refresh. Same-plan regeneration is deterministic.
+On a successful refresh, the Workbench controller calls `generateRows(plan)` once and stores the resulting `ExportDataset` as `currentDataset`. Preview is rendered from `currentDataset.rows`; CSV, JSON and INSERT SQL serialize that same object. `prepareExport()` only serializes it and never calls `generateRows()`, rebuilds a plan/mapping, or creates Person values. Mapping, controls, fixture, and seed changes replace the dataset only through the regular plan → generation refresh. Same-plan regeneration is deterministic.
 
 ## CSV
 
@@ -51,29 +53,42 @@ On a successful refresh, `WorkbenchController` calls `generateRows(plan)` once a
 
 Neither format embeds seed, locale, diagnostics, GenerationPlan, or semantic mappings. Small export summary metadata is returned separately for the Workbench UI.
 
+## INSERT SQL
+
+- Every preview row becomes exactly one plain `INSERT INTO ... VALUES (...)` statement; a header comment records the serializer name, the qualified table and the row count. Multi-row `VALUES (...), (...)` is deliberately not used in v0.2.2 so the output stays compatible with the widest set of statement-based import paths.
+- `null` is `NULL`; strings use single quotes with `'` doubled; numbers stay unquoted; the empty string stays `''`; booleans use `TRUE` / `FALSE`; date / timestamp values are emitted as their Core-produced strings.
+- A string containing a NUL character fails closed with `export_serialization_failed`; no SQL is emitted for it.
+- Statements never include `UPSERT` / `MERGE` / `ON CONFLICT` / `ON DUPLICATE KEY` / `TRUNCATE` / `DELETE` / `DROP` / `CREATE TABLE` and are never executed.
+
+### Identifier quoting and dialect boundary
+
+DBX Host API 1.3 does not expose the target database type, so SchemaSeed cannot select a dialect-specific identifier quote. The documented minimum is:
+
+- plain lower-case names that are not in the frozen cross-dialect reserved-word set are emitted unquoted (accepted by PostgreSQL, MySQL, SQLite, Oracle, SQL Server, GaussDB, DB2, ...);
+- every other name is emitted as an ANSI double-quoted identifier with `"` doubled;
+- the table is qualified as `schema.table` when the TableContext has a schema, otherwise `database.table` when only a database namespace exists, otherwise `table`; `database.schema.table` is never emitted together because drivers such as PostgreSQL reject it.
+
+ANSI double quotes work for PostgreSQL, Oracle, GaussDB, SQLite, DB2 and SQL Server. MySQL only treats double quotes as identifier quotes in `ANSI_QUOTES` mode; with the default `sql_mode` the fallback quoting has driver-dependent behavior. SQL-standard `TRUE` / `FALSE` literals are accepted by the verified PostgreSQL / MySQL / SQLite targets; boolean columns on Oracle before 23c and SQL Server need a dialect-specific representation. Those are tracked as Future Work for a dialect-aware serializer once the Host exposes the database type, and are stated in the README, Issue and release notes rather than hidden.
+
 ## Filename and download boundary
 
-Filenames use the deterministic form `schemaseed-<sanitized-table>-<row-count>rows.<csv|json>`. Table identity is normalized to a safe basename containing Unicode letters/digits, `_`, and `-`; path separators, traversal dots, and platform-reserved punctuation are removed. Seed is deliberately excluded.
+Filenames use the deterministic form `schemaseed-<sanitized-table>-<row-count>rows.<csv|json|sql>`. Table identity is normalized to a safe basename containing Unicode letters/digits, `_`, and `-`; path separators, traversal dots, and platform-reserved punctuation are removed. Seed is deliberately excluded.
 
 The controller returns `{ filename, mimeType, content, summary }`. The UI does not serialize data. In this standalone browser runtime it downloads through `Blob`, `URL.createObjectURL()`, and an `<a download>` element. It does not write arbitrary filesystem paths or use Node filesystem APIs for user data.
 
 ## Availability and diagnostics
 
-Download buttons are enabled only after successful preview generation with a non-blocked plan and at least one row. Both `ready` and `ready_with_warnings` are exportable; warnings remain in the Workbench and are not added as data columns. Blocked plans, generation errors, missing datasets, invalid columns, row shape mismatches, and serialization failures fail closed with codes including `export_no_dataset`, `export_blocked_plan`, `export_invalid_columns`, `export_row_shape_mismatch`, and `export_serialization_failed`.
+Download buttons are enabled only after successful preview generation with a non-blocked plan and at least one row. Both `ready` and `ready_with_warnings` are exportable; warnings remain in the Workbench and are not added as data columns. Blocked plans, generation errors, missing datasets, invalid columns, row shape mismatches, and serialization failures fail closed with codes including `export_no_dataset`, `export_blocked_plan`, `export_invalid_columns`, `export_row_shape_mismatch`, `export_serialization_failed`, and `export_no_table_reference`.
 
 The Safe Synthetic notice remains visible in the Workbench; no confirmation dialog is required for each download.
 
-## SQL Export — deferred
-
-SQL export is intentionally deferred. A generic `INSERT INTO table VALUES (...)` is not safe across database systems. A production-quality SQL serializer needs, at minimum, a target dialect, identifier quoting, string literal escaping, boolean/date/timestamp/NULL/decimal representation, schema/database qualification, reserved-word handling, generated/default/identity-column behavior, and batch sizing. The fixture-driven Workbench still has no reliable selected production database dialect. The Host API 1.3 metadata response alone does not define safe SQL serialization; do not add a generic SQL exporter until dialect and serialization semantics are separately specified.
-
 ## DBX integration boundary
 
-CSV / JSON export does not depend on DBX Schema Metadata integration. Upstream `t8y2/dbx#10043` merged during Phase 1D; the consumer probe is a separate Phase 0 task and does not expand Phase 1D scope. Phase 1D does not implement `host.getTableMetadata`, `host.schema:read`, `schemaMetadataApi`, `DbxHostSchemaMetadataProvider`, or database access. The current `.dbxp` includes a separate minimal Phase 0 Probe Workbench, not the fixture-driven Workbench.
+Export Core modules have no DBX, Host API or database-driver dependency. INSERT SQL needs only the database / schema / table reference already carried by the Workbench TableContext, not a live host call. Upstream `t8y2/dbx#10043` merged during Phase 1D; the consumer probe is a separate Phase 0 task and does not expand Phase 1D scope. Phase 1D does not implement `host.getTableMetadata`, `host.schema:read`, `schemaMetadataApi`, `DbxHostSchemaMetadataProvider`, or database access.
 
 ## Out of scope
 
-- SQL export
-- production DBX metadata adapter and fixture-driven Workbench packaging
+- production DBX metadata adapter and Workbench packaging (implemented on the #30 / #31 tracks, not by Phase 1D)
 - PK / UNIQUE / CHECK / FK, Relation Planner, and SCD
 - Direct database writes or a filesystem save-path picker
+- dialect-aware SQL serialization beyond the documented minimum above
