@@ -1,5 +1,5 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
-import { formatDecimalUnits, formatTimestamp, parseTimestamp } from "./generation-rules.mjs";
+import { formatDecimalUnits, formatTimestamp, parseTimestamp, resolveStringGenerationMaxLength } from "./generation-rules.mjs";
 import { allocateConstraintRows } from "./constraint-allocation.mjs";
 import { digestFor, randomBigIntBelow, randomBigIntBelowUniform, randomUnit } from "./generation-identity.mjs";
 import { validateDatasetConstraints } from "./manual-constraints.mjs";
@@ -136,8 +136,7 @@ function generateValue(rule, identity, column, locale, rowIndex) {
       return formatDecimalUnits(units, scale);
     }
     case "varchar": {
-      const schemaMax = parameters.schemaMaxLength;
-      const maxLength = Math.min(parameters.maxLength ?? 16, schemaMax ?? 16);
+      const maxLength = resolveStringGenerationMaxLength(parameters.maxLength, parameters.schemaMaxLength);
       return randomString(Number(randomBigIntBelow(BigInt(maxLength), [...identity, "string-length"])) + 1, identity);
     }
     case "boolean":

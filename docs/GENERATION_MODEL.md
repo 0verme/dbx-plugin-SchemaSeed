@@ -204,7 +204,7 @@ Column Layer 不负责：
 | --- | --- | --- | --- |
 | `integer` | native width、signedness、identity metadata（若有） | 在可知的整数范围内生成；identity 是独立 intent | `BIGINT` 不等于 `customer_id`，整数值不自动 unique |
 | `decimal` / numeric | `precision`、`scale` | `precision = p`、`scale = s` 时保留最多 `p-s` 个整数位和 `s` 个小数位；不能超出数据库可表示域 | `DECIMAL(18,2)` 不自动等于 amount，也不推断 currency |
-| `varchar` / text | 最大 length、fixed/variable 信息（若有） | 候选字符串必须遵守长度上限；length unavailable 时保留 unavailable | `VARCHAR(18)` 不等于身份证，`VARCHAR(11)` 不等于 mobile |
+| `varchar` / text | 最大 length、fixed/variable 信息（若有） | `bounded(n)` 必须证明输出不超过 n；原生无界类型（如 `text`）按 generation budget 生成；无法证明有界或无界时保留 unknown-capacity 诊断 | `VARCHAR(18)` 不等于身份证，`VARCHAR(11)` 不等于 mobile；无界不等于无限生成 |
 | `boolean` | native boolean capability | 基础域为 true/false；NULL 是另一个 execution intent | 列名 `is_active` 不改变 database type fact |
 | `date` | date type、nullable、可能的 user date window | 在配置的日期域内生成 date 值；日期域不是由列名自动决定 | `birthday` 需要 Semantic Layer；不从 DATE 自动推出生日 |
 | `timestamp` | timestamp precision、timezone capability（若有） | 在配置的时间域内生成 timestamp；timezone unknown 时保留诊断 | `created_at` 不自动等于 database `now()` |
@@ -218,7 +218,8 @@ Column Layer 不负责：
 
 - `length` 是单列长度边界，不是 semantic classifier；
 - 若 `length = 18`，字符串 rule 必须能证明输出不超过 18 个 database 计量单位；
-- driver 没有结构化 length 时，保留 declared type text 作为 metadata evidence 也不能自动当作已验证的 numeric bound；
+- string capacity 分为三类：结构化 `length` 或 declared typmod（如 `varchar(32)`）可证明 `bounded(n)`；原生无界类型（如 `text`）与显式 `absent` / `not_applicable` 表示 `unbounded`；其余情况保留 `unknown`，不得用默认 255 之类的值伪造 bound；
+- `unbounded` 只表示 schema 没有显式上限；generator 仍受 SchemaSeed-owned generation budget 约束，budget 不写回 schema capacity；
 - 不允许因为 provider 输出过长而静默截断，除非用户明确选择了截断规则且该规则仍可满足 constraint，并在 plan 中可见。
 
 #### precision / scale

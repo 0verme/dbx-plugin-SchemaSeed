@@ -1,5 +1,5 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
-import { interpretColumnType } from "../schema/schema-interpreter.mjs";
+import { interpretColumnType, interpretStringCapacity } from "../schema/schema-interpreter.mjs";
 import {
   createGenerationRuleDraft,
   generationRuleIdentity,
@@ -10,6 +10,7 @@ import {
   getGenerationRuleEditorFields,
   isUuidType,
   parseDecimalUnits,
+  resolveStringGenerationMaxLength,
   validateGenerationRule,
 } from "./generation-rules.mjs";
 import { normalizeTableSchema } from "../schema/schema-model.mjs";
@@ -535,23 +536,22 @@ function resolveExplicitGenerationRule(selection, column, schemaKind, baseParame
 
 function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdentity, diagnostics, selectedRuleKind, ruleDiagnostics) {
   if (kind === "varchar") {
-    const length = column.length;
-    if (length.state === "known") {
-      if (!Number.isSafeInteger(length.value) || length.value <= 0) {
-        if (ruleDiagnostics.some((entry) => entry.code === "invalid_length")) return;
+    const capacity = interpretStringCapacity(column);
+    if (capacity?.model === "bounded") {
+      parameters.schemaMaxLength = capacity.maxLength;
+    } else if (capacity?.model === "unbounded") {
+      parameters.schemaMaxLength = null;
+    } else if (capacity?.model === "invalid") {
+      if (!ruleDiagnostics.some((entry) => entry.code === "invalid_length")) {
         diagnostics.push(makeDiagnostic({
           severity: "error",
           code: "invalid_length",
           table: tableIdentity,
           column: column.name,
           rule: ruleIdentity,
-          reason: `varchar length must be a positive safe integer; received ${String(length.value)}`,
+          reason: capacity.reason,
         }));
-      } else {
-        parameters.schemaMaxLength = length.value;
       }
-    } else if (length.state === "absent" || length.state === "not_applicable") {
-      parameters.schemaMaxLength = null;
     } else if (!ruleDiagnostics.some((entry) => entry.code === "varchar_length_unknown")) {
       diagnostics.push(makeDiagnostic({
         severity: "unsupported",
@@ -559,7 +559,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
         table: tableIdentity,
         column: column.name,
         rule: ruleIdentity,
-        reason: `varchar maximum length is ${length.state}; a maximum cannot be verified${length.reason ? `: ${length.reason}` : ""}`,
+        reason: capacity?.reason ?? "varchar capacity is unknown: the declared type does not include an explicit length and length metadata is missing",
       }));
     }
   }
@@ -711,7 +711,7 @@ function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParame
     parameters.max = max;
   } else if (schemaKind === "varchar") {
     const schemaMax = fallbackParameters.schemaMaxLength;
-    const maxLength = raw.maxLength === undefined ? Math.min(16, schemaMax ?? 16) : raw.maxLength;
+    const maxLength = raw.maxLength === undefined ? resolveStringGenerationMaxLength(undefined, schemaMax) : raw.maxLength;
     if (!Number.isSafeInteger(maxLength) || maxLength <= 0) return reject("varchar maxLength must be a positive safe integer");
     if (schemaMax !== null && schemaMax !== undefined && maxLength > schemaMax) {
       return reject(`varchar maxLength ${maxLength} exceeds schema length ${schemaMax}`);

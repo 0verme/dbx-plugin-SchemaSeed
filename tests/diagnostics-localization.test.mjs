@@ -70,10 +70,11 @@ function previewCore() {
   };
 }
 
-/** DBX metadata without length facts: the blocking `varchar_length_unknown` path. */
+/** DBX metadata without length facts: the blocking unknown-capacity path. A bare
+ * `varchar` proves neither a maximum nor native unbounded semantics. */
 function unknownTextLengthProvider() {
   return hostFor(metadataResponse(
-    [{ name: "label", dataType: "text", nullable: true }],
+    [{ name: "label", dataType: "varchar", nullable: true }],
     { length: "unsupported", precision: "unsupported", scale: "unsupported", default: "supported" },
   ));
 }
