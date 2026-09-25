@@ -35,7 +35,9 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "actions.newSeed": "更换种子",
 
   // Column / strategy table.
-  "columns.title": "字段与当前生成策略",
+  "columns.title": "字段与生成策略",
+  "columns.summary": "{count} 个字段",
+  "columns.summaryPending": "{count} 个字段 · {pending} 个待确认",
   "columns.caption": "生成策略、语义识别与证据来自当前 GenerationPlan",
   "columns.header.column": "字段名",
   "columns.header.schemaType": "字段类型",
@@ -143,6 +145,8 @@ export const ZH_CN_MESSAGES = Object.freeze({
 
   // Constraints.
   "constraints.title": "生成约束",
+  "constraints.summary.none": "未配置",
+  "constraints.summary.count": "{count} 条",
   "constraints.caption": "只作用于 SchemaSeed 的数据生成，不是数据库约束元数据。",
   "constraints.add": "+ 添加约束",
   "constraints.header.kind": "类型",
@@ -173,6 +177,11 @@ export const ZH_CN_MESSAGES = Object.freeze({
 
   // Diagnostics.
   "diagnostics.title": "问题诊断",
+  "diagnostics.summary.none": "无问题",
+  "diagnostics.summary.pending": "{count} 个待确认",
+  "diagnostics.summary.errors": "{count} 个错误",
+  "diagnostics.summary.issues": "{count} 个问题",
+  "diagnostics.summary.loading": "正在加载…",
   "diagnostics.caption": "复用 Host Provider / Generation Core 的诊断信息，并按当前界面语言显示",
   "diagnostics.empty.loading": "正在加载…",
   "diagnostics.empty.blocked": "当前没有可展示的诊断详情，但生成仍被阻塞。",

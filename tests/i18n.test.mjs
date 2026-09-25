@@ -251,6 +251,7 @@ describe("UI locale and synthetic data locale stay independent", () => {
       "ui/app.mjs",
       "src/workbench/workbench-view-model.mjs",
       "src/workbench/dbx-generation-workbench-controller.mjs",
+      "src/workbench/workbench-sections.mjs",
       "src/i18n/workbench-messages.mjs",
       "src/i18n/diagnostics.mjs",
       "src/i18n/labels.mjs",
@@ -290,6 +291,7 @@ describe("i18n key coverage in the Workbench sources", () => {
     "src/i18n/ui-locale.mjs",
     "src/i18n/workbench-messages.mjs",
     "src/workbench/workbench-view-model.mjs",
+    "src/workbench/workbench-sections.mjs",
   ];
   const STATIC_KEY = /(?:\bt(?:\.has)?\(\s*"([^"]+)"|data-i18n(?:-title)?="([^"]+)")/g;
 
