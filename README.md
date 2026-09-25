@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成，**正式 DBX runtime smoke 尚未完成**。截至 2026-09-24，DBX 最新正式版为 v0.6.22（09:14 UTC 发布）；上游 `t8y2/dbx#10244` 于 11:14 UTC merge，尚未进入该 release。因此当前 `.dbxp` 仅是 implementation candidate，不应安装到 v0.6.22 或发布。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成，**正式 DBX runtime smoke 尚未完成**。截至 2026-09-24，DBX 最新正式版为 v0.6.22（09:14 UTC 发布）；上游 `t8y2/dbx#10244` 于 11:14 UTC merge，尚未进入该 release。因此 SchemaSeed v0.1.0 定位为项目功能里程碑（GitHub Release）；unsigned universal `.dbxp` 不是 DBX v0.6.22 可安装验证的版本，也不代表 Store-ready。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
 
 > Manifest 暂保留历史 DBX floor `>=0.6.19` 与 Host API `^1.3`；该 floor **不覆盖**新增的 `context-menu.action.open-workbench` contract。DBX v0.6.22 runtime 对未知 context-menu 字段采用严格解析，会拒绝包含新 `action` 的 manifest。待上游正式 release 发布后，必须先确认实际版本、更新 floor，再做 runtime smoke；这里不猜测未发布版本号。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity，这些仍是非阻塞 follow-ups。
 
@@ -78,7 +78,7 @@ DBX Sidebar table
 
 ## 安装与当前验证方式
 
-当前没有正式 GitHub Release 或 DBX Store 安装流程。需要 Node.js 22+；在仓库根目录运行：
+SchemaSeed v0.1.0 通过正式 GitHub Release 作为项目功能里程碑分发；这不代表 DBX runtime compatibility 已验证，也不包含 DBX Store 提交。需要 Node.js 22+；在仓库根目录运行：
 
 ```bash
 npm test
@@ -89,7 +89,7 @@ npm run workbench
 ```
 
 - `npm run build` 生成 unsigned universal `.dbxp` implementation candidate，包含 Phase 0 Probe、正式 Workbench UI、production adapter / Core runtime 与 manifest contributions；内容审计会排除 `web/`、`fixtures/`、fixture provider/controller、tests 和开发 server。
-- 该 candidate 不是当前正式 DBX 的安全安装包：DBX v0.6.22 不含 #10244，且旧 runtime 会拒绝新 `action` manifest contract。不要在包含 #10244 的正式 DBX release 与 floor 更新前发布或尝试 runtime smoke。
+- 该 unsigned artifact 以 SchemaSeed 项目功能里程碑形式经 GitHub Release 分发，不是当前正式 DBX 的可安装验证包：DBX v0.6.22 不含 #10244，且旧 runtime 会拒绝新 `action` manifest contract。包含 #10244 的正式 DBX release 发布并更新已验证 floor 前，不要尝试 runtime smoke 或提交 dbx-store。
 - `npm run workbench` 启动本地 fixture-only development harness（默认 loopback 地址 `http://127.0.0.1:4173`）；它不连接 DBX 或数据库。
 
 ## 使用方式
@@ -144,7 +144,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 ## 当前限制
 
 - Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已关闭：已验证范围是 DBX v0.6.21 Windows Desktop 上的 Probe metadata acquisition path；这不代表 SchemaSeed production-ready。
-- `.dbxp` packaging implementation 已包含正式 Generation Workbench；由于 DBX v0.6.22 未包含 #10244，目前保持 `IMPLEMENTATION_READY_RUNTIME_SMOKE_PENDING`，不作为正式发行包。
+- `.dbxp` packaging implementation 已包含正式 Generation Workbench；由于 DBX v0.6.22 未包含 #10244，目前保持 `IMPLEMENTATION_READY_RUNTIME_SMOKE_PENDING`。SchemaSeed v0.1.0 GitHub Release 是项目功能里程碑，不是 DBX v0.6.22 可安装包或 Store-ready release。
 - Fixture-driven Workbench 仍只是独立开发 harness；production Workbench 不包含 fixture fallback 或 fixture runtime dependency。
 - SQL export deferred；当前不生成 relational datasets，不自动发现数据库 PK / UNIQUE / CHECK，不实现 CHECK、FK、Identity 或关系约束生成。
 - `validator_compatible` 与中国身份证号校验等能力 unsupported / future；当前 Safe Synthetic 不承诺真实号码校验。
