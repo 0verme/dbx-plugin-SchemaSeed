@@ -53,6 +53,8 @@ UI state includes `loading`, `dirty`, `ready`, `warning`, `blocked`, and `error`
 
 A successful Core generation result creates one `ExportDataset`. Preview renders that dataset. CSV / JSON / INSERT SQL serialize that same object and never call `generateRows()`, rebuild a plan, or re-run inference/mapping. Regenerate Same Seed repeats the deterministic Core call with unchanged schema/plan/settings; New Seed updates the seed and creates a new current dataset.
 
+Export saving is host-owned: `ui/generation-workbench/export-save.mjs` turns the `prepareExport()` descriptor into UTF-8 bytes and calls the public `window.dbxPlugin.saveFile({ fileName, contentType }, bytes)` method, so DBX opens the native save dialog and writes the file. The Workbench reports saved / cancelled / failed from the host result and never renders success from the click itself; a missing host save method fails closed with an upgrade hint instead of a sandboxed browser download. `src/export/` stays host-free.
+
 ## Manifest and package boundary
 
 The manifest declares:

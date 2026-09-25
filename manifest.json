@@ -3,7 +3,7 @@
   "manifest_version": 1,
   "id": "io.github.0verme.schema-seed",
   "name": "SchemaSeed",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "0verme",
   "description": "Generate test data quickly from database table schemas for development, integration testing, and functional validation.",
   "icon": "assets/plugin.svg",

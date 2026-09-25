@@ -108,16 +108,50 @@ export function exportDisabledHint(viewModel, t) {
   return t("export.disabledHint");
 }
 
-/** @param {{ summary: { rowCount: number, format: string } }} descriptor @param {import("./index.mjs").Translator} t */
-export function exportResultMessage(descriptor, t) {
-  return t("export.done", { rows: descriptor.summary.rowCount, format: descriptor.summary.format });
+/**
+ * Inline save progress / result message for the production Workbench export
+ * buttons. Success copy is only produced from a real Host save result, so a
+ * click can never render a success state before the native dialog actually
+ * wrote a file.
+ *
+ * @param {{ status: "saving" | "waiting" | "saved" | "cancelled" | "failed" | "prepare_failed", path?: string, code?: string, descriptor?: { filename: string, summary: { rowCount: number, format: string } } }} state
+ * @param {import("./index.mjs").Translator} t
+ */
+export function exportSaveMessage(state, t) {
+  if (!state) return null;
+  if (state.status === "saving") return t("export.saving");
+  if (state.status === "waiting") return t("export.waiting");
+  if (state.status === "cancelled") return t("export.cancelled");
+  if (state.status === "saved") {
+    if (typeof state.path === "string" && state.path !== "") return t("export.savedTo", { path: state.path });
+    if (state.descriptor) {
+      return t("export.saved", {
+        filename: state.descriptor.filename,
+        rows: state.descriptor.summary.rowCount,
+        format: state.descriptor.summary.format,
+      });
+    }
+    return t("export.savedSimple");
+  }
+  const code = typeof state.code === "string" ? state.code : "export_error";
+  if (state.status === "prepare_failed") {
+    return t("export.failed", { code, message: localizedExportError(code, t) });
+  }
+  if (state.status === "failed") {
+    return t("export.saveFailed", { code, message: localizedExportError(code, t) });
+  }
+  return null;
+}
+
+/** @param {string} code @param {import("./index.mjs").Translator} t */
+function localizedExportError(code, t) {
+  return t.has(`export.error.${code}`) ? t(`export.error.${code}`) : t("export.error.export_error");
 }
 
 /** @param {unknown} error @param {import("./index.mjs").Translator} t */
 export function exportErrorMessage(error, t) {
   const code = typeof (/** @type {any} */ (error)?.code) === "string" ? /** @type {any} */ (error).code : "export_error";
-  const localized = t.has(`export.error.${code}`) ? t(`export.error.${code}`) : t("export.error.export_error");
-  return t("export.failed", { code, message: localized });
+  return t("export.failed", { code, message: localizedExportError(code, t) });
 }
 
 /**

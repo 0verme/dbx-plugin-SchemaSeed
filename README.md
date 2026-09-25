@@ -138,10 +138,11 @@ schema type 与业务语义是两类信息。例如 `VARCHAR(18)` 只表示受�
 
 当前实现 CSV、JSON 与 INSERT SQL Export，序列化 Workbench 已生成的数据集（INSERT SQL 仅在正式 DBX Workbench 提供；独立 fixture harness 只提供 CSV / JSON）：
 
-- CSV 保持 schema 列顺序，处理分隔符与引号；Workbench 下载默认使用 UTF-8 BOM 和 spreadsheet-safe 字符串处理。
+- CSV 保持 schema 列顺序，处理分隔符与引号；Workbench CSV 导出默认使用 UTF-8 BOM 和 spreadsheet-safe 字符串处理。
 - JSON 保留 `null` / boolean 等类型；decimal 值以精确字符串保留。
 - INSERT SQL 按 preview 每一行生成一条普通 `INSERT INTO ... VALUES (...)`，不做多行 `VALUES` 合并、不生成 UPSERT / MERGE / TRUNCATE / DELETE、不执行任何 SQL。`null` 输出 `NULL`，字符串单引号并转义 `'`，number 不加引号，空字符串保持 `''`。
 - Preview 和三种导出格式使用相同的当前 dataset。
+- 正式 DBX Workbench 把导出内容编码为 UTF-8 bytes，通过公开 Host API `window.dbxPlugin.saveFile()` 交给 DBX 打开系统原生保存窗口并写盘；UI 仅在 Host 返回成功后显示保存成功，并区分用户取消（Host 返回 `null`）与保存失败。Host 无原生保存能力时 fail closed 并提示升级 DBX，不回退到 sandboxed iframe 内的浏览器下载。
 
 INSERT SQL 的已知方言边界：DBX Host API 1.3 未暴露目标 database type / dialect，因此 SchemaSeed 使用明确的最小策略——普通小写且非保留字标识符不加引号，其余标识符使用 ANSI 双引号并转义 `"`；boolean 使用 SQL 标准 `TRUE` / `FALSE`。该策略在已人工验证的 PostgreSQL / MySQL / SQLite 上可用；MySQL 默认 `sql_mode`（未启用 `ANSI_QUOTES`）对双引号标识符的解释与标准不同，Oracle 23c 之前与 SQL Server 的 boolean 列需要方言适配。完整方言支持属于 Future Work，不在本版本展开。
 
