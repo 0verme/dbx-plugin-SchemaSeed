@@ -2,12 +2,12 @@ import { exportCsv } from "../export/csv-exporter.mjs";
 import { createExportDataset, createExportFilename, ExportError } from "../export/export-dataset.mjs";
 import { exportJson } from "../export/json-exporter.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
+import { createI18n, DEFAULT_UI_LOCALE } from "../i18n/index.mjs";
 import { toColumnViewModel } from "./workbench-view-model.mjs";
 
 export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: 20, seed: "demo", locale: "zh-CN" });
 export const DBX_WORKBENCH_MAX_ROWS = 100;
 const MAX_IDENTIFIER_LENGTH = 256;
-const SAFE_SYNTHETIC_NOTICE = "Generated values are synthetic test data and are not sourced from real PII.";
 
 /**
  * Production DBX Workbench state. The injected provider consumes the direct
@@ -17,7 +17,7 @@ const SAFE_SYNTHETIC_NOTICE = "Generated values are synthetic test data and are 
  */
 export class DbxGenerationWorkbenchController {
   /**
-   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => Promise<{ plan: object, generated: object }>, seedFactory?: () => string }} options
+   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => Promise<{ plan: object, generated: object }>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
    */
   constructor(options) {
     if (typeof options?.provider?.getTableMetadata !== "function") {
@@ -27,6 +27,9 @@ export class DbxGenerationWorkbenchController {
     this.provider = options.provider;
     this.preview = options.preview;
     this.seedFactory = options.seedFactory ?? defaultSeed;
+    // UI language is presentation-only state: it never influences planning,
+    // generation, diagnostics or blocking decisions.
+    this.translator = typeof options.translator === "function" ? options.translator : createI18n(DEFAULT_UI_LOCALE);
     this.controls = { ...DBX_WORKBENCH_DEFAULTS };
     this.context = null;
     this.contextKey = null;
@@ -50,6 +53,20 @@ export class DbxGenerationWorkbenchController {
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Change the presentation language of derived view-model labels. Machine
+   * state (plan, dataset, diagnostics, blocking) is not touched, so switching
+   * the UI language cannot change what can be generated or exported.
+   * @param {import("../i18n/index.mjs").Translator} translator
+   */
+  setTranslator(translator) {
+    if (typeof translator !== "function") return this.translator;
+    if (translator.locale === this.translator.locale) return this.translator;
+    this.translator = translator;
+    this.emit();
+    return this.translator;
   }
 
   /** @param {unknown} tableContext @param {{ force?: boolean }} [options] */
@@ -300,7 +317,7 @@ export class DbxGenerationWorkbenchController {
           diagnostics: constraint.diagnostics.map((diagnostic) => ({ ...diagnostic })),
         })),
       } : null,
-      columns: plan?.columns.map((column) => toColumnViewModel(column, this.diagnostics)) ?? [],
+      columns: plan?.columns.map((column) => toColumnViewModel(column, this.diagnostics, { translator: this.translator })) ?? [],
       diagnostics: this.diagnostics.map((diagnostic) => ({ ...diagnostic })),
       preview: {
         columns: plan?.table.columns.map((column) => column.name) ?? [],
@@ -328,7 +345,7 @@ export class DbxGenerationWorkbenchController {
         : this.status === "dirty" ? (this.stage === "constraint-validation" ? "validating" : "dirty")
           : this.status === "blocked" ? "blocked" : this.status === "warning" ? "warning"
             : this.status === "error" ? "error" : "ready" },
-      safeSyntheticNotice: SAFE_SYNTHETIC_NOTICE,
+      safeSyntheticNoticeKey: "safety.notice",
       error: this.error,
       actionError: this.actionError,
     };

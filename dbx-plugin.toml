@@ -10,6 +10,7 @@ include = [
   "src/export",
   "src/generation",
   "src/host/dbx-schema-metadata-probe.mjs",
+  "src/i18n",
   "src/probe-protocol.mjs",
   "src/probe-state.mjs",
   "src/providers/dbx-host-schema-metadata-provider.mjs",

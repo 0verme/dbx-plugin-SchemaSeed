@@ -67,14 +67,33 @@ DBX Sidebar table
 - **CSV / JSON export**：导出 Workbench 当前 preview 使用的同一份 deterministic dataset，不另行生成一份数据。
 - **Schema Metadata consumer probe**：安装包通过公开 DBX Host API 1.3 获取 table metadata；Probe 的 Table Context → Host API → columns metadata → SchemaSeed normalization 路径已在 DBX v0.6.21 Windows Desktop 上对 MySQL、SQLite、PostgreSQL 验证通过（historical Phase 0 evidence）。其 production table 右键入口已在 v0.6.23 runtime-validation 清理中移除；Probe Workbench 保留为插件详情页手动入口。
 - **Production metadata adapter（#30）**：`DbxHostSchemaMetadataProvider` 将公开 Host response 映射为 SchemaSeed-owned facts；现已在正式 Workbench path 中调用，并将 normalized schema 送入现有 Generation Core。
-- **正式 DBX Generation Workbench（#31）**：显示当前 database / schema / table、字段类型、generator / semantic mapping、diagnostics、Rows / Seed / Locale、Preview 与 CSV / JSON。Manifest 通过 `context-menu` 的 `open-workbench` action 直接接入 #10244。
+- **正式 DBX Generation Workbench（#31）**：显示当前 database / schema / table、字段类型、generator / semantic mapping、diagnostics、Rows / Seed / Data language、Preview 与 CSV / JSON；界面语言与 diagnostics 文案支持 English / 简体中文。Manifest 通过 `context-menu` 的 `open-workbench` action 直接接入 #10244。
 - **Column Generation Rules v0.1（#32 implementation ready）**：Core 与正式 Rule Editor 支持冻结的 13 种 tagged rules、统一 schema/诊断 validation、deterministic per-column identity；修改规则立即失效旧 Preview / Export，禁止规则无效时生成或导出。规则定义见 [Column Generation Rules](docs/COLUMN_GENERATION_RULES.md)。
 - **Manual Single-table Constraints v0.1（#37）**：显式配置的 Unique、Composite Unique 与 Required + Unique 使用独立 ConstraintPlan、容量规划、确定性无碰撞分配和最终 dataset validator；不发现或声称数据库真实 PK / UNIQUE。权威语义见 [Manual Constraints](docs/MANUAL_CONSTRAINTS.md)。
+- **Workbench i18n（English / 简体中文）**：正式 Workbench 的界面文案由统一 i18n dictionary + `t()` 提供，缺失 key 或未支持语言一律 fallback 到 `en-US`；diagnostics 按稳定 `code` 本地化为“级别 + 原因 + 处理建议”，原始 Core message 折叠在“查看技术详情”中。设计见 [Workbench i18n](docs/I18N.md)。
 - **Runtime compatibility**：`engines.dbx` 现为 `>=0.6.23`（首个正式包含 #10244 的 release）。v0.6.22 及更早 runtime 严格拒绝未知 `action` 字段，不是有效安装目标；DBX v0.6.23 点击 smoke 仍待人工完成。
 
 ## 当前界面 / Workbench
 
 仓库保留独立 fixture-driven development harness；DBX `.dbxp` candidate 现已另外包含正式 Generation Workbench UI/runtime modules 与独立 Phase 0 Probe Workbench（仅插件详情页手动打开）。DBX v0.6.23 已包含 #10244，但 SchemaSeed 尚未完成该 release 的 runtime smoke，因此本仓库暂不展示 DBX 行为截图或声称已验证。
+
+正式 Generation Workbench 目前提供两种界面语言：
+
+```text
+English（en-US，默认 fallback）
+简体中文（zh-CN）
+```
+
+语言解析顺序为：DBX Host locale（Host API ^1.3 目前不暴露 locale，因此该级通常为空）→ 用户已保存的 SchemaSeed 界面语言（`localStorage`）→ browser locale（`zh` / `zh-SG` 等映射到 `zh-CN`，其他未支持语言 fallback `en-US`）。
+
+界面语言与 synthetic data locale 是两个独立概念，不可互相推断：
+
+| 控制项 | 作用范围 | 取值 | 是否影响生成结果 |
+| --- | --- | --- | --- |
+| 界面语言（UI language） | Workbench 界面文字、diagnostics 文案 | `zh-CN` / `en-US` | 否 |
+| 数据语言（Data language，原 `Locale`） | 生成值的语言形态（测试姓名 / 地址等标记） | `zh-CN` / `en` | 是 |
+
+因此切换界面语言不会改变 GenerationPlan、dataset 或 blocking 状态；切换数据语言也不会改变界面语言。两条路径均有回归测试保护。
 
 ## 安装与当前验证方式
 
@@ -204,6 +223,7 @@ dbx-plugin.toml  DBX plugin package configuration
 
 - [Roadmap](docs/ROADMAP.md)：阶段状态、Gate 与后续方向。
 - [Generation Model](docs/GENERATION_MODEL.md)：schema / semantic / constraints / deterministic seed 的模型边界。
+- [Workbench i18n](docs/I18N.md)：界面语言解析与 fallback、UI locale 与 synthetic data locale 的分离、diagnostics 本地化与渐进披露契约。
 - [Column Generation Rules v0.1](docs/COLUMN_GENERATION_RULES.md)：冻结的 13-rule 配置、兼容性、边界验证、deterministic identity 与 Rule Editor 状态契约。
 - [Manual Constraints v0.1](docs/MANUAL_CONSTRAINTS.md)：唯一权威的显式单表约束、NULL、provenance、capacity、determinism 与 validator 合同。
 - [Phase 1A Architecture](docs/PHASE1A_ARCHITECTURE.md)：Generation Core 与 fixture Preview。
