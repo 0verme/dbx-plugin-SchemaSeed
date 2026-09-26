@@ -11,6 +11,7 @@
   <img src="https://img.shields.io/badge/Host%20API-1.3-6b7280" alt="Host API 1.3">
   <img src="https://img.shields.io/badge/Schema--aware-generation-16875b" alt="Schema-aware generation">
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/0verme/dbx-plugin-SchemaSeed" alt="Apache-2.0 license"></a>
 </p>
 
 SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON / INSERT SQL 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成；**正式 DBX runtime smoke 已于 2026-09-26 在 DBX v0.6.23 上完成（SchemaSeed v0.2.4 candidate）**。DBX v0.6.23（2026-09-25 发布）是首个正式包含上游 `t8y2/dbx#10244`（table context-menu → Workbench）的 released runtime；本仓库已将 `engines.dbx` 对齐 `>=0.6.23` 并移除 Phase 0 遗留的 table 右键入口。SchemaSeed v0.1.0 定位为项目功能里程碑（GitHub Release）；v0.2.4 unsigned universal `.dbxp` 已在 DBX v0.6.23 完成 runtime smoke：表右键入口、Workbench / direct TableContext、metadata → Generate → Preview、CSV / JSON / INSERT SQL 原生保存落盘、复用 Workbench 的 A→B→C context 刷新与 Probe Workbench 均 PASS（记录见 [Phase 1E](docs/PHASE1E_PRODUCTION_WORKBENCH.md)）。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
@@ -224,6 +225,7 @@ GitHub Release published（tag 指向合并后的 main）
 - Release asset 是 **unsigned candidate**：不包含 `signature.json`，不持有 DBX Store signing key，工作流不新增任何 secret，只使用 GitHub 默认 `contents: write` 权限。
 - `release-candidates.json` 是提交 DBX Store 审核的候选清单（plugin identity + 每个 target 的 `url` / `sha256` / `size`）；DBX Store 审核通过后才由仓库侧签名并生成最终 metadata。
 - DBX Store 首次提交与 `automation/plugin-sources.json` 持续 Release 监控注册在 `t8y2/dbx-store` 仓库按其流程进行；本仓库只产出 unsigned candidate 与 runtime smoke 记录，不代持签名密钥、不自动向 Store 推送。
+- `.dbx-store.json` 是给 DBX Store automation 使用的 listing metadata（name / description / icon / tags / permissions / license / localizations）：Store 在每次 Release 的 tag 上读取该文件，用 Release 的 `release-candidates.json` 与产物字节生成候选 PR。真正的 Store 提交（`publishers/*.json` + `candidates/*.json`）发生在 `t8y2/dbx-store` 仓库，本仓库不持有签名密钥、不自动推送。
 - 版本契约：`manifest.json` 的 `version` 与 `src/table-context.mjs` 的 `PLUGIN_VERSION` 必须同时递增；`target` 来自 `DBX_PLUGIN_TARGET`，SchemaSeed 只支持 `universal`。
 
 ## 项目结构
@@ -240,6 +242,7 @@ tests/           Core、Workbench、Probe 与 package contract tests
 docs/            architecture、Host API 与 roadmap 文档
 manifest.json    DBX plugin manifest
 dbx-plugin.toml  DBX plugin package configuration
+.dbx-store.json  DBX Store automation listing metadata
 ```
 
 ## 文档
@@ -262,3 +265,7 @@ dbx-plugin.toml  DBX plugin package configuration
 ## Roadmap
 
 SchemaSeed 的正式 Workbench/package implementation 与 Column Generation Rules v0.1 / Rule Editor implementation 已完成；DBX v0.6.23 已正式包含 #10244，manifest floor 已对齐 `>=0.6.23`，并已于 2026-09-26 在该版本完成 runtime smoke（SchemaSeed v0.2.4 candidate）。路线图状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+
+## License
+
+[Apache-2.0](LICENSE)
