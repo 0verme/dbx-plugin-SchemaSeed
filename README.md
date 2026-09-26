@@ -99,7 +99,7 @@ English（en-US，默认 fallback）
 
 ## 安装与当前验证方式
 
-SchemaSeed v0.1.0 通过正式 GitHub Release 作为项目功能里程碑分发；DBX runtime compatibility 已由后续 v0.2.4 candidate 在 DBX v0.6.23 上完成 runtime smoke，DBX Store 提交由独立流程处理。需要 Node.js 22+；在仓库根目录运行：
+SchemaSeed v0.1.0 通过正式 GitHub Release 作为项目功能里程碑分发；DBX runtime compatibility 已由后续 v0.2.4 candidate 在 DBX v0.6.23 上完成 runtime smoke，DBX Store 提交由独立流程处理。开发、验证与运行插件都需要 Node.js 22+；在仓库根目录运行：
 
 ```bash
 npm test
@@ -113,8 +113,11 @@ npm run workbench
 - 该 unsigned artifact 以 SchemaSeed 项目功能里程碑形式经 GitHub Release 分发；v0.2.4 候选已对齐 DBX v0.6.23（首个包含 #10244 的 release）并完成 runtime smoke（2026-09-26）。DBX Store 首次提交与 `automation/plugin-sources.json` 监控注册按 Store 仓库流程单独进行；v0.6.22 及更早 runtime 会拒绝新 `action` manifest contract，不要安装。
 - 正式发布链路由 GitHub Release 触发 DBX 官方 reusable workflow，自动产出 unsigned `.dbxp` 与 `release-candidates.json`；不要手工上传本地 `.dbxp`，详见[发布](#发布)。
 - `npm run workbench` 启动本地 fixture-only development harness（默认 loopback 地址 `http://127.0.0.1:4173`）；它不连接 DBX 或数据库。
+- **运行前提（Node.js）**：`.dbxp` 的 backend 是平台无关的 Node.js runtime，由 `bin/universal/schema-seed-runtime`（`.sh` / `.bat`）launcher 启动，因此**安装插件的宿主机需要 Node.js 22+ 且在 `PATH` 中可用**。缺少 `node` 时插件明确失败（Windows launcher 以 127 退出并提示安装 Node.js），不会回退到其他实现。
 
 ## 使用方式
+
+在正式 DBX Workbench 中使用时，宿主机需要 Node.js 22+（见[安装与当前验证方式](#安装与当前验证方式)的运行前提）：安装 `.dbxp` 后，在侧边栏表节点右键「生成测试数据」打开 Generation Workbench。
 
 运行 `npm run workbench` 并在本地开发 harness 中：
 
