@@ -2,7 +2,7 @@
 
 ## Scope and runtime
 
-Phase 1D exports CSV / JSON / INSERT SQL from an already-generated dataset. It does not introduce generation rules, a second random path, a provider, a database connection, or a DBX adapter, and it is never a database write path. INSERT SQL is delivered by the packaged DBX Workbench because it needs the production database / schema / table reference; the standalone `npm run workbench` fixture harness keeps CSV / JSON.
+Phase 1D exports CSV / JSON / INSERT SQL from an already-generated dataset. It does not introduce generation rules, a second random path, a provider, a database connection, or a DBX adapter, and it is never a database write path. INSERT SQL is delivered by the packaged DBX Workbench because it needs the production database / schema / table reference; the standalone `npm run workbench` fixture harness keeps CSV / JSON. The production save path was verified end-to-end on DBX v0.6.23 (2026-09-26, SchemaSeed v0.2.4): each format opened the host native save dialog and wrote the file, and cancelling reported cancelled rather than saved — see the [Phase 1E runtime smoke record](PHASE1E_PRODUCTION_WORKBENCH.md#runtime-smoke-record).
 
 ## Architecture and dataset contract
 
