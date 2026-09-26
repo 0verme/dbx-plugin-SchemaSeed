@@ -11,6 +11,7 @@
   <img src="https://img.shields.io/badge/Host%20API-1.3-6b7280" alt="Host API 1.3">
   <img src="https://img.shields.io/badge/Schema--aware-generation-16875b" alt="Schema-aware generation">
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/0verme/dbx-plugin-SchemaSeed" alt="Apache-2.0 license"></a>
 </p>
 
 SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON / INSERT SQL 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成，**正式 DBX runtime smoke 尚未完成**。DBX v0.6.23（2026-09-25 发布）是首个正式包含上游 `t8y2/dbx#10244`（table context-menu → Workbench）的 released runtime；本仓库已将 `engines.dbx` 对齐 `>=0.6.23` 并移除 Phase 0 遗留的 table 右键入口。SchemaSeed v0.1.0 定位为项目功能里程碑（GitHub Release）；runtime smoke 完成前，unsigned universal `.dbxp` 不代表 DBX v0.6.23 已验证，也不代表 Store-ready。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
@@ -266,4 +267,4 @@ SchemaSeed 的正式 Workbench/package implementation 与 Column Generation Rule
 
 ## License
 
-[Apache License 2.0](LICENSE)。
+[Apache-2.0](LICENSE)
