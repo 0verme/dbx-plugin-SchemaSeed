@@ -7,15 +7,15 @@
 <p align="center"><strong>Schema-aware, deterministic test data generation for DBX.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/t8y2/dbx/releases/tag/v0.6.23"><img src="https://img.shields.io/badge/DBX-v0.6.23%20smoke%20pending-8a5a0a" alt="DBX v0.6.23 runtime smoke pending"></a>
+  <a href="https://github.com/t8y2/dbx/releases/tag/v0.6.23"><img src="https://img.shields.io/badge/DBX-v0.6.23%20smoke%20passed-1f883d" alt="DBX v0.6.23 runtime smoke passed"></a>
   <img src="https://img.shields.io/badge/Host%20API-1.3-6b7280" alt="Host API 1.3">
   <img src="https://img.shields.io/badge/Schema--aware-generation-16875b" alt="Schema-aware generation">
   <img src="https://img.shields.io/badge/Deterministic-seed-7b61a8" alt="Deterministic seed">
 </p>
 
-SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON / INSERT SQL 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成，**正式 DBX runtime smoke 尚未完成**。DBX v0.6.23（2026-09-25 发布）是首个正式包含上游 `t8y2/dbx#10244`（table context-menu → Workbench）的 released runtime；本仓库已将 `engines.dbx` 对齐 `>=0.6.23` 并移除 Phase 0 遗留的 table 右键入口。SchemaSeed v0.1.0 定位为项目功能里程碑（GitHub Release）；runtime smoke 完成前，unsigned universal `.dbxp` 不代表 DBX v0.6.23 已验证，也不代表 Store-ready。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
+SchemaSeed 是一款面向 DBX 的测试数据生成插件，可从当前 DBX 表 metadata 生成 deterministic synthetic test data，并提供 Preview 与 CSV / JSON / INSERT SQL 导出。Issue #31 的正式 Workbench、Host provider wiring、`open-workbench` manifest contribution 和 `.dbxp` packaging implementation 已完成；Issue #32 的 13 种 Column Generation Rules v0.1、Core validation 与正式 Rule Editor implementation 已完成；**正式 DBX runtime smoke 已于 2026-09-26 在 DBX v0.6.23 上完成（SchemaSeed v0.2.4 candidate）**。DBX v0.6.23（2026-09-25 发布）是首个正式包含上游 `t8y2/dbx#10244`（table context-menu → Workbench）的 released runtime；本仓库已将 `engines.dbx` 对齐 `>=0.6.23` 并移除 Phase 0 遗留的 table 右键入口。SchemaSeed v0.1.0 定位为项目功能里程碑（GitHub Release）；v0.2.4 unsigned universal `.dbxp` 已在 DBX v0.6.23 完成 runtime smoke：表右键入口、Workbench / direct TableContext、metadata → Generate → Preview、CSV / JSON / INSERT SQL 原生保存落盘、复用 Workbench 的 A→B→C context 刷新与 Probe Workbench 均 PASS（记录见 [Phase 1E](docs/PHASE1E_PRODUCTION_WORKBENCH.md)）。Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`：DBX v0.6.21 Windows Desktop 的 MySQL、SQLite、PostgreSQL Probe runtime smoke 均 PASS，Issue #6 已由 PR #33 关闭。
 
-> Runtime floor 现为 DBX `>=0.6.23`；Host API 仍为 `^1.3`。选择 v0.6.23 的依据是它是首个正式包含 `context-menu.action.open-workbench`（上游 #10244）的 released runtime；DBX v0.6.22 及更早 runtime 对未知 context-menu 字段采用严格解析，会拒绝包含新 `action` 的 manifest，因此不是有效安装目标。该 floor 是 runtime 前置条件，不代表 smoke 已完成。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity，这些仍是非阻塞 follow-ups。
+> Runtime floor 现为 DBX `>=0.6.23`；Host API 仍为 `^1.3`。选择 v0.6.23 的依据是它是首个正式包含 `context-menu.action.open-workbench`（上游 #10244）的 released runtime；DBX v0.6.22 及更早 runtime 对未知 context-menu 字段采用严格解析，会拒绝包含新 `action` 的 manifest，因此不是有效安装目标。该 floor 是 runtime 前置条件；v0.6.23 上的 runtime smoke 已于 2026-09-26 完成。Host API 当前未暴露 PK、FK、UNIQUE、CHECK、Comment、Identity，这些仍是非阻塞 follow-ups。
 
 ## 插件简介
 
@@ -43,7 +43,7 @@ Workbench Preview → CSV / JSON
 
 此路径使用仓库 fixtures，不读取 DBX 表或数据库。相同 schema、plan、seed 和 row identity 可重复生成相同的逻辑数据。
 
-### DBX production path（#31 implementation ready；DBX v0.6.23 smoke pending）
+### DBX production path（DBX v0.6.23 runtime smoke passed）
 
 ```text
 DBX Sidebar table
@@ -72,11 +72,11 @@ DBX Sidebar table
 - **Column Generation Rules v0.1（#32 implementation ready）**：Core 与正式 Rule Editor 支持冻结的 13 种 tagged rules、统一 schema/诊断 validation、deterministic per-column identity；修改规则立即失效旧 Preview / Export，禁止规则无效时生成或导出。规则定义见 [Column Generation Rules](docs/COLUMN_GENERATION_RULES.md)。
 - **Manual Single-table Constraints v0.1（#37）**：显式配置的 Unique、Composite Unique 与 Required + Unique 使用独立 ConstraintPlan、容量规划、确定性无碰撞分配和最终 dataset validator；不发现或声称数据库真实 PK / UNIQUE。权威语义见 [Manual Constraints](docs/MANUAL_CONSTRAINTS.md)。
 - **Workbench i18n（English / 简体中文）**：正式 Workbench 的界面文案由统一 i18n dictionary + `t()` 提供，缺失 key 或未支持语言一律 fallback 到 `en-US`；diagnostics 按稳定 `code` 本地化为“级别 + 原因 + 处理建议”，原始 Core message 折叠在“查看技术详情”中。设计见 [Workbench i18n](docs/I18N.md)。
-- **Runtime compatibility**：`engines.dbx` 现为 `>=0.6.23`（首个正式包含 #10244 的 release）。v0.6.22 及更早 runtime 严格拒绝未知 `action` 字段，不是有效安装目标；DBX v0.6.23 点击 smoke 仍待人工完成。
+- **Runtime compatibility**：`engines.dbx` 现为 `>=0.6.23`（首个正式包含 #10244 的 release）。v0.6.22 及更早 runtime 严格拒绝未知 `action` 字段，不是有效安装目标；DBX v0.6.23 上的 runtime smoke 已于 2026-09-26 完成（SchemaSeed v0.2.4 candidate）。
 
 ## 当前界面 / Workbench
 
-仓库保留独立 fixture-driven development harness；DBX `.dbxp` candidate 现已另外包含正式 Generation Workbench UI/runtime modules 与独立 Phase 0 Probe Workbench（仅插件详情页手动打开）。DBX v0.6.23 已包含 #10244，但 SchemaSeed 尚未完成该 release 的 runtime smoke，因此本仓库暂不展示 DBX 行为截图或声称已验证。
+仓库保留独立 fixture-driven development harness；DBX `.dbxp` candidate 现已另外包含正式 Generation Workbench UI/runtime modules 与独立 Phase 0 Probe Workbench（仅插件详情页手动打开）。SchemaSeed v0.2.4 已在 DBX v0.6.23 完成 runtime smoke（2026-09-26），覆盖正式 Workbench 与 Probe Workbench 两条路径；本仓库暂不附带 DBX 界面截图。
 
 正式 Generation Workbench 目前提供两种界面语言：
 
@@ -98,7 +98,7 @@ English（en-US，默认 fallback）
 
 ## 安装与当前验证方式
 
-SchemaSeed v0.1.0 通过正式 GitHub Release 作为项目功能里程碑分发；这不代表 DBX runtime compatibility 已验证，也不包含 DBX Store 提交。需要 Node.js 22+；在仓库根目录运行：
+SchemaSeed v0.1.0 通过正式 GitHub Release 作为项目功能里程碑分发；DBX runtime compatibility 已由后续 v0.2.4 candidate 在 DBX v0.6.23 上完成 runtime smoke，DBX Store 提交由独立流程处理。需要 Node.js 22+；在仓库根目录运行：
 
 ```bash
 npm test
@@ -109,7 +109,7 @@ npm run workbench
 ```
 
 - `npm run build` 生成面向 DBX v0.6.23+ 的 unsigned universal `.dbxp` implementation candidate，包含 Phase 0 Probe Workbench、正式 Workbench UI、production adapter / Core runtime 与 manifest contributions；production table 右键只保留正式「生成测试数据」入口。内容审计会排除 `web/`、`fixtures/`、fixture provider/controller、tests 和开发 server。
-- 该 unsigned artifact 以 SchemaSeed 项目功能里程碑形式经 GitHub Release 分发；本次候选已对齐 DBX v0.6.23（首个包含 #10244 的 release）。在 v0.6.23 人工 runtime smoke 完成前，不要声称兼容性已验证或提交 dbx-store；v0.6.22 及更早 runtime 会拒绝新 `action` manifest contract，不要安装。
+- 该 unsigned artifact 以 SchemaSeed 项目功能里程碑形式经 GitHub Release 分发；v0.2.4 候选已对齐 DBX v0.6.23（首个包含 #10244 的 release）并完成 runtime smoke（2026-09-26）。DBX Store 首次提交与 `automation/plugin-sources.json` 监控注册按 Store 仓库流程单独进行；v0.6.22 及更早 runtime 会拒绝新 `action` manifest contract，不要安装。
 - 正式发布链路由 GitHub Release 触发 DBX 官方 reusable workflow，自动产出 unsigned `.dbxp` 与 `release-candidates.json`；不要手工上传本地 `.dbxp`，详见[发布](#发布)。
 - `npm run workbench` 启动本地 fixture-only development harness（默认 loopback 地址 `http://127.0.0.1:4173`）；它不连接 DBX 或数据库。
 
@@ -167,7 +167,7 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 ## 当前限制
 
 - Phase 0 Gate 为 `READY_WITH_FOLLOWUPS`，Issue #6 已关闭：已验证范围是 DBX v0.6.21 Windows Desktop 上的 Probe metadata acquisition path；这不代表 SchemaSeed production-ready。
-- `.dbxp` packaging implementation 已包含正式 Generation Workbench，并面向 DBX v0.6.23（首个包含 #10244 的 release）构建；目前保持 `READY_FOR_DBX_0.6.23_RUNTIME_SMOKE`。SchemaSeed v0.1.0 GitHub Release 是项目功能里程碑；v0.6.23 smoke 完成前不代表 Store-ready。
+- `.dbxp` packaging implementation 已包含正式 Generation Workbench，并面向 DBX v0.6.23（首个包含 #10244 的 release）构建；v0.2.4 候选已在 v0.6.23 完成 runtime smoke（2026-09-26）。DBX Store 的订阅与签名状态由 Store 仓库流程决定，不由本仓库 Release 声称。
 - Fixture-driven Workbench 仍只是独立开发 harness；production Workbench 不包含 fixture fallback 或 fixture runtime dependency。
 - INSERT SQL 输出范围限于普通单行 `INSERT`；不生成 relational datasets，不自动发现数据库 PK / UNIQUE / CHECK，不实现 CHECK、FK、Identity 或关系约束生成；方言边界见上方 Export 小节。
 - `validator_compatible` 与中国身份证号校验等能力 unsupported / future；当前 Safe Synthetic 不承诺真实号码校验。
@@ -184,10 +184,10 @@ Production metadata 路径不得绕过 DBX Host API 去执行 `information_schem
 | Phase 1C | Implemented | Fixture-driven standalone Workbench |
 | Phase 1D | Implemented | CSV / JSON / INSERT SQL Export |
 | Production DBX metadata adapter (#30) | Implemented | Public Host metadata → SchemaSeed facts → existing Generation Core |
-| Generation Workbench (#31) | READY_FOR_DBX_0.6.23_RUNTIME_SMOKE | Packaged production UI / runtime / direct table action; candidate aligned to DBX v0.6.23; manual runtime smoke pending |
-| Column Generation Rules (#32) | IMPLEMENTATION_READY_RUNTIME_E2E_PENDING | Frozen 13-rule Core + production Rule Editor + package contract; runtime E2E pending manual execution on DBX v0.6.23 |
+| Generation Workbench (#31) | RUNTIME_SMOKE_PASSED | Packaged production UI / runtime / direct table action; DBX v0.6.23 runtime smoke PASS on 2026-09-26 with the v0.2.4 candidate（含 A→B→C context refresh） |
+| Column Generation Rules (#32) | RUNTIME_E2E_COVERED | Frozen 13-rule Core + production Rule Editor + package contract; the v0.6.23 workbench smoke exercised rules-driven Generate → Preview → Export; 逐 rule 编辑交互未在 smoke 记录中单独列项 |
 
-`Implemented` 表示代码与 package implementation 已完成，不表示 runtime smoke、Issue #31 acceptance 或 Issue #32 runtime E2E 已完成。#32 保持独立 open Issue；不因本地测试通过或 PR 创建而关闭。详细状态见 [Roadmap](docs/ROADMAP.md)。
+`Implemented` 表示代码与 package implementation 已完成；DBX v0.6.23 runtime smoke 已于 2026-09-26 通过（record 见 [Phase 1E](docs/PHASE1E_PRODUCTION_WORKBENCH.md)）。详细状态见 [Roadmap](docs/ROADMAP.md)。
 
 ## 工作原理：DBX Host integration
 
@@ -201,7 +201,7 @@ DBX Sidebar Table
   → GenerationPlan → generateRows() → Preview / CSV / JSON / INSERT SQL
 ```
 
-#10244 合同传给 Workbench 的是 TableContext 本身（不是 legacy `{ table: ... }` envelope）；`database` / `schema` 仍为 optional。重用 Workbench tab 时 `onContext` 刷新触发 metadata / plan / preview 失效，并保护免于迟到请求覆盖新表。Phase 0 Probe Workbench 仍保留，但其 production table 右键入口已移除；历史 v0.6.21 smoke 曾使用 legacy 暂存 context 的两步流程。DBX v0.6.23 是首个正式包含 #10244 的 release，manifest floor 已对齐 `>=0.6.23`；v0.6.23 runtime smoke 仍 pending manual execution。两条路径均不读取 private Store、credential、private frontend/Tauri API，也不建立第二连接。
+#10244 合同传给 Workbench 的是 TableContext 本身（不是 legacy `{ table: ... }` envelope）；`database` / `schema` 仍为 optional。重用 Workbench tab 时 `onContext` 刷新触发 metadata / plan / preview 失效，并保护免于迟到请求覆盖新表。Phase 0 Probe Workbench 仍保留，但其 production table 右键入口已移除；历史 v0.6.21 smoke 曾使用 legacy 暂存 context 的两步流程。DBX v0.6.23 是首个正式包含 #10244 的 release，manifest floor 已对齐 `>=0.6.23`；v0.6.23 runtime smoke 已于 2026-09-26 完成（SchemaSeed v0.2.4 candidate）。两条路径均不读取 private Store、credential、private frontend/Tauri API，也不建立第二连接。
 
 ## 开发
 
@@ -223,6 +223,7 @@ GitHub Release published（tag 指向合并后的 main）
 - `package-command` 为 `npm run build`（`scripts/build.mjs`）：SchemaSeed 的 backend 是 `bin/universal/` 启动的平台无关 Node runtime，官方 `dbx-plugin package .` 只从 `[backend]` 构建 Rust/Go sidecar，且 `ui/src/**` 运行时图由 build 时 vendoring 生成而不是入库，因此候选由本仓库自己的 deterministic packager 产出，契约与官方 `.artifact.json` 一致。
 - Release asset 是 **unsigned candidate**：不包含 `signature.json`，不持有 DBX Store signing key，工作流不新增任何 secret，只使用 GitHub 默认 `contents: write` 权限。
 - `release-candidates.json` 是提交 DBX Store 审核的候选清单（plugin identity + 每个 target 的 `url` / `sha256` / `size`）；DBX Store 审核通过后才由仓库侧签名并生成最终 metadata。
+- DBX Store 首次提交与 `automation/plugin-sources.json` 持续 Release 监控注册在 `t8y2/dbx-store` 仓库按其流程进行；本仓库只产出 unsigned candidate 与 runtime smoke 记录，不代持签名密钥、不自动向 Store 推送。
 - 版本契约：`manifest.json` 的 `version` 与 `src/table-context.mjs` 的 `PLUGIN_VERSION` 必须同时递增；`target` 来自 `DBX_PLUGIN_TARGET`，SchemaSeed 只支持 `universal`。
 
 ## 项目结构
@@ -260,4 +261,4 @@ dbx-plugin.toml  DBX plugin package configuration
 
 ## Roadmap
 
-SchemaSeed 的正式 Workbench/package implementation 与 Column Generation Rules v0.1 / Rule Editor implementation 已完成；DBX v0.6.23 已正式包含 #10244，manifest floor 已对齐 `>=0.6.23`，但 runtime smoke 仍 pending manual execution。#32 不会因实现或 PR 创建而自动关闭；路线图状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+SchemaSeed 的正式 Workbench/package implementation 与 Column Generation Rules v0.1 / Rule Editor implementation 已完成；DBX v0.6.23 已正式包含 #10244，manifest floor 已对齐 `>=0.6.23`，并已于 2026-09-26 在该版本完成 runtime smoke（SchemaSeed v0.2.4 candidate）。路线图状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。

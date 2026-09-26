@@ -30,7 +30,7 @@ Schema Metadata:
 CONTEXT_MENU_TO_WORKBENCH_HANDOFF: RELEASED in DBX v0.6.23 (upstream #10244)
 DBX v0.6.21 Probe runtime: public sidecar RPC + 10-minute in-memory handoff; user manually opens Probe (historical Phase 0 evidence)
 Current contract: table/connection context-menu → `open-workbench` passes context and refreshes reused tabs
-Runtime smoke for DBX v0.6.23: #31 (pending manual execution)
+Runtime smoke for DBX v0.6.23: PASS (2026-09-26, SchemaSeed v0.2.4 candidate)
 
 Issue #5: CLOSED (PR #28 MERGED; runtime acceptance complete)
 Issue #6: CLOSED (PR #33 MERGED)
@@ -160,7 +160,7 @@ Fixture Preview + Diagnostics
 
 ### Upstream boundary
 
-Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进。Production adapter 由 #30 单独交付，正式 Workbench implementation/package 由 #31 完成；DBX v0.6.23 已正式包含 #10244，runtime smoke 仍 pending manual execution。
+Upstream `t8y2/dbx#10043` 已 merge（Host API 1.3 可用），但不扩大 Phase 1C；Phase 0 Probe 与 Gate 独立推进。Production adapter 由 #30 单独交付，正式 Workbench implementation/package 由 #31 完成；DBX v0.6.23 已正式包含 #10244，runtime smoke 已于 2026-09-26 在该版本通过（SchemaSeed v0.2.4 candidate）。
 
 ## Phase 1D — Deterministic Export Core + Workbench Download（[#23](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/23)）
 
@@ -202,14 +202,14 @@ DBX Sidebar table
 - Context change synchronously invalidates old metadata, plan, preview and export dataset. `A → B → C` calls are revision-guarded so late responses cannot replace C.
 - UI states distinguish `loading`, `ready`, `warning`, `blocked` and `error`; provider/Core diagnostics remain the single diagnostic source.
 - `ui/` includes both the production Workbench UI and the separate Phase 0 Probe Workbench (manual plugin-details entry only; its historical table context-menu contribution was removed). The `.dbxp` package explicitly excludes `web/`, `fixtures/`, fixture providers/controllers, tests and standalone harness server.
-- Issue #32 implements the frozen 13-rule v0.1 Core contract and production Rule Editor; see [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md). The release gate is satisfied by DBX v0.6.23; runtime E2E remains pending manual execution.
+- Issue #32 implements the frozen 13-rule v0.1 Core contract and production Rule Editor; see [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md). The release gate is satisfied by DBX v0.6.23; the 2026-09-26 workbench smoke covered the rules-driven Generate → Preview → Export path (the per-rule editor interaction is not itemized in that record).
 
 ### DBX release compatibility decision
 
 - Latest official DBX release audited: `v0.6.23` (released 2026-09-25), the first release containing `t8y2/dbx#10244`; its release notes list the right-click → plugin Workbench entry.
 - `v0.6.22` predates #10244 and denies unknown fields on context-menu contributions. It rejects a manifest containing `context-menu.action.open-workbench`; it is not a valid install target.
 - `manifest.json` now declares `engines.dbx: ">=0.6.23"`; the historical `>=0.6.19` floor (which did not cover the action) was removed. This floor is a runtime prerequisite only and does not claim completed smoke.
-- Runtime smoke remains pending manual execution on DBX v0.6.23: table launch, metadata, Preview / exports and reused-workbench context refresh. Do not compile DBX locally for this gate.
+- Runtime smoke on DBX v0.6.23: **PASS (2026-09-26)** — table launch, metadata, Preview / exports (host native save) and reused-workbench A→B→C context refresh, using the SchemaSeed v0.2.4 candidate. Record: [PHASE1E runtime smoke record](PHASE1E_PRODUCTION_WORKBENCH.md#runtime-smoke-record). Do not compile DBX locally for this gate.
 
 ### Issue #32 — Column Generation Rules v0.1 and Rule Editor
 
@@ -217,7 +217,7 @@ DBX Sidebar table
 - Rule availability and config fields are Core-provided. The production Workbench Rule Editor edits table-session state, uses validation-only calls, invalidates the old Preview/Export immediately, and blocks invalid rules rather than falling back.
 - Existing `generation/preview` RPC carries rules and validation-only options; package allowlist/contract tests include the Core module while preserving fixture-free production runtime boundaries.
 - Focused and full local Node tests validate tagged contracts, schema bounds, exact decimal arithmetic, UTC ranges, stable identities, controller invalidation, RPC and `.dbxp` packaging. These are not DBX runtime E2E evidence.
-- State: `IMPLEMENTATION_READY_RUNTIME_E2E_PENDING`. Keep Issue #32 open until the formal Workbench + rules flow passes runtime validation on DBX v0.6.23. No release fabrication or local upstream compilation.
+- State: the 2026-09-26 DBX v0.6.23 workbench smoke covered the rules-driven Generate → Preview → Export path; the per-rule editor interaction detail is not itemized in that record, and Issue closure is a maintainer decision based on it. No release fabrication or local upstream compilation.
 
 ### Issue #37 — Manual Single-table Constraint Engine v0.1
 
@@ -228,4 +228,4 @@ DBX Sidebar table
 
 ### Current status / next step
 
-`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; the runtime release gate is satisfied by DBX v0.6.23, and official runtime smoke / acceptance-based Issue closure still require manual execution. `#32` Core + production Rule Editor implementation is ready; runtime E2E remains pending on the same release. The production table context-menu now exposes only the `generate-test-data` entry; the historical Phase 0 probe entry was removed. Manual Unique / Composite Unique / Required + Unique are the explicit #37 scope; automatic database-constraint discovery, CHECK, Identity, FK datasets, SCD and Direct Insert remain non-goals. INSERT SQL export is delivered separately in v0.2.2 (Issue #47) with a documented dialect boundary, and does not add direct database writes.
+`#30` production metadata adapter and Core contract path are implemented. `#31` Workbench / manifest / package implementation is ready; the runtime release gate is satisfied by DBX v0.6.23 and the runtime smoke passed on 2026-09-26 with the SchemaSeed v0.2.4 candidate; acceptance-based Issue closure is a maintainer decision on that record. `#32` Core + production Rule Editor implementation is ready; the same session covered the rules-driven Generate → Preview → Export path. The production table context-menu now exposes only the `generate-test-data` entry; the historical Phase 0 probe entry was removed. Manual Unique / Composite Unique / Required + Unique are the explicit #37 scope; automatic database-constraint discovery, CHECK, Identity, FK datasets, SCD and Direct Insert remain non-goals. INSERT SQL export is delivered separately in v0.2.2 (Issue #47) with a documented dialect boundary, and does not add direct database writes.

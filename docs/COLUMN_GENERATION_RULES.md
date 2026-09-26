@@ -57,7 +57,7 @@ Person semantic values继续使用现有 `Person group + row identity + locale +
 
 规则是当前 Workbench table session state，不持久化。A→B→C 切换清空旧 rules、plan、diagnostics、Preview 与 Export dataset；已有 stale-request revision guard 不变。编辑规则后立即清除当前 dataset、进入 dirty/blocked 状态并禁用 Export；只有当前 rule plan Generate 成功后 Preview 与 Export 才恢复。CSV/JSON 继续只序列化当前 Preview 的同一个 `ExportDataset`。
 
-Standalone fixture harness 可消费同一个 Core；正式 Workbench 不读取 fixtures。`.dbxp` 包含 `generation-rules.mjs`、Core/runtime、正式 UI 与 provider，排除 fixtures、fixture provider/controller、tests 和 standalone harness。#31 的 DBX E2E runtime gate 所需 release 已由 DBX v0.6.23 满足（首个正式包含 upstream `t8y2/dbx#10244`）；仍须在 v0.6.23 上人工完成 runtime smoke，不得编译 upstream 或伪造 smoke。
+Standalone fixture harness 可消费同一个 Core；正式 Workbench 不读取 fixtures。`.dbxp` 包含 `generation-rules.mjs`、Core/runtime、正式 UI 与 provider，排除 fixtures、fixture provider/controller、tests 和 standalone harness。#31 的 DBX E2E runtime gate 所需 release 已由 DBX v0.6.23 满足（首个正式包含 upstream `t8y2/dbx#10244`）；runtime smoke 已于 2026-09-26 在该版本通过（SchemaSeed v0.2.4 candidate，记录见 [PHASE1E](PHASE1E_PRODUCTION_WORKBENCH.md#runtime-smoke-record)），未编译 upstream、未伪造 smoke。
 
 ## Non-goals
 

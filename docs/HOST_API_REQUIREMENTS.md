@@ -220,7 +220,7 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host
 → `{ table: { ... } }` sidecar invocation
 ```
 
-SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。DBX v0.6.21 Probe runtime 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递，该路径已纳入 PR #28 runtime evidence（historical Phase 0 evidence）。上游 #10244 已 merge 并随 DBX v0.6.23 正式发布，正式提供 context-menu → `open-workbench` handoff；其 runtime smoke 属于 #31 且仍 pending manual execution。production manifest 已移除遗留的 table context-menu probe 入口；Schema Metadata Probe Workbench 保留为插件详情页手动入口。
+SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。DBX v0.6.21 Probe runtime 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递，该路径已纳入 PR #28 runtime evidence（historical Phase 0 evidence）。上游 #10244 已 merge 并随 DBX v0.6.23 正式发布，正式提供 context-menu → `open-workbench` handoff；其 runtime smoke 属于 #31，已于 2026-09-26 在该版本通过（SchemaSeed v0.2.4 candidate，见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md#runtime-smoke-record)）。production manifest 已移除遗留的 table context-menu probe 入口；Schema Metadata Probe Workbench 保留为插件详情页手动入口。
 
 ### Host API 1.3 — Resolved Metadata Host Boundary
 
@@ -291,7 +291,7 @@ Phase 0 Gate: READY_WITH_FOLLOWUPS
 Upstream context-menu → open-workbench: RELEASED in DBX v0.6.23 (t8y2/dbx#10244)
 ```
 
-`t8y2/dbx#10043` 已 merge；PR #28 验证了 DBX v0.6.21 Windows Desktop 上的 PostgreSQL / MySQL / SQLite Probe 路径。#30 实现 production adapter 与 Generation Core contract tests；#31 已完成正式 Workbench integration/package implementation。DBX v0.6.23 是首个正式包含 #10244 的 release，manifest floor 已对齐 `>=0.6.23`；正式 runtime smoke 仍 pending manual execution，详见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md)。
+`t8y2/dbx#10043` 已 merge；PR #28 验证了 DBX v0.6.21 Windows Desktop 上的 PostgreSQL / MySQL / SQLite Probe 路径。#30 实现 production adapter 与 Generation Core contract tests；#31 已完成正式 Workbench integration/package implementation。DBX v0.6.23 是首个正式包含 #10244 的 release，manifest floor 已对齐 `>=0.6.23`；正式 runtime smoke 已于 2026-09-26 通过（SchemaSeed v0.2.4 candidate），详见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md)。
 
 ## Evidence references
 
