@@ -223,6 +223,7 @@ GitHub Release published（tag 指向合并后的 main）
 - `package-command` 为 `npm run build`（`scripts/build.mjs`）：SchemaSeed 的 backend 是 `bin/universal/` 启动的平台无关 Node runtime，官方 `dbx-plugin package .` 只从 `[backend]` 构建 Rust/Go sidecar，且 `ui/src/**` 运行时图由 build 时 vendoring 生成而不是入库，因此候选由本仓库自己的 deterministic packager 产出，契约与官方 `.artifact.json` 一致。
 - Release asset 是 **unsigned candidate**：不包含 `signature.json`，不持有 DBX Store signing key，工作流不新增任何 secret，只使用 GitHub 默认 `contents: write` 权限。
 - `release-candidates.json` 是提交 DBX Store 审核的候选清单（plugin identity + 每个 target 的 `url` / `sha256` / `size`）；DBX Store 审核通过后才由仓库侧签名并生成最终 metadata。
+- `.dbx-store.json` 是给 DBX Store automation 使用的 listing metadata（name / description / icon / tags / permissions / license / localizations）：Store 在每次 Release 的 tag 上读取该文件，用 Release 的 `release-candidates.json` 与产物字节生成候选 PR。真正的 Store 提交（`publishers/*.json` + `candidates/*.json`）发生在 `t8y2/dbx-store` 仓库，本仓库不持有签名密钥、不自动推送。
 - 版本契约：`manifest.json` 的 `version` 与 `src/table-context.mjs` 的 `PLUGIN_VERSION` 必须同时递增；`target` 来自 `DBX_PLUGIN_TARGET`，SchemaSeed 只支持 `universal`。
 
 ## 项目结构
@@ -239,6 +240,7 @@ tests/           Core、Workbench、Probe 与 package contract tests
 docs/            architecture、Host API 与 roadmap 文档
 manifest.json    DBX plugin manifest
 dbx-plugin.toml  DBX plugin package configuration
+.dbx-store.json  DBX Store automation listing metadata
 ```
 
 ## 文档
@@ -261,3 +263,7 @@ dbx-plugin.toml  DBX plugin package configuration
 ## Roadmap
 
 SchemaSeed 的正式 Workbench/package implementation 与 Column Generation Rules v0.1 / Rule Editor implementation 已完成；DBX v0.6.23 已正式包含 #10244，manifest floor 已对齐 `>=0.6.23`，但 runtime smoke 仍 pending manual execution。#32 不会因实现或 PR 创建而自动关闭；路线图状态见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+
+## License
+
+[Apache License 2.0](LICENSE)。
