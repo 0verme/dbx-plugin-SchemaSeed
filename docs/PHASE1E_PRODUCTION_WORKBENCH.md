@@ -3,7 +3,7 @@
 ## Status
 
 - Workbench UI, provider wiring, manifest contribution and `.dbxp` implementation: **IMPLEMENTATION_READY**.
-- Runtime smoke / Issue #31 acceptance: **PENDING MANUAL DBX v0.6.23 RUNTIME SMOKE**.
+- Runtime smoke / Issue #31 acceptance: **PASSED — DBX v0.6.23 Desktop, 2026-09-26, SchemaSeed v0.2.4 candidate** (see [Runtime smoke record](#runtime-smoke-record)).
 - Runtime floor: **DBX v0.6.23**, the first official released runtime containing upstream `t8y2/dbx#10244` (released 2026-09-25; release notes explicitly list the table context-menu → Workbench entry). The previous `>=0.6.19` floor did not cover `context-menu.action.open-workbench` and has been removed.
 - Historical note: DBX v0.6.22 predates #10244 and its manifest parser rejects unknown context-menu fields (`deny_unknown_fields`). v0.6.22 is **not** a valid install target for this candidate.
 
@@ -85,17 +85,25 @@ No upstream DBX source was modified or compiled for this work.
 
 ## #32 implementation / non-goals
 
-Issue #32 implements the frozen 13-rule v0.1 model and Rule Editor in the existing Core, production Workbench, RPC and `.dbxp` package. It does not add a second generator, DBX connection, rule persistence/profile, constraints, relational datasets, Direct Insert, SQL Export, AI rules, production masking or real-data sampling. Runtime E2E release gate is satisfied by DBX v0.6.23; runtime E2E remains pending manual execution.
+Issue #32 implements the frozen 13-rule v0.1 model and Rule Editor in the existing Core, production Workbench, RPC and `.dbxp` package. It does not add a second generator, DBX connection, rule persistence/profile, constraints, relational datasets, Direct Insert, SQL Export, AI rules, production masking or real-data sampling. Runtime E2E release gate is satisfied by DBX v0.6.23; the 2026-09-26 v0.6.23 workbench smoke exercised the rules-driven Generate → Preview → Export path. The per-rule Rule Editor interaction (edit → invalidation → validation-only diagnostics) belongs to the same Workbench session but is not itemized in the smoke record below.
 
-## Runtime smoke gate
+## Runtime smoke record
 
-DBX v0.6.23 is published. Install the updated `.dbxp` on v0.6.23 and verify:
+Environment: **DBX v0.6.23 Desktop (Windows)**, the first official release containing `t8y2/dbx#10244`. Candidate: SchemaSeed `v0.2.4` unsigned universal `.dbxp` (`io.github.0verme.schema-seed-0.2.4-universal.dbxp`, SHA-256 `6cc5dd874cce5cbe92ad47c5092ebe4613631ebe4d354d39fa2bbf722af73b10`, 679971 bytes). Verified manually by the maintainer on **2026-09-26**; this section is the formal record.
 
-1. table right-click shows only the SchemaSeed 「生成测试数据」 entry and no 「SchemaSeed：保存 Table Context」 entry;
-2. table context menu opens the declared Workbench with direct TableContext;
-3. current metadata and schema types load and Generate produces Preview;
-4. CSV / JSON / INSERT SQL equal the current Preview dataset;
-5. opening table B while table A's Workbench is reused refreshes context, metadata, plan, preview and exports;
-6. repeat table switch (A→B→C) and confirm no stale response survives.
+| # | Check | Result |
+| --- | --- | --- |
+| 1 | table right-click shows only the SchemaSeed 「生成测试数据」 entry and no historical 「SchemaSeed：保存 Table Context」 entry | PASS |
+| 2 | table context menu opens the declared Workbench with the direct TableContext | PASS |
+| 3 | current metadata and schema types load, and Generate produces Preview | PASS |
+| 4 | CSV / JSON / INSERT SQL equal the current Preview dataset; since v0.2.4 each export opens the host native save dialog and writes the file (cancel reports cancelled, not saved) | PASS |
+| 5 | opening table B while table A's Workbench is reused refreshes context, metadata, plan, preview and exports | PASS |
+| 6 | repeated table switch (A→B→C) leaves no stale response | PASS |
+| 7 | the Phase 0 Probe Workbench still opens manually from the plugin details page | PASS |
 
-Until the manual DBX v0.6.23 click-through is recorded, status remains `READY_FOR_DBX_0.6.23_RUNTIME_SMOKE` for #31 and `IMPLEMENTATION_READY_RUNTIME_E2E_PENDING` for #32; do not close either Issue based solely on package/tests or claim runtime validation.
+Consequences:
+
+- the DBX v0.6.23 runtime gate for #31 is satisfied; closing #31 (and the #29 epic) is a maintainer decision based on this record;
+- the same session covered the rules-driven Generate → Preview → Export path used by #32; the per-rule Rule Editor interaction is not itemized above;
+- the Workbench i18n surfaces (#39) were displayed during the session; no separate visual checklist is recorded;
+- this is manual runtime evidence: it must not be replaced by `npm test`, `npm run build` or a release-workflow result, and no upstream DBX build was used.
