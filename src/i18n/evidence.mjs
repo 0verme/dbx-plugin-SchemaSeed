@@ -45,7 +45,7 @@ export function describeEvidence(evidence, t) {
   return Object.freeze({
     kind,
     sourceLabel: evidenceSourceLabel(source, t),
-    observation: localized ? presentationObservation(params, technical.observation, t) : t("evidence.fallback.observation"),
+    observation: localized ? presentationObservation(kind, params, technical.observation, t) : t("evidence.fallback.observation"),
     explanation: localized ? t(`evidence.${kind}.explanation`, presentationParams(params, t)) : t("evidence.fallback.explanation"),
     fallback: !localized,
     technical,
@@ -82,11 +82,14 @@ export function evidenceSourceLabel(source, t) {
 /**
  * User-facing observation. Column names stay verbatim; a semantic alias is
  * shown with the localized semantic label.
+ * @param {string | null} kind
  * @param {Record<string, unknown>} params
  * @param {string} rawObservation
  * @param {import("./index.mjs").Translator} t
  */
-function presentationObservation(params, rawObservation, t) {
+function presentationObservation(kind, params, rawObservation, t) {
+  const observationKey = `evidence.${String(kind)}.observation`;
+  if (kind !== null && t.has(observationKey)) return t(observationKey, presentationParams(params, t));
   if (typeof params.column === "string" && typeof params.semantic === "string") {
     return `${params.column} → ${semanticLabel(params.semantic, t)}`;
   }

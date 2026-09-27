@@ -67,6 +67,23 @@ test("runtime transports GenerationRules and manual constraints through validati
   assert.deepEqual(invalidConstraint.result.generated.rows, []);
 });
 
+test("runtime accepts only value-free sample summaries and rejects copied row values", () => {
+  const withEvidence = handleRuntimeRpcRequest(request({
+    schema: { ...schema, columns: [{ name: "display_name", dataType: "varchar", nullable: false, length: 128 }] },
+    options: { ...options, sampleEvidence: [{ column: "display_name", kind: "chinese_name_pattern", sampleCount: 5, matchedCount: 5 }] },
+  }));
+  assert.equal(withEvidence.error, undefined);
+  assert.equal(withEvidence.result.plan.columns[0].semanticMapping.confidence, "high");
+  assert.equal(withEvidence.result.plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
+
+  const withRawValues = handleRuntimeRpcRequest(request({
+    schema,
+    options: { ...options, sampleEvidence: [{ column: "label", kind: "enum_like", sampleCount: 4, distinctCount: 2, values: ["SECRET"] }] },
+  }));
+  assert.equal(withRawValues.error.code, -32602);
+  assert.match(withRawValues.error.message, /sample values are forbidden/);
+});
+
 test("runtime rejects oversized or malformed preview input without generating rows", () => {
   const tooManyRows = handleRuntimeRpcRequest(request({ schema, options: { ...options, rowCount: 101 } }));
   assert.equal(tooManyRows.error.code, -32602);

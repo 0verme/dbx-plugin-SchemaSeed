@@ -17,6 +17,7 @@ import {
   statusLabel,
 } from "../src/i18n/workbench-messages.mjs";
 import { DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
+import { probeDbxDataSamples } from "../src/host/dbx-data-sample-probe.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 import { initialSectionExpansion, sectionSummaries, shouldAutoExpandDiagnostics } from "../src/workbench/workbench-sections.mjs";
 import { saveExportWithHost } from "./export-save.mjs";
@@ -119,6 +120,10 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       capabilities: host.capabilities,
       getTableMetadata: (tableContext) => host.getTableMetadata(tableContext),
     }),
+    sampleProbe: ({ context, schema }) => probeDbxDataSamples({
+      capabilities: host.capabilities,
+      queryData: typeof host.queryData === "function" ? (request) => host.queryData(request) : undefined,
+    }, context, schema),
     preview: (schema, options_) => host.invoke(
       GENERATION_PREVIEW_METHOD,
       { schema, options: options_ },
@@ -386,6 +391,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
         confidence: column.confidence,
       });
       strategy.append(generator, detail);
+      if (column.recommendation) {
+        const recommendation = document.createElement("small");
+        recommendation.className = "sswb-recommendation";
+        recommendation.textContent = t("columns.recommendation", { rule: column.recommendation.label });
+        strategy.append(recommendation);
+      }
       strategy.append(renderRuleEditor(column, t));
       row.append(strategy);
       const mappingStatus = textCell(column.mappingStatus, "sswb-mapping-status");

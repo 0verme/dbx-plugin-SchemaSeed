@@ -15,6 +15,7 @@ include = [
   "src/diagnostics.mjs",
   "src/export",
   "src/generation",
+  "src/host/dbx-data-sample-probe.mjs",
   "src/host/dbx-schema-metadata-probe.mjs",
   "src/i18n",
   "src/probe-protocol.mjs",

@@ -7,7 +7,7 @@
 ```text
 t8y2/dbx#10043: MERGED
 d5a05a98840e54726bfec0c7dadabb8dc9a4c755
-Host API: 1.3
+Schema Metadata Host API: 1.3
 Permission: host.schema:read
 Capability: schemaMetadataApi
 Method: window.dbxPlugin.getTableMetadata({ connectionId, database?, schema?, table })
@@ -21,6 +21,22 @@ Phase 0 Gate: READY_WITH_FOLLOWUPS
 ```
 
 The direct context-menu → Workbench handoff from upstream `t8y2/dbx#10244` is available in DBX v0.6.23 (released 2026-09-25). The historical minimal Probe used the documented plugin sidecar RPC and a 10-minute, one-shot, in-memory plugin-owned TableContext handoff; its production table context-menu entry was removed in the v0.6.23 runtime-validation cleanup, while the Probe Workbench remains manually openable from the plugin details page. Host API 1.3 exposes columns and `fieldCapabilities` for `length`, `precision`, `scale`, and `default`; it does not expose comment, PK, FK, UNIQUE, CHECK, or identity. These future fields are `not_exposed`, not evidence that a database or driver does not support them. The runtime response is read-only and requires an already-open DBX connection/session.
+
+## Current Data Query Contract (Host API 1.4)
+
+DBX 官方 [Read-only data queries](https://github.com/t8y2/dbx/blob/main/plugins/README.md#read-only-data-queries) 文档当前定义：
+
+```text
+Host API: ^1.4
+Permission: host.data:read
+Capability: capabilities.dataApi
+Method: window.dbxPlugin.queryData({ connectionId, database?, schema?, sql, maxRows?, timeoutMs? })
+Consent: per plugin + connection, owned by DBX Host
+```
+
+该 API 在 DBX 已打开且用户授权的连接上执行单条只读 SQL；插件不获得 driver、pool、credential 或 connection string。Host 拒绝 writes、DDL、locking reads、多语句和 connection database switch；默认 maxRows 500、上限 5000，timeout 上限 60 秒。SchemaSeed manifest 因此要求 `engines.host_api: ^1.4`，但仍在调用前检查 `capabilities.dataApi`。
+
+SchemaSeed 在 host adapter 内额外限制每表候选列、`maxRows: 8`、SQL `LIMIT 8` 和 `timeoutMs: 3000`；仅将脱敏后的 pattern counters 送入 inference，所有失败回退到 metadata-only。此功能的真实 DBX Desktop runtime smoke 尚未在本任务环境执行；不能由 Host 源码文档或 fake capability tests 推断真实 capability 可用。
 
 ## Historical Source Audit Snapshot (2026-09-22, pre-#10043)
 

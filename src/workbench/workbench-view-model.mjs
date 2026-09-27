@@ -56,6 +56,10 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
     candidates: [...inference.candidates],
     confidence: confidenceLabel(inference.confidence, t),
     confidenceKey: inference.confidence,
+    recommendation: inference.recommendation ? {
+      kind: inference.recommendation.kind,
+      label: ruleKindLabel(inference.recommendation.kind, t),
+    } : null,
     selectedMapping: selectedMappingLabel({
       isSelectedSemantic,
       rejectedMapping,
@@ -96,7 +100,8 @@ export function mappingStatusTokenFor(input) {
     return { token: "explicit", kind: input.generationRuleKind };
   }
   if (input.isSelectedSemantic) {
-    return { token: input.semanticSource === "confirmed_semantic_mapping" ? "confirmed" : "override", kind: null };
+    return { token: input.semanticSource === "confirmed_semantic_mapping" ? "confirmed"
+      : input.semanticSource === "sample_inference" ? "sampleConfirmed" : "override", kind: null };
   }
   if (input.rejectedMapping) {
     return { token: input.semanticSource === "confirmed_semantic_mapping" ? "confirmedIncompatible" : "overrideIncompatible", kind: null };

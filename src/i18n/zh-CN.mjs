@@ -45,6 +45,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "columns.header.mappingStatus": "识别状态",
   "columns.header.rules": "规则 / 诊断",
   "columns.strategyDetail": "{source} · 识别为 {detected}（{confidence}）",
+  "columns.recommendation": "样本提示：可考虑 {rule} 生成规则",
   "columns.empty.loading": "正在读取表结构…",
   "columns.empty.none": "暂无可展示的字段。",
   "columns.evidenceSummary": "{count} 条识别证据",
@@ -96,6 +97,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "ruleSource.explicit_user_rule": "手动规则",
   "ruleSource.explicit_user_semantic_override": "手动指定语义",
   "ruleSource.confirmed_semantic_mapping": "已确认的语义",
+  "ruleSource.sample_inference": "样本辅助识别",
 
   // Rule editor field labels.
   "ruleField.value": "固定值（JSON 标量）",
@@ -121,6 +123,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   // Mapping status: presentation only, the Core enum is unchanged.
   "mappingStatus.explicit": "手动指定 · {kind}",
   "mappingStatus.confirmed": "已确认",
+  "mappingStatus.sampleConfirmed": "样本证据充分 · 自动使用合成语义生成",
   "mappingStatus.override": "手动指定",
   "mappingStatus.confirmedIncompatible": "已确认的语义与字段类型不兼容 · 当前使用默认策略",
   "mappingStatus.overrideIncompatible": "手动指定的语义与字段类型不兼容 · 当前使用默认策略",
@@ -217,6 +220,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "evidence.source.length": "字段长度",
   "evidence.source.user_confirmed": "已确认映射",
   "evidence.source.user_override": "用户指定覆盖",
+  "evidence.source.sample_pattern": "样本模式",
   "evidence.source.unknown": "识别证据",
   "evidence.technicalSummary": "查看原始证据",
   "evidence.technical.kind": "证据类型",
@@ -234,6 +238,14 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "evidence.semantic_override_confirmed.explanation": "语义映射已由用户显式确认",
   "evidence.semantic_override_applied.explanation": "语义类型已由用户显式覆盖",
   "evidence.semantic_left_unknown.explanation": "已显式选择不启用语义生成",
+  "evidence.sample_name_pattern.observation": "{column}：{matchedCount}/{sampleCount} 个非空样本符合中文姓名模式",
+  "evidence.sample_name_pattern.explanation": "少量样本中的一致姓名模式支持已有的「{semantic}」候选；生成结果仍由合成生成器创建",
+  "evidence.sample_email_pattern.observation": "{column}：{matchedCount}/{sampleCount} 个非空样本符合邮箱格式",
+  "evidence.sample_email_pattern.explanation": "少量样本中的一致邮箱格式支持已有的「{semantic}」候选；生成结果仍由合成生成器创建",
+  "evidence.sample_mobile_pattern.observation": "{column}：{matchedCount}/{sampleCount} 个非空样本符合手机号格式",
+  "evidence.sample_mobile_pattern.explanation": "少量样本中的一致手机号格式支持已有的「{semantic}」候选；生成结果仍由合成生成器创建",
+  "evidence.sample_enum_like.observation": "{column}：{sampleCount} 个非空样本呈现 {distinctCount} 个不同类别",
+  "evidence.sample_enum_like.explanation": "重复出现的少量文本类别支持推荐枚举类生成规则；原始样本值不会用于生成",
 
   // Preview.
   "preview.title": "数据预览",

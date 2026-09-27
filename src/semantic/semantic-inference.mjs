@@ -1,5 +1,10 @@
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 import { createEvidence, EVIDENCE_KINDS } from "./evidence.mjs";
+import {
+  NAME_PATTERN_MIN_RATIO,
+  NAME_PATTERN_MIN_SAMPLES,
+  sampleEvidenceToCoreEvidence,
+} from "./sample-evidence.mjs";
 
 export const SEMANTIC_TYPES = Object.freeze([
   "unknown",
@@ -23,12 +28,13 @@ const aliases = new Map([
 const stringSemanticTypes = new Set(["name", "gender", "mobile", "email", "address"]);
 
 /**
- * Infer a semantic candidate from normalized column name, schema family, and
- * length only. This function never chooses a generator or reads row data.
+ * Infer a semantic candidate from schema/name facts and optional value-free
+ * sample summaries. Raw sample rows are analyzed outside Core and never enter this function.
  * @param {import("../schema/schema-model.mjs").ColumnSchema} column
  * @param {string} locale
+ * @param {{ kind: string, sampleCount: number, matchedCount?: number, distinctCount?: number } | null} [sampleSummary]
  */
-export function inferSemanticType(column, locale = "zh-CN") {
+export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null) {
   const normalizedName = normalizeColumnName(column.name);
   const exactMatches = [];
   for (const [semanticType, names] of aliases) {
@@ -52,12 +58,16 @@ export function inferSemanticType(column, locale = "zh-CN") {
   }));
 
   if (semanticCandidates.length === 0) {
+    const sampleEvidence = sampleSummary?.kind === "enum_like"
+      ? sampleEvidenceToCoreEvidence(sampleSummary, column.name)
+      : null;
     return Object.freeze({
       semanticType: "unknown",
       confidence: "unknown",
-      evidence: Object.freeze([]),
+      evidence: Object.freeze(sampleEvidence ? [sampleEvidence] : []),
       candidates: Object.freeze([]),
       status: "unknown",
+      recommendation: sampleEvidence ? Object.freeze({ kind: "enum", source: "sample_inference" }) : null,
       normalizedName,
     });
   }
@@ -75,7 +85,17 @@ export function inferSemanticType(column, locale = "zh-CN") {
 
   const semanticType = semanticCandidates[0];
   const compatibility = checkSemanticCompatibility(column, semanticType, locale);
-  const evidence = [...nameEvidence, ...compatibility.evidence];
+  const expectedPattern = {
+    name: "chinese_name_pattern",
+    email: "email_pattern",
+    mobile: "mobile_pattern",
+  }[semanticType];
+  const sampleVerified = expectedPattern !== undefined && sampleSummary?.kind === expectedPattern
+    && Number.isSafeInteger(sampleSummary.sampleCount) && sampleSummary.sampleCount >= NAME_PATTERN_MIN_SAMPLES
+    && Number.isSafeInteger(sampleSummary.matchedCount) && sampleSummary.matchedCount <= sampleSummary.sampleCount
+    && sampleSummary.matchedCount / sampleSummary.sampleCount >= NAME_PATTERN_MIN_RATIO;
+  const sampleEvidence = sampleVerified ? sampleEvidenceToCoreEvidence(sampleSummary, column.name) : null;
+  const evidence = [...nameEvidence, ...compatibility.evidence, ...(sampleEvidence ? [sampleEvidence] : [])];
   if (compatibility.compatible === false) {
     return Object.freeze({
       semanticType,
@@ -88,12 +108,15 @@ export function inferSemanticType(column, locale = "zh-CN") {
     });
   }
 
-  const confidence = matches[0].quality === "exact"
-    ? compatibility.compatible === true && compatibility.lengthKnown !== false ? "high" : "medium"
-    : matches[0].quality === "suffix" ? "medium" : "low";
+  const confidence = sampleVerified && compatibility.compatible === true
+    ? "high"
+    : matches[0].quality === "exact"
+      ? compatibility.compatible === true && compatibility.lengthKnown !== false ? "high" : "medium"
+      : matches[0].quality === "suffix" ? "medium" : "low";
   return Object.freeze({
     semanticType,
     confidence,
+    sampleVerified: sampleVerified && compatibility.compatible === true,
     evidence: Object.freeze(evidence),
     candidates: Object.freeze([semanticType]),
     status: "candidate",

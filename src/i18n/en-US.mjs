@@ -50,6 +50,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "columns.header.mappingStatus": "Mapping status",
   "columns.header.rules": "Rule Editor / Diagnostics",
   "columns.strategyDetail": "{source} · detected {detected} ({confidence})",
+  "columns.recommendation": "Sample hint: consider the {rule} generation rule",
   "columns.empty.loading": "Loading schema metadata…",
   "columns.empty.none": "No columns to display.",
   "columns.evidenceSummary": "{count} evidence item(s)",
@@ -101,6 +102,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "ruleSource.explicit_user_rule": "explicit user rule",
   "ruleSource.explicit_user_semantic_override": "explicit semantic override",
   "ruleSource.confirmed_semantic_mapping": "confirmed semantic mapping",
+  "ruleSource.sample_inference": "sample-assisted inference",
 
   // Rule editor field labels, keyed by field key.
   "ruleField.value": "Value (JSON scalar)",
@@ -126,6 +128,7 @@ export const EN_US_MESSAGES = Object.freeze({
   // Mapping status: presentation only, the Core enum is unchanged.
   "mappingStatus.explicit": "Explicit · {kind}",
   "mappingStatus.confirmed": "Confirmed",
+  "mappingStatus.sampleConfirmed": "Sample evidence is strong · synthetic semantic generation selected",
   "mappingStatus.override": "Override",
   "mappingStatus.confirmedIncompatible": "Confirmed mapping incompatible · fallback active",
   "mappingStatus.overrideIncompatible": "Override incompatible · fallback active",
@@ -223,6 +226,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "evidence.source.length": "Column length",
   "evidence.source.user_confirmed": "Confirmed mapping",
   "evidence.source.user_override": "User override",
+  "evidence.source.sample_pattern": "Sample pattern",
   "evidence.source.unknown": "Evidence",
   "evidence.technicalSummary": "View raw evidence",
   "evidence.technical.kind": "Evidence kind",
@@ -240,6 +244,14 @@ export const EN_US_MESSAGES = Object.freeze({
   "evidence.semantic_override_confirmed.explanation": "The semantic mapping was explicitly confirmed",
   "evidence.semantic_override_applied.explanation": "The semantic type was explicitly overridden by the user",
   "evidence.semantic_left_unknown.explanation": "Semantic generation was explicitly left unknown",
+  "evidence.sample_name_pattern.observation": "{column}: {matchedCount}/{sampleCount} non-null samples matched a Chinese name pattern",
+  "evidence.sample_name_pattern.explanation": "A consistent pattern in a small sample supports the existing {semantic} candidate; generated values still come from the synthetic generator",
+  "evidence.sample_email_pattern.observation": "{column}: {matchedCount}/{sampleCount} non-null samples matched an email pattern",
+  "evidence.sample_email_pattern.explanation": "A consistent email pattern in a small sample supports the existing {semantic} candidate; generated values still come from the synthetic generator",
+  "evidence.sample_mobile_pattern.observation": "{column}: {matchedCount}/{sampleCount} non-null samples matched a mobile-number pattern",
+  "evidence.sample_mobile_pattern.explanation": "A consistent mobile-number pattern in a small sample supports the existing {semantic} candidate; generated values still come from the synthetic generator",
+  "evidence.sample_enum_like.observation": "{column}: {sampleCount} non-null samples formed {distinctCount} distinct categories",
+  "evidence.sample_enum_like.explanation": "A small set of repeated text categories supports an enum-like generation recommendation; sample values are not used for generation",
 
   // Preview.
   "preview.title": "Preview",

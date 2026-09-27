@@ -15,6 +15,7 @@
 export const MAPPING_STATUS_TOKENS = Object.freeze({
   explicit: "mappingStatus.explicit",
   confirmed: "mappingStatus.confirmed",
+  sampleConfirmed: "mappingStatus.sampleConfirmed",
   override: "mappingStatus.override",
   confirmedIncompatible: "mappingStatus.confirmedIncompatible",
   overrideIncompatible: "mappingStatus.overrideIncompatible",
