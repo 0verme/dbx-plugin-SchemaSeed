@@ -5,7 +5,8 @@ import { GENERATION_PREVIEW_METHOD } from "./generation-runtime-contract.mjs";
 export { GENERATION_PREVIEW_METHOD } from "./generation-runtime-contract.mjs";
 export const GENERATION_RUNTIME_JSON_RPC_VERSION = "2.0";
 const MAX_PREVIEW_ROWS = 100;
-const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings"]);
+const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings", "sampleEvidence"]);
+const SAMPLE_EVIDENCE_FIELDS = new Set(["column", "kind", "sampleCount", "matchedCount", "distinctCount"]);
 
 /**
  * Build and execute an existing Core GenerationPlan for the packaged Workbench.
@@ -57,10 +58,21 @@ function validateParams(params) {
   if (params.options.validateOnly !== undefined && typeof params.options.validateOnly !== "boolean") {
     throw new TypeError("validateOnly must be a boolean when provided");
   }
+  if (params.options.sampleEvidence !== undefined) validateSampleEvidencePayload(params.options.sampleEvidence);
   if (params.options.locale !== "zh-CN" && params.options.locale !== "en") {
     throw new RangeError("Workbench preview locale must be zh-CN or en");
   }
   return { schema: params.schema, options: params.options };
+}
+
+/** @param {unknown} value */
+function validateSampleEvidencePayload(value) {
+  if (!Array.isArray(value)) throw new TypeError("sampleEvidence must contain value-free inference summaries");
+  for (const entry of value) {
+    if (!isRecord(entry) || Object.keys(entry).some((key) => !SAMPLE_EVIDENCE_FIELDS.has(key))) {
+      throw new TypeError("sampleEvidence may contain only column, kind, and bounded counts; sample values are forbidden");
+    }
+  }
 }
 
 /** @param {unknown} value */

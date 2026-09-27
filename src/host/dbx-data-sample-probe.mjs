@@ -1,0 +1,183 @@
+import { inferSemanticType, normalizeColumnName } from "../semantic/semantic-inference.mjs";
+import { interpretColumnType } from "../schema/schema-interpreter.mjs";
+import {
+  ENUM_PATTERN_MAX_DISTINCT,
+  ENUM_PATTERN_MAX_DISTINCT_RATIO,
+  ENUM_PATTERN_MIN_SAMPLES,
+  NAME_PATTERN_MIN_RATIO,
+  NAME_PATTERN_MIN_SAMPLES,
+  SAMPLE_EVIDENCE_MAX_ROWS,
+} from "../semantic/sample-evidence.mjs";
+
+export const DATA_SAMPLE_ROW_LIMIT = SAMPLE_EVIDENCE_MAX_ROWS;
+export const DATA_SAMPLE_TIMEOUT_MS = 3_000;
+export const DATA_SAMPLE_FIELD_MAX_LENGTH = 1_024;
+const DATA_SAMPLE_UI_DEADLINE_MS = DATA_SAMPLE_TIMEOUT_MS + 500;
+
+const ENUM_FIELD_TOKENS = new Set(["status", "role", "type", "category"]);
+const PORTABLE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
+const RESERVED_TABLE_IDENTIFIERS = new Set([
+  "all", "alter", "and", "as", "by", "case", "check", "column", "constraint", "create",
+  "database", "default", "delete", "distinct", "drop", "else", "end", "exists", "false",
+  "from", "group", "having", "in", "index", "insert", "into", "is", "join", "key", "limit",
+  "not", "null", "offset", "on", "or", "order", "primary", "references", "returning", "role",
+  "schema", "select", "set", "table", "then", "true", "union", "unique", "update", "user",
+  "using", "values", "when", "where", "with",
+]);
+
+/**
+ * Identify a narrow allow-list of uncertain string columns. Metadata facts are
+ * authoritative: only known, bounded, small varchar fields are ever queried.
+ * @param {import("../schema/schema-model.mjs").TableSchema} schema
+ * @returns {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum" }>}
+ */
+export function getSampleProbeCandidates(schema) {
+  if (!schema || !Array.isArray(schema.columns)) return [];
+  const candidates = [];
+  for (const column of schema.columns) {
+    const type = interpretColumnType(column);
+    if (type?.kind !== "varchar" || type.capacity?.model !== "bounded"
+      || type.capacity.maxLength > DATA_SAMPLE_FIELD_MAX_LENGTH) continue;
+
+    const inference = inferSemanticType(column);
+    const semanticPatternKind = ["name", "email", "mobile"].includes(inference.semanticType)
+      ? inference.semanticType : null;
+    if (semanticPatternKind && inference.status === "candidate" && inference.confidence !== "high") {
+      candidates.push({ name: column.name, kind: semanticPatternKind });
+      continue;
+    }
+
+    const nameTokens = normalizeColumnName(column.name).split("_").filter(Boolean);
+    if (nameTokens.some((token) => ENUM_FIELD_TOKENS.has(token))) {
+      candidates.push({ name: column.name, kind: "enum" });
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Query a tiny sample through the official DBX Host Data API. The returned
+ * value is a bounded summary only; raw result rows never escape this function.
+ * Every failure, including missing capability, permission denial and timeout,
+ * degrades to metadata-only inference without exposing the Host error.
+ * @param {{ capabilities?: unknown, queryData?: (request: object) => Promise<unknown> }} host
+ * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
+ * @param {import("../schema/schema-model.mjs").TableSchema} schema
+ * @param {{ timeoutMs?: number }} [options]
+ * @returns {Promise<Array<{ column: string, kind: "chinese_name_pattern" | "email_pattern" | "mobile_pattern" | "enum_like", sampleCount: number, matchedCount?: number, distinctCount?: number }>>}
+ */
+export async function probeDbxDataSamples(host, context, schema, options = {}) {
+  if (host?.capabilities?.dataApi !== true || typeof host?.queryData !== "function") return [];
+  const candidates = getSampleProbeCandidates(schema);
+  if (candidates.length === 0) return [];
+  const query = buildSampleSelectQuery(context, candidates);
+  if (!query) return [];
+
+  const requestedTimeout = Number.isSafeInteger(options.timeoutMs) && options.timeoutMs > 0
+    ? Math.min(options.timeoutMs, DATA_SAMPLE_TIMEOUT_MS)
+    : DATA_SAMPLE_TIMEOUT_MS;
+  const request = {
+    connectionId: context.connectionId,
+    sql: query.sql,
+    maxRows: DATA_SAMPLE_ROW_LIMIT,
+    timeoutMs: requestedTimeout,
+  };
+  if (typeof context.database === "string") request.database = context.database;
+  if (typeof context.schema === "string") request.schema = context.schema;
+
+  try {
+    const result = await withDeadline(
+      Promise.resolve().then(() => host.queryData(request)),
+      Math.min(DATA_SAMPLE_UI_DEADLINE_MS, requestedTimeout + 500),
+    );
+    return summarizeSampleResult(result, query.columns, candidates);
+  } catch {
+    // Do not expose query errors: DBX owns consent and the Workbench remains usable.
+    return [];
+  }
+}
+
+/**
+ * Render only portable, unquoted identifiers. This deliberately declines
+ * mixed-case, delimited, qualified, reserved table names and SQL-like input;
+ * ANSI quotes are not portable to MySQL's default mode. Database/schema scope
+ * travels in the Host request, not interpolated into SQL.
+ * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
+ * @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum" }>} candidates
+ */
+export function buildSampleSelectQuery(context, candidates) {
+  if (!context || typeof context.table !== "string" || !isPortableIdentifier(context.table)
+    || RESERVED_TABLE_IDENTIFIERS.has(context.table)) return null;
+  const columns = candidates
+    .filter((candidate) => candidate && typeof candidate.name === "string" && isPortableIdentifier(candidate.name))
+    .map((candidate) => candidate.name);
+  if (columns.length === 0) return null;
+  const columnList = columns.map((column) => `ss.${column}`).join(", ");
+  return {
+    sql: `SELECT ${columnList} FROM ${context.table} AS ss LIMIT ${DATA_SAMPLE_ROW_LIMIT}`,
+    columns,
+  };
+}
+
+/** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum" }>} candidates */
+function summarizeSampleResult(result, selectedColumns, candidates) {
+  if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return [];
+  const columnIndexes = new Map();
+  for (const [index, column] of result.columns.slice(0, selectedColumns.length).entries()) {
+    if (isRecord(column) && typeof column.name === "string") columnIndexes.set(column.name, index);
+  }
+
+  const evidence = [];
+  for (const candidate of candidates) {
+    if (!selectedColumns.includes(candidate.name)) continue;
+    const index = columnIndexes.get(candidate.name);
+    if (!Number.isSafeInteger(index)) continue;
+    const values = result.rows.slice(0, DATA_SAMPLE_ROW_LIMIT)
+      .filter(Array.isArray)
+      .map((row) => row[index])
+      .filter((value) => typeof value === "string" && value.length <= DATA_SAMPLE_FIELD_MAX_LENGTH && value.trim() !== "");
+    if (candidate.kind !== "enum") {
+      const matchedCount = values.filter((value) => matchesSemanticPattern(candidate.kind, value)).length;
+      if (values.length >= NAME_PATTERN_MIN_SAMPLES && matchedCount / values.length >= NAME_PATTERN_MIN_RATIO) {
+        const kind = candidate.kind === "name" ? "chinese_name_pattern" : `${candidate.kind}_pattern`;
+        evidence.push({ column: candidate.name, kind, sampleCount: values.length, matchedCount });
+      }
+      continue;
+    }
+
+    const distinctCount = new Set(values.map((value) => value.trim().toLocaleLowerCase("en-US"))).size;
+    if (values.length >= ENUM_PATTERN_MIN_SAMPLES && distinctCount >= 2
+      && distinctCount <= ENUM_PATTERN_MAX_DISTINCT
+      && distinctCount / values.length <= ENUM_PATTERN_MAX_DISTINCT_RATIO) {
+      evidence.push({ column: candidate.name, kind: "enum_like", sampleCount: values.length, distinctCount });
+    }
+  }
+  return evidence;
+}
+
+function matchesSemanticPattern(kind, value) {
+  const normalized = value.trim();
+  if (kind === "name") return /^\p{Script=Han}{2,4}$/u.test(normalized);
+  if (kind === "email") return /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/u.test(normalized);
+  if (kind === "mobile") return /^(?:\+?86)?1[3-9]\d{9}$/u.test(normalized.replace(/[\s()-]/gu, ""));
+  return false;
+}
+
+/** @param {string} name */
+function isPortableIdentifier(name) {
+  return PORTABLE_IDENTIFIER.test(name);
+}
+
+/** @param {Promise<unknown>} promise @param {number} timeoutMs */
+function withDeadline(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("sample_timeout")), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** @param {unknown} value */
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}

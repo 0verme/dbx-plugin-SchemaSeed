@@ -22,6 +22,10 @@ export const EVIDENCE_KINDS = Object.freeze({
   semanticOverrideConfirmed: "semantic_override_confirmed",
   semanticOverrideApplied: "semantic_override_applied",
   semanticLeftUnknown: "semantic_left_unknown",
+  sampleNamePattern: "sample_name_pattern",
+  sampleEmailPattern: "sample_email_pattern",
+  sampleMobilePattern: "sample_mobile_pattern",
+  sampleEnumLike: "sample_enum_like",
 });
 
 /**

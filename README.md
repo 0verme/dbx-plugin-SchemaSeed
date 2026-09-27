@@ -29,7 +29,7 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 - 根据当前表结构和字段类型生成测试数据，可设置生成行数（1–100）。
 - 可设置随机种子和数据语言（简体中文或英文），工作台界面也支持简体中文和英文；还可按字段调整生成规则。
 - 对同一张表，在表结构、生成规则、数据语言和随机种子均相同时可重复得到一致结果；更换随机种子即可得到另一组数据。
-- 默认生成合成测试数据，不读取真实业务行数据，也不以真实个人信息作为生成来源。
+- 生成结果始终是新的 synthetic test data。仅当字段语义不确定且适合判断时，Workbench 才可能通过 DBX Host API 对当前已打开连接做一次最多 8 行、仅候选列的只读样本探测；原始样本只在当前推断调用中用于模式识别，不作为生成来源。
 - 支持预览并导出 CSV、JSON 和 INSERT SQL；导出内容与当前预览使用同一份数据。
 - 可为单表设置显式生成约束，例如唯一值、组合唯一值和必填且唯一。
 
@@ -43,7 +43,7 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 
 ## 安装与运行要求
 
-- **DBX：**`0.6.23` 或更高版本。
+- **DBX：**`0.6.23` 或更高版本，并需提供 Data API（Host API 1.4）；如 runtime 未提供 `capabilities.dataApi`，SchemaSeed 仅依据表结构运行。
 - **Node.js：**`22` 或更高版本，并确保 `node` 可从系统 `PATH` 调用；SchemaSeed 的插件运行时需要 Node.js。
 - **推荐安装：**从 DBX 插件中心的 Marketplace 搜索 SchemaSeed 安装。SchemaSeed 已上架 DBX Store；可查看[Store 目录条目](https://github.com/t8y2/dbx-store/blob/main/plugins/io.github.0verme.schema-seed.json)。
 - **手动安装：**[GitHub Releases](https://github.com/0verme/dbx-plugin-SchemaSeed/releases/latest) 提供 `.dbxp` 包。Release 中的包是未签名开发候选包；如需在 DBX 中手动安装，需按 DBX 插件中心设置启用 `Allow unsigned development packages`。日常使用建议通过 Marketplace 安装已签名的 Store 版本。
@@ -57,7 +57,8 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 
 ## 安全与当前限制
 
-- SchemaSeed 只通过 DBX 获取当前表结构，不读取真实业务行，也不另行保存数据库账号密码。
+- SchemaSeed 只通过 DBX Host API 读取当前表结构；当存在适合探测的语义不确定字段时，还可能通过 `host.data:read` 对同一已打开连接读取最多 8 行、候选字段的只读样本。首次按连接授权由 DBX Host consent 管理；拒绝或不可用时退回 metadata-only，不影响生成。
+- 样本只在当前 inference 生命周期内用于模式判断；原始值不写日志、不持久化、不发送外部服务或 AI/LLM，也不进入 synthetic preview/export。采样不会改变 schema metadata。SchemaSeed 不读取数据库凭据、不创建第二连接、不执行写 SQL 或 DDL。
 - 生成、预览和导出不会写入数据库；导出的 INSERT SQL 只是文本，不会自动执行。
 - 当前围绕单张表生成数据，不支持自动发现数据库的 PK、FK、CHECK、Identity 等约束，也不支持多表关联生成。工作台中的手动生成约束仅约束 SchemaSeed 生成的数据，不代表已读取数据库中的真实约束。
 - INSERT SQL 使用通用写法，不会针对所有数据库方言自动适配；执行前请在目标数据库中核对。复杂字段或业务规则可能需要手动调整生成规则。
@@ -71,6 +72,7 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 - [Workbench i18n](docs/I18N.md)
 - [Production Workbench](docs/PHASE1E_PRODUCTION_WORKBENCH.md)
 - [Host API Audit](docs/HOST_API_AUDIT.md)
+- [轻量只读样本探测](docs/LIGHTWEIGHT_DATA_SAMPLING.md)
 - [DBX 插件开发文档](https://dbxio.com/en/docs/plugin-development)
 - [更多开发文档](docs/)
 

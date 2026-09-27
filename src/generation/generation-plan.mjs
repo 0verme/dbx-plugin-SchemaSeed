@@ -16,6 +16,7 @@ import {
 import { normalizeTableSchema } from "../schema/schema-model.mjs";
 import { checkSemanticCompatibility, inferSemanticType, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
 import { createEvidence, EVIDENCE_KINDS } from "../semantic/evidence.mjs";
+import { normalizeSampleEvidence } from "../semantic/sample-evidence.mjs";
 import { resolvePersonGroups } from "../semantic/person-groups.mjs";
 import { buildConstraintPlan } from "./manual-constraints.mjs";
 
@@ -63,7 +64,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * Convert normalized schema facts, semantic mappings, groups, and user rules
  * into an inspectable plan. No provider, UI, Faker, or database is called.
  * @param {unknown} tableInput
- * @param {{ seed?: string | number, rowCount?: number, rules?: Record<string, unknown>, constraints?: unknown, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, locale?: string, mode?: string }} options
+ * @param {{ seed?: string | number, rowCount?: number, rules?: Record<string, unknown>, constraints?: unknown, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, sampleEvidence?: unknown, locale?: string, mode?: string }} options
  * @returns {GenerationPlan}
  */
 export function buildGenerationPlan(tableInput, options = {}) {
@@ -85,6 +86,7 @@ export function buildGenerationPlan(tableInput, options = {}) {
   const rawRules = normalizeGenerationRules(options.rules, schema.tableIdentity, diagnostics);
   const semanticOverrides = normalizeSemanticMappings(options.semanticOverrides, "explicit-user-semantic-override", schema.tableIdentity, diagnostics);
   const confirmedMappings = normalizeSemanticMappings(options.semanticMappings, "confirmed-semantic-mapping", schema.tableIdentity, diagnostics);
+  const sampleEvidence = normalizeSampleEvidence(options.sampleEvidence, new Set(schema.columns.map((column) => column.name)));
   const seenColumns = new Set();
   const columnPlans = schema.columns.map((column) => {
     if (seenColumns.has(column.name)) {
@@ -98,7 +100,7 @@ export function buildGenerationPlan(tableInput, options = {}) {
       }));
     }
     seenColumns.add(column.name);
-    const inference = inferSemanticType(column, locale);
+    const inference = inferSemanticType(column, locale, sampleEvidence.get(column.name) ?? null);
     const hasRule = rawRules.has(column.name);
     const rawRule = rawRules.get(column.name);
     const validation = validateGenerationRule(column, hasRule ? rawRule : { kind: "auto" }, {
@@ -252,6 +254,9 @@ function resolveSemanticMapping(tableIdentity, column, inference, semanticOverri
     return mappingFromInference(inference, "incompatible", false);
   }
   if (inference.status === "candidate") {
+    if (inference.sampleVerified === true) {
+      return mappingFromInference(inference, "sample_verified", true);
+    }
     if (inference.confidence === "low") {
       diagnostics.push(makeDiagnostic({
         severity: "warning",
@@ -362,7 +367,8 @@ function mappingFromInference(inference, status, selected) {
     semanticType: inference.semanticType,
     confidence: inference.confidence,
     evidence: [...inference.evidence],
-    source: inference.status === "unknown" ? "schema_type_fallback" : "automatic_semantic_inference",
+    source: inference.sampleVerified === true ? "sample_inference"
+      : inference.status === "unknown" ? "schema_type_fallback" : "automatic_semantic_inference",
     status,
     selected,
   };

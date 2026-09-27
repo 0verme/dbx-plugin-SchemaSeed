@@ -5,6 +5,8 @@ import { exportInsertSql } from "../export/sql-exporter.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
 import { createI18n, DEFAULT_UI_LOCALE } from "../i18n/index.mjs";
 import { toColumnViewModel } from "./workbench-view-model.mjs";
+import { getSampleProbeCandidates } from "../host/dbx-data-sample-probe.mjs";
+import { sanitizeSampleEvidence } from "../semantic/sample-evidence.mjs";
 
 export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: 20, seed: "demo", locale: "zh-CN" });
 export const DBX_WORKBENCH_MAX_ROWS = 100;
@@ -18,7 +20,7 @@ const MAX_IDENTIFIER_LENGTH = 256;
  */
 export class DbxGenerationWorkbenchController {
   /**
-   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => Promise<{ plan: object, generated: object }>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
+   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => Promise<{ plan: object, generated: object }>, sampleProbe?: (request: { context: object, schema: object, candidates: Array<{ name: string, kind: string }> }) => Promise<unknown>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
    */
   constructor(options) {
     if (typeof options?.provider?.getTableMetadata !== "function") {
@@ -27,6 +29,9 @@ export class DbxGenerationWorkbenchController {
     if (typeof options.preview !== "function") throw new TypeError("A Generation Core preview runtime is required");
     this.provider = options.provider;
     this.preview = options.preview;
+    this.sampleProbe = typeof options.sampleProbe === "function" ? options.sampleProbe : null;
+    this.sampleEvidenceCache = new Map();
+    this.sampleEvidence = [];
     this.seedFactory = options.seedFactory ?? defaultSeed;
     // UI language is presentation-only state: it never influences planning,
     // generation, diagnostics or blocking decisions.
@@ -82,6 +87,7 @@ export class DbxGenerationWorkbenchController {
     this.contextKey = key;
     this.context = normalized.ok ? normalized.context : null;
     this.schema = null;
+    this.sampleEvidence = [];
     this.plan = null;
     this.currentDataset = null;
     this.rules = {};
@@ -182,6 +188,7 @@ export class DbxGenerationWorkbenchController {
         mode: "safe_synthetic",
         rules: structuredClone(this.rules),
         constraints: structuredClone(this.constraints),
+        sampleEvidence: structuredClone(this.sampleEvidence),
         validateOnly: true,
         semanticOverrides: {},
         semanticMappings: {},
@@ -254,6 +261,7 @@ export class DbxGenerationWorkbenchController {
         mode: "safe_synthetic",
         rules: structuredClone(this.rules),
         constraints: structuredClone(this.constraints),
+        sampleEvidence: structuredClone(this.sampleEvidence),
         validateOnly: true,
         semanticOverrides: {},
         semanticMappings: {},
@@ -397,12 +405,33 @@ export class DbxGenerationWorkbenchController {
       this.schema = schema;
       this.stage = "generation";
       this.emit();
+      await this.loadSampleEvidence(revision, context, schema);
+      if (revision !== this.contextRevision) return this.getViewModel();
       return await this.generateCurrent(revision);
     } catch (error) {
       if (revision !== this.contextRevision) return this.getViewModel();
       this.fail(error, "metadata");
       return this.getViewModel();
     }
+  }
+
+  /** @param {number} revision @param {object} context @param {object} schema */
+  async loadSampleEvidence(revision, context, schema) {
+    const key = JSON.stringify(context);
+    let evidencePromise = this.sampleEvidenceCache.get(key);
+    if (!evidencePromise) {
+      const candidates = getSampleProbeCandidates(schema);
+      evidencePromise = candidates.length === 0 || !this.sampleProbe
+        ? Promise.resolve([])
+        : Promise.resolve()
+          .then(() => this.sampleProbe({ context: { ...context }, schema, candidates }))
+          .then((result) => sanitizeSampleEvidence(result, new Set(schema.columns.map((column) => column.name))))
+          .catch(() => []);
+      this.sampleEvidenceCache.set(key, evidencePromise);
+    }
+    const evidence = await evidencePromise;
+    if (revision === this.contextRevision) this.sampleEvidence = evidence;
+    return evidence;
   }
 
   /** @param {number} [contextRevision] */
@@ -429,6 +458,7 @@ export class DbxGenerationWorkbenchController {
         mode: "safe_synthetic",
         rules: structuredClone(this.rules),
         constraints: structuredClone(this.constraints),
+        sampleEvidence: structuredClone(this.sampleEvidence),
         semanticOverrides: {},
         semanticMappings: {},
       });

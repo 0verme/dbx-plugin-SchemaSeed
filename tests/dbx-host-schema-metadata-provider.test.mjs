@@ -150,6 +150,13 @@ test("MySQL, PostgreSQL, and SQLite contract schemas flow through planning and g
       } else {
         assert.equal(generated.rows.length, 8);
         assert.equal(generated.rows[0].id !== undefined, true);
+        if (contract.name === "PostgreSQL") {
+          const timestamp = schema.columns.find((column) => column.name === "happened_at");
+          assert.equal(timestamp.precision.state, "known");
+          assert.equal(timestamp.precision.value, 6);
+          assert.equal(plan.diagnostics.some((diagnostic) => diagnostic.code === "timestamp_precision_unknown"), false,
+            "DBX schema precision is consumed as authoritative metadata, never guessed from row samples");
+        }
       }
     });
   }

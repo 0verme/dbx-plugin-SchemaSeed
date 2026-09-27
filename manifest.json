@@ -9,10 +9,11 @@
   "icon": "assets/plugin.svg",
   "engines": {
     "dbx": ">=0.6.23",
-    "host_api": "^1.3"
+    "host_api": "^1.4"
   },
   "permissions": [
-    "host.schema:read"
+    "host.schema:read",
+    "host.data:read"
   ],
   "entrypoints": {
     "backend": {

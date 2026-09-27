@@ -123,10 +123,10 @@ function assertDbxSandboxDocumentContract(html, entries) {
 test("manifest declares the production Workbench and DBX v0.6.23 table action contract", async () => {
   const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
   const config = await readFile(path.join(root, "dbx-plugin.toml"), "utf8");
-  assert.equal(manifest.engines.host_api, "^1.3");
+  assert.equal(manifest.engines.host_api, "^1.4");
   assert.equal(manifest.engines.dbx, ">=0.6.23", "DBX v0.6.23 is the first released runtime containing upstream #10244");
   assert.equal(manifest.icon, "assets/plugin.svg");
-  assert.deepEqual(manifest.permissions, ["host.schema:read"]);
+  assert.deepEqual(manifest.permissions, ["host.schema:read", "host.data:read"]);
   assert.deepEqual(manifest.entrypoints.ui, { root: "ui", entry: "ui/index.html" });
   assert.equal(manifest.entrypoints.backend.executable, "bin/universal/schema-seed-runtime");
 
@@ -150,6 +150,7 @@ test("manifest declares the production Workbench and DBX v0.6.23 table action co
   const router = await readFile(path.join(root, "ui/app.mjs"), "utf8");
   assert.match(router, new RegExp(WORKBENCH_ID.replaceAll(".", "\\.")));
   assert.match(router, /dbx-plugin-init/);
+  assert.match(router, /await host\.ready/, "the Workbench waits for Host initialization before reading capabilities");
   const productionApp = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
   const browserViewModel = await readFile(path.join(root, "src/workbench/workbench-view-model.mjs"), "utf8");
   assert.doesNotMatch(browserViewModel, /node:/, "the DBX browser UI view model must remain browser-safe");
@@ -165,6 +166,9 @@ test("manifest declares the production Workbench and DBX v0.6.23 table action co
   assert.doesNotMatch(productionApp, /locale === "zh-CN" \?/, "no inline locale conditionals in the Workbench UI");
   assert.doesNotMatch(productionApp, /fixture-schema-metadata-provider/);
   assert.match(productionApp, /DbxHostSchemaMetadataProvider/);
+  assert.match(productionApp, /probeDbxDataSamples/);
+  assert.match(productionApp, /host\.capabilities/);
+  assert.match(productionApp, /host\.queryData/);
   assert.match(productionApp, /onContext/);
   assert.match(productionApp, /\.\.\/src\/workbench\/dbx-generation-workbench-controller\.mjs/, "the Workbench module imports the DBX ui-root-relative vendored runtime");
   assert.doesNotMatch(productionApp, /node:crypto|\bBuffer\s*\./, "the browser Workbench module must stay WebView-safe");
@@ -230,7 +234,9 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "src/generation/generation-rules.mjs",
     "src/generation/generation-runtime-contract.mjs",
     "src/generation/generation-runtime-protocol.mjs",
+    "src/host/dbx-data-sample-probe.mjs",
     "src/host/dbx-schema-metadata-probe.mjs",
+    "src/semantic/sample-evidence.mjs",
     "src/i18n/catalog.mjs",
     "src/i18n/diagnostics.mjs",
     "src/i18n/en-US.mjs",
@@ -285,7 +291,7 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     assert.equal(entries.has(iconPath), true, `package includes manifest icon ${iconPath}`);
     assert.deepEqual(entries.get(iconPath), await readFile(path.join(root, iconPath)), `packaged icon matches ${iconPath}`);
   }
-  assert.deepEqual(packagedManifest.permissions, ["host.schema:read"]);
+  assert.deepEqual(packagedManifest.permissions, ["host.schema:read", "host.data:read"]);
   assert.equal(packagedManifest.entrypoints.ui.entry, "ui/index.html");
   const checksums = JSON.parse(entries.get("checksums.json").toString("utf8")).files;
   for (const [name, digest] of Object.entries(checksums)) {
