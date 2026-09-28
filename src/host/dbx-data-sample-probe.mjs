@@ -27,29 +27,34 @@ const RESERVED_TABLE_IDENTIFIERS = new Set([
 
 /**
  * Identify a narrow allow-list of uncertain string columns. Metadata facts are
- * authoritative: only known, bounded, small varchar fields are ever queried.
+ * authoritative: bounded strings retain direct projection; only strong semantic
+ * candidates with native unbounded text receive a database-side truncated projection.
  * @param {import("../schema/schema-model.mjs").TableSchema} schema
- * @returns {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum" }>}
+ * @returns {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum", sampling: "direct" | "truncate" }>}
  */
 export function getSampleProbeCandidates(schema) {
   if (!schema || !Array.isArray(schema.columns)) return [];
   const candidates = [];
   for (const column of schema.columns) {
     const type = interpretColumnType(column);
-    if (type?.kind !== "varchar" || type.capacity?.model !== "bounded"
-      || type.capacity.maxLength > DATA_SAMPLE_FIELD_MAX_LENGTH) continue;
+    if (type?.kind !== "varchar") continue;
+    const sampling = type.capacity?.model === "bounded"
+      && type.capacity.maxLength <= DATA_SAMPLE_FIELD_MAX_LENGTH ? "direct"
+      : type.capacity?.model === "unbounded" && type.capacity.source === "native-text-type" ? "truncate"
+        : null;
+    if (!sampling) continue;
 
     const inference = inferSemanticType(column);
     const semanticPatternKind = ["name", "email", "mobile"].includes(inference.semanticType)
       ? inference.semanticType : null;
     if (semanticPatternKind && inference.status === "candidate" && inference.confidence !== "high") {
-      candidates.push({ name: column.name, kind: semanticPatternKind });
+      candidates.push({ name: column.name, kind: semanticPatternKind, sampling });
       continue;
     }
 
     const nameTokens = normalizeColumnName(column.name).split("_").filter(Boolean);
     if (nameTokens.some((token) => ENUM_FIELD_TOKENS.has(token))) {
-      candidates.push({ name: column.name, kind: "enum" });
+      candidates.push({ name: column.name, kind: "enum", sampling });
     }
   }
   return candidates;
@@ -103,23 +108,25 @@ export async function probeDbxDataSamples(host, context, schema, options = {}) {
  * ANSI quotes are not portable to MySQL's default mode. Database/schema scope
  * travels in the Host request, not interpolated into SQL.
  * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
- * @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum" }>} candidates
+ * @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum", sampling: "direct" | "truncate" }>} candidates
  */
 export function buildSampleSelectQuery(context, candidates) {
   if (!context || typeof context.table !== "string" || !isPortableIdentifier(context.table)
     || RESERVED_TABLE_IDENTIFIERS.has(context.table)) return null;
-  const columns = candidates
-    .filter((candidate) => candidate && typeof candidate.name === "string" && isPortableIdentifier(candidate.name))
-    .map((candidate) => candidate.name);
+  const safeCandidates = candidates
+    .filter((candidate) => candidate && typeof candidate.name === "string" && isPortableIdentifier(candidate.name));
+  const columns = safeCandidates.map((candidate) => candidate.name);
   if (columns.length === 0) return null;
-  const columnList = columns.map((column) => `ss.${column}`).join(", ");
+  const columnList = safeCandidates.map((candidate) => candidate.sampling === "truncate"
+    ? `SUBSTR(ss.${candidate.name}, 1, ${DATA_SAMPLE_FIELD_MAX_LENGTH}) AS ${candidate.name}`
+    : `ss.${candidate.name}`).join(", ");
   return {
     sql: `SELECT ${columnList} FROM ${context.table} AS ss LIMIT ${DATA_SAMPLE_ROW_LIMIT}`,
     columns,
   };
 }
 
-/** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum" }>} candidates */
+/** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum", sampling: "direct" | "truncate" }>} candidates */
 function summarizeSampleResult(result, selectedColumns, candidates) {
   if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return [];
   const columnIndexes = new Map();
