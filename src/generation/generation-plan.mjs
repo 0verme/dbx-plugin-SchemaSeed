@@ -518,20 +518,30 @@ function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
     if (sampleProfile.timezoneAware !== timezoneAware) return null;
     const minimum = parseTimestamp(sampleProfile.observedMin, { timezoneAware });
     const maximum = parseTimestamp(sampleProfile.observedMax, { timezoneAware });
-    const schemaPrecision = column.precision.state === "known" ? column.precision.value : 3;
-    if (!minimum || !maximum || !Number.isSafeInteger(schemaPrecision) || schemaPrecision < 0 || schemaPrecision > 9
+    const schemaPrecisionKnown = column.precision.state === "known";
+    const schemaPrecision = column.precision.value;
+    const samplePrecision = sampleProfile.precision;
+    if (!minimum || !maximum
+      || (schemaPrecisionKnown && (!Number.isSafeInteger(schemaPrecision) || schemaPrecision < 0 || schemaPrecision > 9))
+      || !Number.isSafeInteger(samplePrecision) || samplePrecision < 0 || samplePrecision > 9
+      || minimum.precision > samplePrecision || maximum.precision > samplePrecision
       || minimum.nanoseconds > maximum.nanoseconds) return null;
-    const precision = Math.min(schemaPrecision, sampleProfile.precision);
+    const precision = schemaPrecisionKnown ? schemaPrecision : samplePrecision;
     const quantum = 10n ** BigInt(9 - precision);
-    if (minimum.precision > precision || maximum.precision > precision
-      || minimum.nanoseconds % quantum !== 0n || maximum.nanoseconds % quantum !== 0n) return null;
+    let startNanoseconds = ceilTimestampToPrecision(minimum.nanoseconds, quantum);
+    let endNanoseconds = floorTimestampToPrecision(maximum.nanoseconds, quantum);
+    if (startNanoseconds > endNanoseconds) {
+      startNanoseconds = nearestTimestampToPrecision(minimum.nanoseconds, quantum);
+      endNanoseconds = nearestTimestampToPrecision(maximum.nanoseconds, quantum);
+    }
+    if (startNanoseconds > endNanoseconds) return null;
     return {
       identity: "sample:temporal-range:v1",
       kind: "timestamp_range",
       source: "sample_inference",
       parameters: {
-        start: formatTimestamp(minimum.nanoseconds, precision, timezoneAware),
-        end: formatTimestamp(maximum.nanoseconds, precision, timezoneAware),
+        start: formatTimestamp(startNanoseconds, precision, timezoneAware),
+        end: formatTimestamp(endNanoseconds, precision, timezoneAware),
         precision,
         timezoneAware,
       },
@@ -597,6 +607,24 @@ function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
     };
   }
   return null;
+}
+
+function ceilTimestampToPrecision(nanoseconds, quantum) {
+  const remainder = nanoseconds % quantum;
+  if (remainder === 0n) return nanoseconds;
+  return remainder > 0n ? nanoseconds + quantum - remainder : nanoseconds - remainder;
+}
+
+function floorTimestampToPrecision(nanoseconds, quantum) {
+  const remainder = nanoseconds % quantum;
+  if (remainder === 0n) return nanoseconds;
+  return remainder > 0n ? nanoseconds - remainder : nanoseconds - (remainder + quantum);
+}
+
+function nearestTimestampToPrecision(nanoseconds, quantum) {
+  const floor = floorTimestampToPrecision(nanoseconds, quantum);
+  const ceil = ceilTimestampToPrecision(nanoseconds, quantum);
+  return nanoseconds - floor <= ceil - nanoseconds ? floor : ceil;
 }
 
 function resolveExplicitGenerationRule(selection, column, schemaKind, baseParameters, semanticMapping, locale, mode) {
