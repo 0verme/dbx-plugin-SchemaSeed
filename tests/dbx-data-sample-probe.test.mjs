@@ -4,9 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { probeDbxDataSamples, buildSampleSelectQuery, DATA_SAMPLE_ROW_LIMIT, DATA_SAMPLE_TIMEOUT_MS, getSampleProbeCandidates } from "../src/host/dbx-data-sample-probe.mjs";
+import { probeDbxDataSamples, buildSampleSelectQuery, DATA_SAMPLE_FIELD_MAX_LENGTH, DATA_SAMPLE_ROW_LIMIT, DATA_SAMPLE_TIMEOUT_MS, getSampleProbeCandidates } from "../src/host/dbx-data-sample-probe.mjs";
 import { generateRows } from "../src/generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
+import { interpretColumnType } from "../src/schema/schema-interpreter.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 import { toColumnViewModel } from "../src/workbench/workbench-view-model.mjs";
@@ -65,11 +66,80 @@ test("metadata-ready or unsupported columns produce no sampling candidates and n
   const tableSchema = sampleTableSchema();
   const candidates = getSampleProbeCandidates(tableSchema);
   assert.deepEqual(candidates, [
-    { name: "display_name", kind: "name" },
-    { name: "status", kind: "enum" },
-    { name: "role", kind: "enum" },
+    { name: "display_name", kind: "name", sampling: "direct" },
+    { name: "status", kind: "enum", sampling: "direct" },
+    { name: "role", kind: "enum", sampling: "direct" },
   ]);
   assert.equal(candidates.some(({ name }) => ["payload", "picture", "last_login_at", "id", "email"].includes(name)), false);
+});
+
+test("bounded category varchar remains a direct-projection candidate", () => {
+  const schema = schemaOf([{ name: "category", dataType: "varchar", nullable: true, length: 64 }]);
+  assert.deepEqual(getSampleProbeCandidates(schema), [
+    { name: "category", kind: "enum", sampling: "direct" },
+  ]);
+});
+
+test("native unbounded text admits only existing strong semantic candidates", () => {
+  const schema = schemaOf([
+    { name: "category", dataType: "text", nullable: true, length: { state: "unavailable", reason: "DBX omitted length metadata" } },
+    { name: "status", dataType: "text", nullable: true },
+    { name: "role", dataType: "text", nullable: true },
+    { name: "type", dataType: "text", nullable: true },
+    { name: "display_name", dataType: "text", nullable: true },
+    { name: "billing_email", dataType: "text", nullable: true },
+    { name: "primary_phone", dataType: "text", nullable: true },
+    { name: "description", dataType: "text", nullable: true },
+    { name: "content", dataType: "text", nullable: true },
+    { name: "remark", dataType: "text", nullable: true },
+    { name: "notes", dataType: "text", nullable: true },
+    { name: "generic_unknown", dataType: "text", nullable: true },
+    { name: "payload", dataType: "text", nullable: true },
+    { name: "category_unbounded_varchar", dataType: "varchar", nullable: true, length: { state: "absent" } },
+  ]);
+  const category = schema.columns.find(({ name }) => name === "category");
+  assert.equal(category.length.state, "unavailable");
+  assert.deepEqual(interpretColumnType(category), {
+    kind: "varchar",
+    parameters: {},
+    capacity: { model: "unbounded", source: "native-text-type" },
+  });
+  assert.deepEqual(getSampleProbeCandidates(schema), [
+    { name: "category", kind: "enum", sampling: "truncate" },
+    { name: "status", kind: "enum", sampling: "truncate" },
+    { name: "role", kind: "enum", sampling: "truncate" },
+    { name: "type", kind: "enum", sampling: "truncate" },
+    { name: "display_name", kind: "name", sampling: "truncate" },
+    { name: "billing_email", kind: "email", sampling: "truncate" },
+    { name: "primary_phone", kind: "mobile", sampling: "truncate" },
+  ]);
+});
+
+test("PostgreSQL category text triggers a bounded sample query and summary only", async () => {
+  const schema = schemaOf([{
+    name: "category",
+    dataType: "text",
+    nullable: true,
+    length: { state: "unavailable", reason: "DBX omitted length metadata" },
+  }]);
+  const requests = [];
+  const evidence = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData(request) {
+      requests.push(request);
+      return {
+        columns: [{ name: "category" }],
+        rows: [["active"], ["active"], ["active"], ["archived"], ["archived"]],
+      };
+    },
+  }, { ...context, table: "audit_results" }, schema);
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].maxRows, 8);
+  assert.equal(requests[0].timeoutMs, DATA_SAMPLE_TIMEOUT_MS);
+  assert.match(requests[0].sql, /^SELECT SUBSTR\(ss\.category, 1, 1024\) AS category FROM audit_results AS ss LIMIT 8$/);
+  assert.deepEqual(evidence, [{ column: "category", kind: "enum_like", sampleCount: 5, distinctCount: 2 }]);
+  assert.doesNotMatch(JSON.stringify(evidence), /active|archived/);
 });
 
 test("dataApi capability false gracefully falls back without queryData", async () => {
@@ -143,10 +213,52 @@ test("permission denial, query errors, and timeout return metadata-only evidence
   assert.deepEqual(timedOut, []);
 });
 
-test("identifier renderer fails closed for SQL-like or delimited names", () => {
-  assert.equal(buildSampleSelectQuery({ ...context, table: "users; DROP TABLE accounts" }, [{ name: "status", kind: "enum" }]), null);
-  assert.equal(buildSampleSelectQuery(context, [{ name: "status; DELETE FROM users", kind: "enum" }]), null);
-  assert.equal(buildSampleSelectQuery({ ...context, table: "user" }, [{ name: "status", kind: "enum" }]), null);
+test("query builder combines direct and truncated projections while keeping LIMIT 8", () => {
+  const query = buildSampleSelectQuery(context, [
+    { name: "bounded_field", kind: "enum", sampling: "direct" },
+    { name: "category", kind: "enum", sampling: "truncate" },
+  ]);
+  assert.deepEqual(query, {
+    sql: "SELECT ss.bounded_field, SUBSTR(ss.category, 1, 1024) AS category FROM p_admin_user AS ss LIMIT 8",
+    columns: ["bounded_field", "category"],
+  });
+});
+
+test("identifier renderer fails closed for unsafe tables and excludes unsafe columns", async () => {
+  const direct = { name: "status", kind: "enum", sampling: "direct" };
+  assert.equal(buildSampleSelectQuery({ ...context, table: "users; DROP TABLE accounts" }, [direct]), null);
+  assert.equal(buildSampleSelectQuery({ ...context, table: "user" }, [direct]), null);
+  assert.equal(buildSampleSelectQuery(context, [{ ...direct, name: "status; DELETE FROM users" }]), null);
+  assert.deepEqual(buildSampleSelectQuery(context, [
+    direct,
+    { name: "status; DELETE FROM users", kind: "enum", sampling: "truncate" },
+  ]), {
+    sql: "SELECT ss.status FROM p_admin_user AS ss LIMIT 8",
+    columns: ["status"],
+  });
+
+  let calls = 0;
+  const unsafeTableResult = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => { calls += 1; return resultFor([]); },
+  }, { ...context, table: "users; DROP TABLE accounts" }, sampleTableSchema());
+  assert.deepEqual(unsafeTableResult, []);
+  assert.equal(calls, 0, "an unsafe table identifier skips the whole probe");
+});
+
+test("sample values longer than 1024 characters cannot enter evidence", async () => {
+  const schema = schemaOf([{ name: "category", dataType: "text", nullable: true }]);
+  const privateValueA = `private-a-${"x".repeat(DATA_SAMPLE_FIELD_MAX_LENGTH)}`;
+  const privateValueB = `private-b-${"y".repeat(DATA_SAMPLE_FIELD_MAX_LENGTH)}`;
+  const evidence = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({
+      columns: [{ name: "category" }],
+      rows: [[privateValueA], [privateValueA], [privateValueB], [privateValueB]],
+    }),
+  }, context, schema);
+  assert.deepEqual(evidence, []);
+  assert.doesNotMatch(JSON.stringify(evidence), /private-a|private-b/);
 });
 
 test("sample summaries raise display_name confidence but never copy source values into synthetic rows", () => {
@@ -222,6 +334,61 @@ test("Workbench session probes a table once, caches summaries only, and never re
   assert.ok(previewCalls.every((options) => !JSON.stringify(options.sampleEvidence).includes("张三")));
 });
 
+test("raw sample values never reach the Core preview, synthetic rows, or export", async () => {
+  const schema = schemaOf([
+    { name: "display_name", dataType: "varchar", nullable: false, length: 128 },
+    { name: "status", dataType: "varchar", nullable: false, length: 32 },
+    { name: "role", dataType: "varchar", nullable: false, length: 32 },
+  ]);
+  const previewCalls = [];
+  const controller = new DbxGenerationWorkbenchController({
+    provider: { async getTableMetadata() { return schema; } },
+    async sampleProbe() {
+      return [
+        { column: "display_name", kind: "chinese_name_pattern", sampleCount: 5, matchedCount: 5, values: privateNames },
+        { column: "status", kind: "enum_like", sampleCount: 5, distinctCount: 3, values: privateStates },
+        { column: "role", kind: "enum_like", sampleCount: 5, distinctCount: 3, values: privateRoles },
+      ];
+    },
+    async preview(tableSchema, options) {
+      previewCalls.push(structuredClone(options));
+      const plan = buildGenerationPlan(tableSchema, options);
+      return { plan, generated: generateRows(plan) };
+    },
+  });
+  const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  const privateValues = /张三|李四|王小红|赵六|钱七|ACTIVE|DISABLED|LOCKED|ADMIN|EDITOR|VIEWER/;
+
+  assert.equal(view.export.enabled, true);
+  assert.equal(Object.hasOwn(previewCalls[0].sampleEvidence[0], "values"), false);
+  assert.doesNotMatch(JSON.stringify(previewCalls[0].sampleEvidence), privateValues);
+  assert.doesNotMatch(JSON.stringify(view.preview.rows), privateValues);
+  assert.doesNotMatch(controller.prepareExport("json").content, privateValues);
+});
+
+test("sample probe failure falls back to a usable metadata-only Workbench preview", async () => {
+  const schema = schemaOf([{ name: "status", dataType: "text", nullable: true }]);
+  let calls = 0;
+  const controller = new DbxGenerationWorkbenchController({
+    provider: { async getTableMetadata() { return schema; } },
+    async sampleProbe({ candidates }) {
+      calls += 1;
+      assert.deepEqual(candidates, [{ name: "status", kind: "enum", sampling: "truncate" }]);
+      throw new Error("PLUGIN_DATA_ACCESS_NOT_GRANTED: private sample details");
+    },
+    async preview(tableSchema, options) {
+      const plan = buildGenerationPlan(tableSchema, options);
+      return { plan, generated: generateRows(plan) };
+    },
+  });
+  const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  assert.equal(calls, 1);
+  assert.ok(view.preview.rows.length > 0);
+  assert.equal(view.export.enabled, true);
+  assert.deepEqual(controller.sampleEvidence, []);
+  assert.doesNotMatch(JSON.stringify(view), /private sample details|PLUGIN_DATA_ACCESS_NOT_GRANTED/);
+});
+
 test("uncertain email and mobile candidates use pattern evidence, never their values", async () => {
   const schema = schemaOf([
     { name: "billing_email", dataType: "varchar", nullable: true, length: 254 },
@@ -230,8 +397,8 @@ test("uncertain email and mobile candidates use pattern evidence, never their va
   const sampleEmails = ["person1@example.org", "person2@example.org", "person3@example.org", "person4@example.org"];
   const samplePhones = ["13800000001", "13800000002", "13800000003", "13800000004"];
   assert.deepEqual(getSampleProbeCandidates(schema), [
-    { name: "billing_email", kind: "email" },
-    { name: "primary_phone", kind: "mobile" },
+    { name: "billing_email", kind: "email", sampling: "direct" },
+    { name: "primary_phone", kind: "mobile", sampling: "direct" },
   ]);
   const evidence = await probeDbxDataSamples({
     capabilities: { dataApi: true },
