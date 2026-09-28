@@ -37,6 +37,7 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
     isSelectedSemantic,
     rejectedMapping,
     semanticSource: semanticMapping.source,
+    generationRuleSource: column.rule.source,
     inferenceStatus: inference.status,
   });
   const mappingStatus = mappingStatusLabel(mappingStatusToken, t, kind ? { kind: ruleKindLabel(kind, t) } : undefined);
@@ -58,7 +59,7 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
     confidenceKey: inference.confidence,
     recommendation: inference.recommendation ? {
       kind: inference.recommendation.kind,
-      label: ruleKindLabel(inference.recommendation.kind, t),
+      label: generatorKindLabel(inference.recommendation.kind, t),
     } : null,
     selectedMapping: selectedMappingLabel({
       isSelectedSemantic,
@@ -92,7 +93,7 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
  * Stable presentation token for the mapping status. The Internal enum
  * (`semanticMapping.status`, `inference.status`) is untouched; the token only
  * selects copy.
- * @param {{ generationRuleKind: string, isSelectedSemantic: boolean, rejectedMapping: boolean, semanticSource: string, inferenceStatus: string }} input
+ * @param {{ generationRuleKind: string, isSelectedSemantic: boolean, rejectedMapping: boolean, semanticSource: string, generationRuleSource: string, inferenceStatus: string }} input
  * @returns {{ token: string, kind: string | null }}
  */
 export function mappingStatusTokenFor(input) {
@@ -103,6 +104,7 @@ export function mappingStatusTokenFor(input) {
     return { token: input.semanticSource === "confirmed_semantic_mapping" ? "confirmed"
       : input.semanticSource === "sample_inference" ? "sampleConfirmed" : "override", kind: null };
   }
+  if (input.generationRuleSource === "sample_inference") return { token: "sampleStrategy", kind: null };
   if (input.rejectedMapping) {
     return { token: input.semanticSource === "confirmed_semantic_mapping" ? "confirmedIncompatible" : "overrideIncompatible", kind: null };
   }

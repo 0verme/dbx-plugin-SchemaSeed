@@ -58,7 +58,7 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 ## 安全与当前限制
 
 - SchemaSeed 只通过 DBX Host API 读取当前表结构；当存在适合探测的语义不确定字段时，还可能通过 `host.data:read` 对同一已打开连接读取最多 8 行、候选字段的只读样本。首次按连接授权由 DBX Host consent 管理；拒绝或不可用时退回 metadata-only，不影响生成。
-- 样本只在当前 inference 生命周期内用于模式判断；原始值不写日志、不持久化、不发送外部服务或 AI/LLM，也不进入 synthetic preview/export。采样不会改变 schema metadata。SchemaSeed 不读取数据库凭据、不创建第二连接、不执行写 SQL 或 DDL。
+- 原始样本行、自由文本与敏感值只在当前 inference 调用内存中分析，不写日志、不持久化、不发送外部服务或 AI/LLM；仅通过隐私 guard 的短类别标签会按观察频率进入 synthetic preview/export，numeric 只用于安全范围/零频次、文件名只复用后缀并使用合成 stem。采样不会改变 schema metadata。SchemaSeed 不读取数据库凭据、不创建第二连接、不执行写 SQL 或 DDL。
 - 生成、预览和导出不会写入数据库；导出的 INSERT SQL 只是文本，不会自动执行。
 - 当前围绕单张表生成数据，不支持自动发现数据库的 PK、FK、CHECK、Identity 等约束，也不支持多表关联生成。工作台中的手动生成约束仅约束 SchemaSeed 生成的数据，不代表已读取数据库中的真实约束。
 - INSERT SQL 使用通用写法，不会针对所有数据库方言自动适配；执行前请在目标数据库中核对。复杂字段或业务规则可能需要手动调整生成规则。

@@ -29,6 +29,8 @@ export const EVIDENCE_KINDS = Object.freeze({
   sampleMobilePattern: "sample_mobile_pattern",
   sampleMobilePatternRejected: "sample_mobile_pattern_rejected",
   sampleEnumLike: "sample_enum_like",
+  sampleNumericRange: "sample_numeric_range",
+  sampleFilenamePattern: "sample_filename_pattern",
 });
 
 /**

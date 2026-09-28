@@ -67,7 +67,7 @@ test("runtime transports GenerationRules and manual constraints through validati
   assert.deepEqual(invalidConstraint.result.generated.rows, []);
 });
 
-test("runtime accepts only value-free sample summaries and rejects copied row values", () => {
+test("runtime transports bounded sample profiles and rejects copied row values", () => {
   const withEvidence = handleRuntimeRpcRequest(request({
     schema: { ...schema, columns: [{ name: "display_name", dataType: "varchar", nullable: false, length: 128 }] },
     options: { ...options, sampleEvidence: [{ column: "display_name", kind: "chinese_name_pattern", sampleCount: 5, matchedCount: 5 }] },
@@ -84,6 +84,34 @@ test("runtime accepts only value-free sample summaries and rejects copied row va
   assert.equal(negativeEvidence.result.plan.columns[0].inference.status, "unknown");
   assert.equal(negativeEvidence.result.plan.columns[0].inference.evidence.some((entry) => entry.kind === "sample_name_pattern_rejected"), true);
   assert.equal(negativeEvidence.result.plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
+
+  const profiled = handleRuntimeRpcRequest(request({
+    schema: {
+      tableIdentity: schema.tableIdentity,
+      columns: [
+        { name: "category", dataType: "text", nullable: false },
+        { name: "line_no", dataType: "integer", nullable: false },
+        { name: "file_name", dataType: "text", nullable: false },
+      ],
+    },
+    options: {
+      ...options,
+      sampleEvidence: [
+        { column: "category", kind: "enum_like", sampleCount: 4, distinctCount: 2, candidates: [
+          { value: "active", frequency: 3 }, { value: "pending", frequency: 1 },
+        ] },
+        { column: "line_no", kind: "numeric_range", sampleCount: 4, min: 0, max: 8, zeroCount: 1 },
+        { column: "file_name", kind: "filename_pattern", sampleCount: 4, matchedCount: 4, suffixes: [
+          { suffix: ".sql", frequency: 3 }, { suffix: ".py", frequency: 1 },
+        ] },
+      ],
+    },
+  }));
+  assert.equal(profiled.error, undefined);
+  assert.deepEqual(profiled.result.plan.columns.map(({ rule }) => rule.kind), ["sample_enum", "sample_numeric", "sample_filename"]);
+  assert.ok(profiled.result.generated.rows.every((row) => ["active", "pending"].includes(row.category)));
+  assert.ok(profiled.result.generated.rows.every((row) => Number.isInteger(row.line_no) && row.line_no >= 0 && row.line_no <= 8));
+  assert.ok(profiled.result.generated.rows.every((row) => /^generated_[A-Za-z0-9]+\.(?:sql|py)$/u.test(row.file_name)));
 
   const withRawValues = handleRuntimeRpcRequest(request({
     schema,

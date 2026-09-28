@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { createI18n } from "../src/i18n/index.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
+import { normalizeSampleEvidence, sanitizeSampleEvidence } from "../src/semantic/sample-evidence.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 
 const zh = createI18n("zh-CN");
@@ -17,7 +18,7 @@ function planFor(column, sampleEvidence) {
   return buildGenerationPlan(schema, { rowCount: 2, seed: "sample-evidence", sampleEvidence });
 }
 
-describe("value-free semantic sample evidence", () => {
+describe("semantic and value-minimized sample profiles", () => {
   it("uses 4/4 valid Chinese name samples as positive evidence", () => {
     const plan = planFor({ name: "display_name" }, [
       { column: "display_name", kind: "chinese_name_pattern", sampleCount: 4, matchedCount: 4 },
@@ -65,6 +66,72 @@ describe("value-free semantic sample evidence", () => {
       assert.equal(plan.columns[0].inference.status, "unknown", columnName);
       assert.equal(plan.columns[0].inference.evidence.some((entry) => entry.kind.endsWith("_rejected")), true);
     }
+  });
+
+  it("normalizes bounded categorical, numeric, and filename profiles for their safe column kinds", () => {
+    const knownColumns = new Set(["severity", "line_no", "file_name", "file_id", "身份证号码", "amount", "latitude", "金额"]);
+    const profiles = normalizeSampleEvidence([
+      {
+        column: "severity", kind: "enum_like", sampleCount: 4, distinctCount: 2,
+        candidates: [{ value: "err", frequency: 3 }, { value: "warn", frequency: 1 }],
+      },
+      { column: "line_no", kind: "numeric_range", sampleCount: 4, min: 0, max: 88, zeroCount: 1 },
+      { column: "amount", kind: "numeric_range", sampleCount: 4, min: 1, max: 9, zeroCount: 0 },
+      { column: "latitude", kind: "numeric_range", sampleCount: 4, min: 1, max: 9, zeroCount: 0 },
+      { column: "金额", kind: "numeric_range", sampleCount: 4, min: 1, max: 9, zeroCount: 0 },
+      {
+        column: "file_name", kind: "filename_pattern", sampleCount: 4, matchedCount: 4,
+        suffixes: [{ suffix: ".sql", frequency: 3 }, { suffix: ".hql", frequency: 1 }],
+      },
+      {
+        column: "file_id", kind: "filename_pattern", sampleCount: 4, matchedCount: 4,
+        suffixes: [{ suffix: ".csv", frequency: 4 }],
+      },
+      {
+        column: "身份证号码", kind: "enum_like", sampleCount: 4, distinctCount: 2,
+        candidates: [{ value: "alice", frequency: 2 }, { value: "bob", frequency: 2 }],
+      },
+    ], knownColumns);
+
+    assert.deepEqual(profiles.get("severity").candidates, [
+      { value: "err", frequency: 3 }, { value: "warn", frequency: 1 },
+    ]);
+    assert.deepEqual({
+      min: profiles.get("line_no").min,
+      max: profiles.get("line_no").max,
+      zeroCount: profiles.get("line_no").zeroCount,
+    }, { min: 0, max: 88, zeroCount: 1 });
+    for (const column of ["amount", "latitude", "金额"]) {
+      assert.equal(profiles.has(column), false, `${column} is a sensitive financial or location column`);
+    }
+    assert.deepEqual(profiles.get("file_name").suffixes, [
+      { suffix: ".sql", frequency: 3 }, { suffix: ".hql", frequency: 1 },
+    ]);
+    assert.equal(profiles.has("file_id"), false, "identifier-like filename columns stay excluded");
+    assert.equal(profiles.has("身份证号码"), false, "Chinese identifier columns are sensitive too");
+    const inconsistentZero = normalizeSampleEvidence([
+      { column: "line_no", kind: "numeric_range", sampleCount: 4, min: 0, max: 8, zeroCount: 0 },
+    ], knownColumns);
+    assert.equal(inconsistentZero.has("line_no"), false, "a zero-valued endpoint requires a positive zero frequency");
+  });
+
+  it("does not recommend categorical generation when labels or columns fail privacy guards", () => {
+    const blocked = sanitizeSampleEvidence([
+      {
+        column: "password", kind: "enum_like", sampleCount: 4, distinctCount: 2,
+        candidates: [{ value: "alice", frequency: 2 }, { value: "bob", frequency: 2 }],
+      },
+      {
+        column: "safe_label", kind: "enum_like", sampleCount: 4, distinctCount: 2,
+        candidates: [{ value: "admin", frequency: 3 }, { value: "guest", frequency: 1 }],
+      },
+    ], new Set(["password", "safe_label"]));
+    assert.ok(blocked.every((entry) => !("candidates" in entry)));
+    assert.doesNotMatch(JSON.stringify(blocked), /alice|bob|admin|guest/);
+
+    const plan = planFor({ name: "password" }, blocked);
+    assert.equal(plan.columns[0].inference.recommendation, null);
+    assert.equal(plan.columns[0].rule.kind, "varchar");
   });
 
   it("preserves exact aliases and lowers their confidence instead of silently deleting them", () => {

@@ -1,11 +1,19 @@
-import { inferSemanticType, normalizeColumnName } from "../semantic/semantic-inference.mjs";
+import { inferSemanticType } from "../semantic/semantic-inference.mjs";
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 import {
   ENUM_PATTERN_MAX_DISTINCT,
   ENUM_PATTERN_MAX_DISTINCT_RATIO,
   ENUM_PATTERN_MIN_SAMPLES,
+  FILENAME_PATTERN_MIN_RATIO,
+  FILENAME_PATTERN_MIN_SAMPLES,
+  isFilenameColumnName,
+  isFreeTextSampleColumn,
+  isSafeCategoricalSampleColumn,
+  isSafeCategoricalValue,
+  isSensitiveSampleColumn,
   NAME_PATTERN_MIN_RATIO,
   NAME_PATTERN_MIN_SAMPLES,
+  NUMERIC_PATTERN_MIN_SAMPLES,
   PATTERN_NEGATIVE_MAX_RATIO,
   SAMPLE_EVIDENCE_MAX_ROWS,
 } from "../semantic/sample-evidence.mjs";
@@ -16,7 +24,6 @@ export const DATA_SAMPLE_FIELD_MAX_LENGTH = 1_024;
 const DATA_SAMPLE_UI_DEADLINE_MS = DATA_SAMPLE_TIMEOUT_MS + 500;
 const METADATA_ONLY_SAMPLE_RESULT = Object.freeze({ sampleUsed: false, evidence: Object.freeze([]) });
 
-const ENUM_FIELD_TOKENS = new Set(["status", "role", "type", "category"]);
 const PORTABLE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 const RESERVED_TABLE_IDENTIFIERS = new Set([
   "all", "alter", "and", "as", "by", "case", "check", "column", "constraint", "create",
@@ -32,13 +39,18 @@ const RESERVED_TABLE_IDENTIFIERS = new Set([
  * authoritative: bounded strings retain direct projection; only strong semantic
  * candidates with native unbounded text receive a database-side truncated projection.
  * @param {import("../schema/schema-model.mjs").TableSchema} schema
- * @returns {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum", sampling: "direct" | "truncate" }>}
+ * @returns {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric", numericKind?: "integer" | "decimal", sampling: "direct" | "truncate" }>}
  */
 export function getSampleProbeCandidates(schema) {
   if (!schema || !Array.isArray(schema.columns)) return [];
   const candidates = [];
   for (const column of schema.columns) {
     const type = interpretColumnType(column);
+    if ((type?.kind === "integer" || type?.kind === "decimal")
+      && !isSensitiveSampleColumn(column.name) && !hasDatabaseIdentity(column)) {
+      candidates.push({ name: column.name, kind: "numeric", numericKind: type.kind, sampling: "direct" });
+      continue;
+    }
     if (type?.kind !== "varchar") continue;
     const sampling = type.capacity?.model === "bounded"
       && type.capacity.maxLength <= DATA_SAMPLE_FIELD_MAX_LENGTH ? "direct"
@@ -46,6 +58,10 @@ export function getSampleProbeCandidates(schema) {
         : null;
     if (!sampling) continue;
 
+    if (isFilenameColumnName(column.name)) {
+      candidates.push({ name: column.name, kind: "filename", sampling });
+      continue;
+    }
     const inference = inferSemanticType(column);
     const semanticPatternKind = ["name", "email", "mobile"].includes(inference.semanticType)
       ? inference.semanticType : null;
@@ -53,11 +69,8 @@ export function getSampleProbeCandidates(schema) {
       candidates.push({ name: column.name, kind: semanticPatternKind, sampling });
       continue;
     }
-
-    const nameTokens = normalizeColumnName(column.name).split("_").filter(Boolean);
-    if (nameTokens.some((token) => ENUM_FIELD_TOKENS.has(token))) {
-      candidates.push({ name: column.name, kind: "enum", sampling });
-    }
+    if (inference.status !== "unknown" || isSensitiveSampleColumn(column.name) || isFreeTextSampleColumn(column.name)) continue;
+    candidates.push({ name: column.name, kind: "text", sampling });
   }
   return candidates;
 }
@@ -71,7 +84,7 @@ export function getSampleProbeCandidates(schema) {
  * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
  * @param {import("../schema/schema-model.mjs").TableSchema} schema
  * @param {{ timeoutMs?: number }} [options]
- * @returns {Promise<{ sampleUsed: boolean, evidence: Array<{ column: string, kind: string, sampleCount: number, matchedCount?: number, distinctCount?: number }> }>}
+ * @returns {Promise<{ sampleUsed: boolean, evidence: Array<Record<string, unknown>> }>}
  */
 export async function probeDbxDataSamples(host, context, schema, options = {}) {
   if (host?.capabilities?.dataApi !== true || typeof host?.queryData !== "function") return METADATA_ONLY_SAMPLE_RESULT;
@@ -110,7 +123,7 @@ export async function probeDbxDataSamples(host, context, schema, options = {}) {
  * ANSI quotes are not portable to MySQL's default mode. Database/schema scope
  * travels in the Host request, not interpolated into SQL.
  * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
- * @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum", sampling: "direct" | "truncate" }>} candidates
+ * @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric", numericKind?: "integer" | "decimal", sampling: "direct" | "truncate" }>} candidates
  */
 export function buildSampleSelectQuery(context, candidates) {
   if (!context || typeof context.table !== "string" || !isPortableIdentifier(context.table)
@@ -128,9 +141,10 @@ export function buildSampleSelectQuery(context, candidates) {
   };
 }
 
-/** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum", sampling: "direct" | "truncate" }>} candidates */
+/** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric", numericKind?: "integer" | "decimal", sampling: "direct" | "truncate" }>} candidates */
 function summarizeSampleResult(result, selectedColumns, candidates) {
   if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return METADATA_ONLY_SAMPLE_RESULT;
+  const rows = result.rows.slice(0, DATA_SAMPLE_ROW_LIMIT).filter(Array.isArray);
   const columnIndexes = new Map();
   for (const [index, column] of result.columns.slice(0, selectedColumns.length).entries()) {
     if (isRecord(column) && typeof column.name === "string") columnIndexes.set(column.name, index);
@@ -142,12 +156,30 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
     if (!selectedColumns.includes(candidate.name)) continue;
     const index = columnIndexes.get(candidate.name);
     if (!Number.isSafeInteger(index)) continue;
-    const values = result.rows.slice(0, DATA_SAMPLE_ROW_LIMIT)
-      .filter(Array.isArray)
-      .map((row) => row[index])
-      .filter((value) => typeof value === "string" && value.length <= DATA_SAMPLE_FIELD_MAX_LENGTH && value.trim() !== "");
+    const rawValues = rows.map((row) => row[index]);
+    if (candidate.kind === "numeric") {
+      const present = rawValues.filter((value) => value !== null && value !== undefined && value !== "");
+      const values = present.map((value) => parseNumericValue(value, candidate.numericKind));
+      if (values.some((value) => value === null)) continue;
+      if (values.length > 0) sampleUsed = true;
+      if (values.length < NUMERIC_PATTERN_MIN_SAMPLES || looksLikeOrderedUniqueNumeric(values)) continue;
+      const ordered = [...values].sort(compareNumericValues);
+      evidence.push({
+        column: candidate.name,
+        kind: "numeric_range",
+        sampleCount: values.length,
+        min: ordered[0],
+        max: ordered.at(-1),
+        zeroCount: values.filter((value) => compareNumericValues(value, 0) === 0).length,
+      });
+      continue;
+    }
+
+    const values = rawValues
+      .filter((value) => typeof value === "string" && value.length <= DATA_SAMPLE_FIELD_MAX_LENGTH && value.trim() !== "")
+      .map((value) => value.trim());
     if (values.length > 0) sampleUsed = true;
-    if (candidate.kind !== "enum") {
+    if (["name", "email", "mobile"].includes(candidate.kind)) {
       const matchedCount = values.filter((value) => matchesSemanticPattern(candidate.kind, value)).length;
       if (values.length >= NAME_PATTERN_MIN_SAMPLES) {
         const matchedRatio = matchedCount / values.length;
@@ -158,15 +190,115 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
       }
       continue;
     }
-
-    const distinctCount = new Set(values.map((value) => value.trim().toLocaleLowerCase("en-US"))).size;
-    if (values.length >= ENUM_PATTERN_MIN_SAMPLES && distinctCount >= 2
-      && distinctCount <= ENUM_PATTERN_MAX_DISTINCT
-      && distinctCount / values.length <= ENUM_PATTERN_MAX_DISTINCT_RATIO) {
-      evidence.push({ column: candidate.name, kind: "enum_like", sampleCount: values.length, distinctCount });
+    if (candidate.kind === "filename") {
+      const profile = summarizeFilenameProfile(candidate.name, values);
+      if (profile) evidence.push(profile);
+      continue;
     }
+    const profile = summarizeCategoricalProfile(candidate.name, values);
+    if (profile) evidence.push(profile);
   }
   return { sampleUsed, evidence };
+}
+
+function summarizeCategoricalProfile(column, values) {
+  const counts = new Map();
+  for (const value of values) {
+    const normalized = value.toLocaleLowerCase("en-US");
+    const entry = counts.get(normalized) ?? { value, frequency: 0 };
+    entry.frequency += 1;
+    counts.set(normalized, entry);
+  }
+  const distinctCount = counts.size;
+  if (values.length < ENUM_PATTERN_MIN_SAMPLES || distinctCount < 2
+    || distinctCount > ENUM_PATTERN_MAX_DISTINCT || distinctCount >= values.length
+    || distinctCount / values.length > ENUM_PATTERN_MAX_DISTINCT_RATIO) return null;
+
+  const evidence = { column, kind: "enum_like", sampleCount: values.length, distinctCount };
+  if (isSafeCategoricalSampleColumn(column) && [...counts.values()].every(({ value }) => isSafeCategoricalValue(value))) {
+    evidence.candidates = [...counts.values()];
+  }
+  return evidence;
+}
+
+function summarizeFilenameProfile(column, values) {
+  if (values.length < FILENAME_PATTERN_MIN_SAMPLES) return null;
+  const matches = values.map((value) => /\.([a-z0-9]{1,8})$/iu.exec(value)?.[1]?.toLowerCase() ?? null);
+  const suffixMatches = matches.filter((suffix) => suffix !== null);
+  if (suffixMatches.length < FILENAME_PATTERN_MIN_SAMPLES
+    || suffixMatches.length / values.length < FILENAME_PATTERN_MIN_RATIO) return null;
+  const frequencies = new Map();
+  for (const suffix of suffixMatches) frequencies.set(suffix, (frequencies.get(suffix) ?? 0) + 1);
+  if (frequencies.size > 8 || frequencies.size >= suffixMatches.length) return null;
+  return {
+    column,
+    kind: "filename_pattern",
+    sampleCount: values.length,
+    matchedCount: suffixMatches.length,
+    suffixes: [...frequencies].map(([suffix, frequency]) => ({ suffix: `.${suffix}`, frequency })),
+  };
+}
+
+function parseNumericValue(value, numericKind) {
+  if (numericKind === "integer") {
+    if (typeof value === "number") return Number.isSafeInteger(value) ? value : null;
+    if (typeof value !== "string" || !/^[+-]?\d+$/u.test(value.trim())) return null;
+    const numeric = Number(value);
+    return Number.isSafeInteger(numeric) ? numeric : null;
+  }
+  if (numericKind !== "decimal") return null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || String(value).includes("e")) return null;
+    if (!Number.isSafeInteger(value) && String(value).replace(/\D/gu, "").replace(/^0+/u, "").length > 15) return null;
+    value = String(value);
+  }
+  if (typeof value !== "string" || value.length > 128) return null;
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/u.exec(value.trim());
+  if (!match) return null;
+  const integer = match[2].replace(/^0+(?=\d)/u, "");
+  const fraction = (match[3] ?? "").replace(/0+$/u, "");
+  if (/^0+$/u.test(integer) && fraction === "") return "0";
+  return `${match[1] === "-" ? "-" : ""}${integer}${fraction ? `.${fraction}` : ""}`;
+}
+
+function looksLikeOrderedUniqueNumeric(values) {
+  if (values.length < NUMERIC_PATTERN_MIN_SAMPLES || new Set(values.map(String)).size !== values.length) return false;
+  let ascending = true;
+  let descending = true;
+  for (let index = 1; index < values.length; index += 1) {
+    const comparison = compareNumericValues(values[index - 1], values[index]);
+    if (comparison >= 0) ascending = false;
+    if (comparison <= 0) descending = false;
+  }
+  return ascending || descending;
+}
+
+function compareNumericValues(left, right) {
+  const leftParts = numericParts(left);
+  const rightParts = numericParts(right);
+  if (!leftParts || !rightParts) throw new TypeError("Sample numeric values must be finite plain decimals");
+  const scale = Math.max(leftParts.fraction.length, rightParts.fraction.length);
+  const leftUnits = BigInt(`${leftParts.sign}${leftParts.integer}${leftParts.fraction.padEnd(scale, "0")}`);
+  const rightUnits = BigInt(`${rightParts.sign}${rightParts.integer}${rightParts.fraction.padEnd(scale, "0")}`);
+  if (leftUnits < rightUnits) return -1;
+  if (leftUnits > rightUnits) return 1;
+  return 0;
+}
+
+function numericParts(value) {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/u.exec(String(value));
+  if (!match) return null;
+  return {
+    sign: match[1] === "-" ? "-" : "",
+    integer: match[2],
+    fraction: match[3] ?? "",
+  };
+}
+
+function hasDatabaseIdentity(column) {
+  if (column.identity?.state !== "known") return false;
+  const value = column.identity.value;
+  return value !== false && value !== 0 && value !== "" && value !== "false" && value !== "no";
 }
 
 function matchesSemanticPattern(kind, value) {

@@ -50,6 +50,16 @@ function patternRows(names = privateNames, states = privateStates, roles = priva
   return names.map((name, index) => [name, states[index], roles[index]]);
 }
 
+function decimalUnits(value, scale) {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/u.exec(String(value));
+  assert.ok(match, `expected a plain decimal: ${String(value)}`);
+  const sign = match[1] === "-" ? -1n : 1n;
+  const whole = BigInt(match[2]);
+  const fraction = match[3] ?? "";
+  assert.ok(fraction.length <= scale);
+  return sign * (whole * (10n ** BigInt(scale)) + BigInt(fraction.padEnd(scale, "0") || "0"));
+}
+
 test("metadata-ready or unsupported columns produce no sampling candidates and no queryData call", async () => {
   let calls = 0;
   const host = { capabilities: { dataApi: true }, queryData: async () => { calls += 1; return resultFor([]); } };
@@ -67,8 +77,7 @@ test("metadata-ready or unsupported columns produce no sampling candidates and n
   const candidates = getSampleProbeCandidates(tableSchema);
   assert.deepEqual(candidates, [
     { name: "display_name", kind: "name", sampling: "direct" },
-    { name: "status", kind: "enum", sampling: "direct" },
-    { name: "role", kind: "enum", sampling: "direct" },
+    { name: "status", kind: "text", sampling: "direct" },
   ]);
   assert.equal(candidates.some(({ name }) => ["payload", "picture", "last_login_at", "id", "email"].includes(name)), false);
 });
@@ -76,7 +85,7 @@ test("metadata-ready or unsupported columns produce no sampling candidates and n
 test("bounded category varchar remains a direct-projection candidate", () => {
   const schema = schemaOf([{ name: "category", dataType: "varchar", nullable: true, length: 64 }]);
   assert.deepEqual(getSampleProbeCandidates(schema), [
-    { name: "category", kind: "enum", sampling: "direct" },
+    { name: "category", kind: "text", sampling: "direct" },
   ]);
 });
 
@@ -105,13 +114,13 @@ test("native unbounded text admits only existing strong semantic candidates", ()
     capacity: { model: "unbounded", source: "native-text-type" },
   });
   assert.deepEqual(getSampleProbeCandidates(schema), [
-    { name: "category", kind: "enum", sampling: "truncate" },
-    { name: "status", kind: "enum", sampling: "truncate" },
-    { name: "role", kind: "enum", sampling: "truncate" },
-    { name: "type", kind: "enum", sampling: "truncate" },
+    { name: "category", kind: "text", sampling: "truncate" },
+    { name: "status", kind: "text", sampling: "truncate" },
+    { name: "type", kind: "text", sampling: "truncate" },
     { name: "display_name", kind: "name", sampling: "truncate" },
     { name: "billing_email", kind: "email", sampling: "truncate" },
     { name: "primary_phone", kind: "mobile", sampling: "truncate" },
+    { name: "generic_unknown", kind: "text", sampling: "truncate" },
   ]);
 });
 
@@ -140,9 +149,11 @@ test("PostgreSQL category text triggers a bounded sample query and summary only"
   assert.match(requests[0].sql, /^SELECT SUBSTR\(ss\.category, 1, 1024\) AS category FROM audit_results AS ss LIMIT 8$/);
   assert.deepEqual(evidence, {
     sampleUsed: true,
-    evidence: [{ column: "category", kind: "enum_like", sampleCount: 5, distinctCount: 2 }],
+    evidence: [{
+      column: "category", kind: "enum_like", sampleCount: 5, distinctCount: 2,
+      candidates: [{ value: "active", frequency: 3 }, { value: "archived", frequency: 2 }],
+    }],
   });
-  assert.doesNotMatch(JSON.stringify(evidence), /active|archived/);
 });
 
 test("dataApi capability false gracefully falls back without queryData", async () => {
@@ -171,8 +182,8 @@ test("queryData reads only uncertain candidate columns using bounded rows and ti
   assert.equal(requests[0].schema, context.schema);
   assert.equal(requests[0].maxRows, DATA_SAMPLE_ROW_LIMIT);
   assert.equal(requests[0].timeoutMs, DATA_SAMPLE_TIMEOUT_MS, "an excessive timeout is clamped to the local bound");
-  assert.match(requests[0].sql, /^SELECT ss\.display_name, ss\.status, ss\.role FROM p_admin_user AS ss LIMIT 8$/);
-  assert.doesNotMatch(requests[0].sql, /\*|payload|picture|last_login_at|email|id/);
+  assert.match(requests[0].sql, /^SELECT ss\.display_name, ss\.status FROM p_admin_user AS ss LIMIT 8$/);
+  assert.doesNotMatch(requests[0].sql, /\*|payload|picture|last_login_at|email|role|id/);
   assert.match(requests[0].sql, /^SELECT\b/i);
   assert.doesNotMatch(requests[0].sql, /;|\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i);
   assert.deepEqual(evidence, {
@@ -180,50 +191,108 @@ test("queryData reads only uncertain candidate columns using bounded rows and ti
     evidence: [
       { column: "display_name", kind: "chinese_name_pattern", sampleCount: 5, matchedCount: 5 },
       { column: "status", kind: "enum_like", sampleCount: 5, distinctCount: 3 },
-      { column: "role", kind: "enum_like", sampleCount: 5, distinctCount: 3 },
     ],
   });
 });
 
-test("strongly rejected name patterns counter weak file_name and rule_name aliases", async () => {
-  const cases = [
-    {
-      column: "file_name",
-      values: ["foo.sql", "main.py", "UserService.java", "README.md", "schema.json", "data.csv", "index.ts", "Makefile"],
-      matchedCount: 0,
-    },
-    {
-      column: "rule_name",
-      values: ["null_check", "syntax_rule", "required_field", "duplicate_rule", "unique_key", "not_null", "type_check", "valid_email"],
-      matchedCount: 0,
-    },
-    {
-      column: "file_name",
-      values: ["张三", "foo.sql", "main.py", "UserService.java", "README.md", "schema.json", "data.csv", "index.ts"],
-      matchedCount: 1,
-    },
+test("sensitive monetary and location numeric columns are excluded from sample probes", () => {
+  const schema = schemaOf([
+    { name: "amount", dataType: "decimal", nullable: false, precision: 12, scale: 2 },
+    { name: "latitude", dataType: "decimal", nullable: false, precision: 9, scale: 6 },
+    { name: "金额", dataType: "decimal", nullable: false, precision: 12, scale: 2 },
+    { name: "metric_value", dataType: "decimal", nullable: false, precision: 12, scale: 2 },
+  ]);
+  assert.deepEqual(getSampleProbeCandidates(schema), [
+    { name: "metric_value", kind: "numeric", numericKind: "decimal", sampling: "direct" },
+  ]);
+});
+
+test("numeric profiles preserve exact decimal scale, observed bounds, and zero frequency", async () => {
+  const schema = schemaOf([{ name: "metric_value", dataType: "decimal", nullable: false, precision: 30, scale: 6 }]);
+  const values = ["0.000000", "9007199254740993.123456", "-3.123456", "4.120000", "12.000000"];
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns: [{ name: "metric_value" }], rows: values.map((value) => [value]) }),
+  }, context, schema);
+  assert.deepEqual(result.evidence, [{
+    column: "metric_value", kind: "numeric_range", sampleCount: 5,
+    min: "-3.123456", max: "9007199254740993.123456", zeroCount: 1,
+  }]);
+
+  const plan = buildGenerationPlan(schema, { rowCount: 20, seed: "exact-decimal-sample", sampleEvidence: result.evidence });
+  assert.equal(plan.columns[0].rule.kind, "sample_numeric");
+  assert.equal(plan.columns[0].rule.parameters.minUnits, "-3123456");
+  assert.equal(plan.columns[0].rule.parameters.maxUnits, "9007199254740993123456");
+  assert.equal(plan.columns[0].rule.parameters.zeroCount, 1);
+  const generated = generateRows(plan);
+  const minUnits = decimalUnits("-3.123456", 6);
+  const maxUnits = decimalUnits("9007199254740993.123456", 6);
+  assert.ok(generated.rows.every((row) => {
+    const units = decimalUnits(row.metric_value, 6);
+    return units >= minUnits && units <= maxUnits;
+  }));
+});
+
+test("ordered all-distinct numeric samples do not become identifier-like range evidence", async () => {
+  const schema = schemaOf([{ name: "event_counter", dataType: "integer", nullable: false }]);
+  const shortSequence = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns: [{ name: "event_counter" }], rows: [[1001], [1002], [1003]] }),
+  }, context, schema);
+  assert.deepEqual(shortSequence, { sampleUsed: true, evidence: [] }, "the minimum-sized ordered sample is rejected too");
+
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns: [{ name: "event_counter" }], rows: Array.from({ length: 8 }, (_value, index) => [1001 + index]) }),
+  }, context, schema);
+  assert.deepEqual(result, { sampleUsed: true, evidence: [] });
+  const plan = buildGenerationPlan(schema, { rowCount: 8, seed: "ordered-counter", sampleEvidence: result.evidence });
+  assert.equal(plan.columns[0].rule.kind, "integer");
+  assert.equal(plan.columns[0].rule.source, "schema_type_fallback");
+});
+
+test("filename suffix profiles retain only extensions and drive synthetic filename generation", async () => {
+  const column = "file_name";
+  const schema = schemaOf([{ name: column, dataType: "varchar", nullable: false, length: 128 }]);
+  const values = [
+    "dws_cust_asset_d.sql", "dws_cust_asset_i.sql", "dwd_acct_event_i.hql", "load_loan_daily.py",
+    "post_dws_cust_asset.sh", "dws_loan_balance_sum.json", "cust_asset_recv.json", "audit_snapshot.json",
   ];
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns: [{ name: column }], rows: values.map((value) => [value]) }),
+  }, context, schema);
+  assert.deepEqual(result, {
+    sampleUsed: true,
+    evidence: [{
+      column, kind: "filename_pattern", sampleCount: 8, matchedCount: 8,
+      suffixes: [
+        { suffix: ".sql", frequency: 2 }, { suffix: ".hql", frequency: 1 }, { suffix: ".py", frequency: 1 },
+        { suffix: ".sh", frequency: 1 }, { suffix: ".json", frequency: 3 },
+      ],
+    }],
+  });
+  for (const value of values) assert.equal(JSON.stringify(result).includes(value), false, `source filename ${value} must not escape`);
 
-  for (const { column, values, matchedCount } of cases) {
-    const schema = schemaOf([{ name: column, dataType: "varchar", nullable: true, length: 128 }]);
-    const result = await probeDbxDataSamples({
-      capabilities: { dataApi: true },
-      queryData: async () => ({ columns: [{ name: column }], rows: values.map((value) => [value]) }),
-    }, context, schema);
-    assert.deepEqual(result, {
-      sampleUsed: true,
-      evidence: [{ column, kind: "chinese_name_pattern_rejected", sampleCount: 8, matchedCount }],
-    });
-    for (const value of values) assert.equal(JSON.stringify(result).includes(value), false, `sample value ${value} must not escape`);
+  const plan = buildGenerationPlan(schema, { rowCount: 20, seed: "filename-sample", sampleEvidence: result.evidence });
+  const generated = generateRows(plan);
+  assert.equal(plan.columns[0].rule.kind, "sample_filename");
+  assert.equal(plan.columns[0].rule.source, "sample_inference");
+  assert.ok(generated.rows.every((row) => /^generated_[A-Za-z0-9]+\.(?:sql|hql|py|sh|json)$/u.test(row[column])));
+  assert.ok(generated.rows.every((row) => !values.includes(row[column])));
 
-    const plan = buildGenerationPlan(schema, { rowCount: 2, seed: "negative-name-evidence", sampleEvidence: result.evidence });
-    const inferred = plan.columns[0];
-    assert.equal(inferred.inference.status, "unknown");
-    assert.deepEqual(inferred.inference.candidates, []);
-    assert.equal(inferred.semanticMapping.status, "unknown");
-    assert.equal(inferred.rule.kind, "varchar");
-    assert.equal(plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
-  }
+  const nameSchema = schemaOf([{ name: "rule_name", dataType: "varchar", nullable: true, length: 128 }]);
+  const ruleNames = ["null_check", "syntax_rule", "required_field", "duplicate_rule", "unique_key", "not_null", "type_check", "valid_email"];
+  const negative = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns: [{ name: "rule_name" }], rows: ruleNames.map((value) => [value]) }),
+  }, context, nameSchema);
+  assert.deepEqual(negative.evidence, [
+    { column: "rule_name", kind: "chinese_name_pattern_rejected", sampleCount: 8, matchedCount: 0 },
+  ]);
+  const fallback = buildGenerationPlan(nameSchema, { rowCount: 2, seed: "negative-name-evidence", sampleEvidence: negative.evidence });
+  assert.equal(fallback.columns[0].rule.kind, "varchar");
+  assert.equal(fallback.columns[0].inference.status, "unknown");
 });
 
 test("mixed pattern samples remain inconclusive and preserve the weak candidate", async () => {
@@ -241,25 +310,39 @@ test("mixed pattern samples remain inconclusive and preserve the weak candidate"
   assert.equal(plan.columns[0].semanticMapping.status, "needs_confirmation");
 });
 
-test("enum sample thresholds stay unchanged while successful evidence-free samples are recorded", async () => {
+test("repeated low-cardinality labels become categorical profiles while all-distinct strings fall back", async () => {
   const schema = schemaOf([
     { name: "category", dataType: "varchar", nullable: true, length: 32 },
-    { name: "status", dataType: "varchar", nullable: true, length: 32 },
+    { name: "level", dataType: "varchar", nullable: true, length: 32 },
+    { name: "all_unique", dataType: "varchar", nullable: true, length: 32 },
   ]);
   const categoryValues = ["dws", "dws", "hive", "python", "sbin", "config", "recv", "dws"];
-  const statusValues = ["active", "active", "inactive", "active", "pending", "inactive", "pending", "active"];
+  const levelValues = ["err", "err", "err", "err", "warn", "err", "warn", "info"];
+  const uniqueValues = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
   const result = await probeDbxDataSamples({
     capabilities: { dataApi: true },
     queryData: async () => ({
-      columns: [{ name: "category" }, { name: "status" }],
-      rows: categoryValues.map((category, index) => [category, statusValues[index]]),
+      columns: [{ name: "category" }, { name: "level" }, { name: "all_unique" }],
+      rows: categoryValues.map((category, index) => [category, levelValues[index], uniqueValues[index]]),
     }),
   }, context, schema);
 
   assert.equal(result.sampleUsed, true);
-  assert.deepEqual(result.evidence, [{ column: "status", kind: "enum_like", sampleCount: 8, distinctCount: 3 }]);
-  const plan = buildGenerationPlan(schema, { rowCount: 2, seed: "enum-threshold", sampleEvidence: result.evidence });
-  assert.equal(plan.columns[0].inference.recommendation, null, "category with 8 rows / 6 values stays inconclusive");
+  assert.deepEqual(result.evidence, [
+    { column: "category", kind: "enum_like", sampleCount: 8, distinctCount: 6, candidates: [
+      { value: "dws", frequency: 3 }, { value: "hive", frequency: 1 }, { value: "python", frequency: 1 },
+      { value: "sbin", frequency: 1 }, { value: "config", frequency: 1 }, { value: "recv", frequency: 1 },
+    ] },
+    { column: "level", kind: "enum_like", sampleCount: 8, distinctCount: 3, candidates: [
+      { value: "err", frequency: 5 }, { value: "warn", frequency: 2 }, { value: "info", frequency: 1 },
+    ] },
+  ]);
+  assert.doesNotMatch(JSON.stringify(result), /alpha|bravo|charlie|delta|echo|foxtrot|golf|hotel/);
+  const plan = buildGenerationPlan(schema, { rowCount: 20, seed: "categorical-profile", sampleEvidence: result.evidence });
+  assert.equal(plan.columns[0].rule.kind, "sample_enum");
+  assert.equal(plan.columns[1].rule.kind, "sample_enum");
+  assert.equal(plan.columns[2].rule.kind, "varchar");
+  assert.deepEqual(plan.columns[0].inference.recommendation, { kind: "enum", source: "sample_inference" });
   assert.deepEqual(plan.columns[1].inference.recommendation, { kind: "enum", source: "sample_inference" });
 });
 
@@ -274,7 +357,10 @@ test("all-NULL and inconsistent name samples do not create inference evidence", 
     capabilities: { dataApi: true },
     queryData: async () => resultFor([["张三", "ACTIVE", "ADMIN"], ["A1", "DISABLED", "EDITOR"], ["test", "ACTIVE", "ADMIN"], ["UNKNOWN", "LOCKED", "VIEWER"]]),
   }, context, sampleTableSchema());
-  assert.deepEqual(mixed, { sampleUsed: true, evidence: [] });
+  assert.deepEqual(mixed, {
+    sampleUsed: true,
+    evidence: [{ column: "status", kind: "enum_like", sampleCount: 4, distinctCount: 3 }],
+  });
 });
 
 test("permission denial, query errors, and timeout return metadata-only evidence", async () => {
@@ -355,7 +441,10 @@ test("sample summaries raise display_name confidence but never copy source value
   ]);
   const sampleEvidence = [
     { column: "display_name", kind: "chinese_name_pattern", sampleCount: 5, matchedCount: 5 },
-    { column: "status", kind: "enum_like", sampleCount: 5, distinctCount: 3 },
+    {
+      column: "status", kind: "enum_like", sampleCount: 5, distinctCount: 3,
+      candidates: [{ value: "active", frequency: 3 }, { value: "archived", frequency: 1 }, { value: "pending", frequency: 1 }],
+    },
     { column: "role", kind: "enum_like", sampleCount: 5, distinctCount: 3 },
   ];
   const plan = buildGenerationPlan(schema, { rowCount: 20, seed: "synthetic-only", sampleEvidence });
@@ -369,12 +458,17 @@ test("sample summaries raise display_name confidence but never copy source value
   assert.ok(generated.rows.every((row) => !privateStates.includes(row.status)));
   assert.ok(generated.rows.every((row) => !privateRoles.includes(row.role)));
 
-  for (const name of ["status", "role"]) {
-    const column = plan.columns.find((entry) => entry.schema.name === name);
-    assert.equal(column.inference.recommendation.kind, "enum");
-    const view = toColumnViewModel(column, plan.diagnostics, { translator: createI18n("zh-CN") });
-    assert.equal(view.recommendation.label, "枚举值");
-  }
+  const status = plan.columns.find((entry) => entry.schema.name === "status");
+  assert.equal(status.inference.recommendation.kind, "enum");
+  assert.equal(status.rule.kind, "sample_enum");
+  const statusView = toColumnViewModel(status, plan.diagnostics, { translator: createI18n("zh-CN") });
+  assert.equal(statusView.recommendation.label, "枚举值");
+  assert.equal(statusView.selectedMapping, "枚举采样");
+  assert.equal(statusView.mappingStatusToken, "sampleStrategy");
+
+  const role = plan.columns.find((entry) => entry.schema.name === "role");
+  assert.equal(role.inference.recommendation, null, "sensitive category labels without safe candidates are not recommended");
+  assert.equal(role.rule.kind, "varchar");
   const timestamp = plan.table.columns.find((column) => column.name === "last_login_at");
   assert.deepEqual(timestamp.precision, { state: "known", value: 6 });
   assert.equal(plan.diagnostics.some((entry) => entry.code === "timestamp_precision_unknown" && entry.column === "last_login_at"), false);
@@ -400,11 +494,12 @@ test("controller reports metadata-only when there are no probe candidates", asyn
   assert.equal(view.sampleUsed, false);
 });
 
-test("controller marks valid sample rows as used even when no semantic evidence is produced", async () => {
+test("controller applies safe category profiles and shows their effective strategy", async () => {
   const schema = schemaOf([{ name: "category", dataType: "text", nullable: true }]);
   const values = ["dws", "dws", "hive", "python", "sbin", "config", "recv", "dws"];
   const controller = new DbxGenerationWorkbenchController({
     provider: { async getTableMetadata() { return schema; } },
+    translator: createI18n("zh-CN"),
     sampleProbe: ({ context: sampleContext, schema: sampleSchema }) => probeDbxDataSamples({
       capabilities: { dataApi: true },
       queryData: async () => ({ columns: [{ name: "category" }], rows: values.map((value) => [value]) }),
@@ -417,8 +512,11 @@ test("controller marks valid sample rows as used even when no semantic evidence 
   const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
 
   assert.equal(view.sampleUsed, true);
-  assert.deepEqual(controller.sampleEvidence, []);
-  assert.equal(view.columns.find((column) => column.column === "category").recommendation, null);
+  assert.equal(controller.sampleEvidence[0].kind, "enum_like");
+  assert.equal(view.columns.find((column) => column.column === "category").rule.kind, "sample_enum");
+  const category = view.columns.find((column) => column.column === "category");
+  assert.equal(category.selectedMapping, "枚举采样");
+  assert.equal(category.mappingStatusToken, "sampleStrategy");
 });
 
 test("Workbench session probes a table once, caches summaries only, and never resamples for UI edits", async () => {
@@ -495,7 +593,7 @@ test("sample probe failure falls back to a usable metadata-only Workbench previe
     provider: { async getTableMetadata() { return schema; } },
     async sampleProbe({ candidates }) {
       calls += 1;
-      assert.deepEqual(candidates, [{ name: "status", kind: "enum", sampling: "truncate" }]);
+      assert.deepEqual(candidates, [{ name: "status", kind: "text", sampling: "truncate" }]);
       throw new Error("PLUGIN_DATA_ACCESS_NOT_GRANTED: private sample details");
     },
     async preview(tableSchema, options) {

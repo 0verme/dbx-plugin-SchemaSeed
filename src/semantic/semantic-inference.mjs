@@ -5,6 +5,7 @@ import {
   NAME_PATTERN_MIN_SAMPLES,
   PATTERN_NEGATIVE_MAX_RATIO,
   SAMPLE_EVIDENCE_MAX_ROWS,
+  isFilenameColumnName,
   sampleEvidenceToCoreEvidence,
 } from "./sample-evidence.mjs";
 
@@ -34,7 +35,7 @@ const stringSemanticTypes = new Set(["name", "gender", "mobile", "email", "addre
  * sample summaries. Raw sample rows are analyzed outside Core and never enter this function.
  * @param {import("../schema/schema-model.mjs").ColumnSchema} column
  * @param {string} locale
- * @param {{ kind: string, sampleCount: number, matchedCount?: number, distinctCount?: number } | null} [sampleSummary]
+ * @param {{ kind: string, sampleCount: number, matchedCount?: number, distinctCount?: number, min?: number | string, max?: number | string, zeroCount?: number, candidates?: Array<{ value: string, frequency: number }>, suffixes?: Array<{ suffix: string, frequency: number }> } | null} [sampleSummary]
  */
 export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null) {
   const normalizedName = normalizeColumnName(column.name);
@@ -47,7 +48,10 @@ export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null
     }
   }
 
-  const matches = exactMatches.length > 0 ? exactMatches : findTokenMatches(normalizedName);
+  let matches;
+  if (sampleSummary?.kind === "filename_pattern") matches = [];
+  else if (exactMatches.length > 0) matches = exactMatches;
+  else matches = findTokenMatches(normalizedName);
   const semanticCandidates = [...new Set(matches.map((match) => match.semanticType))];
   const nameEvidence = matches.map((match) => createEvidence({
     kind: match.quality === "exact" ? EVIDENCE_KINDS.columnNameExactAlias : EVIDENCE_KINDS.columnNameAliasToken,
@@ -60,16 +64,26 @@ export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null
   }));
 
   if (semanticCandidates.length === 0) {
-    const sampleEvidence = sampleSummary?.kind === "enum_like"
+    const sampleEvidence = ["enum_like", "numeric_range", "filename_pattern"].includes(sampleSummary?.kind)
       ? sampleEvidenceToCoreEvidence(sampleSummary, column.name)
       : null;
+    const schemaKind = interpretColumnType(column)?.kind;
+    let recommendationKind = null;
+    if (sampleSummary?.kind === "enum_like" && schemaKind === "varchar"
+      && Array.isArray(sampleSummary.candidates) && sampleSummary.candidates.length >= 2) {
+      recommendationKind = "enum";
+    } else if (sampleSummary?.kind === "numeric_range" && ["integer", "decimal"].includes(schemaKind)) {
+      recommendationKind = "sample_numeric";
+    } else if (sampleSummary?.kind === "filename_pattern" && schemaKind === "varchar" && isFilenameColumnName(column.name)) {
+      recommendationKind = "sample_filename";
+    }
     return Object.freeze({
       semanticType: "unknown",
       confidence: "unknown",
       evidence: Object.freeze(sampleEvidence ? [sampleEvidence] : []),
       candidates: Object.freeze([]),
       status: "unknown",
-      recommendation: sampleEvidence ? Object.freeze({ kind: "enum", source: "sample_inference" }) : null,
+      recommendation: recommendationKind ? Object.freeze({ kind: recommendationKind, source: "sample_inference" }) : null,
       normalizedName,
     });
   }
