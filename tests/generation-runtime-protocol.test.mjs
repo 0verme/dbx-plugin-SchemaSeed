@@ -113,6 +113,27 @@ test("runtime transports bounded sample profiles and rejects copied row values",
   assert.ok(profiled.result.generated.rows.every((row) => Number.isInteger(row.line_no) && row.line_no >= 0 && row.line_no <= 8));
   assert.ok(profiled.result.generated.rows.every((row) => /^generated_[A-Za-z0-9]+\.(?:sql|py)$/u.test(row.file_name)));
 
+  const temporal = handleRuntimeRpcRequest(request({
+    schema: {
+      tableIdentity: schema.tableIdentity,
+      columns: [{ name: "started_at", dataType: "timestamp", nullable: true, precision: 6 }],
+    },
+    options: {
+      ...options,
+      sampleEvidence: [{
+        column: "started_at", kind: "temporal_range", temporalKind: "timestamp", sampleCount: 4,
+        nullCount: 1, nullRate: 0.25, observedCount: 3,
+        observedMin: "2026-06-01 08:00:00.123456", observedMax: "2026-07-31 23:59:59.999999",
+        precision: 6, timezoneAware: false,
+      }],
+    },
+  }));
+  assert.equal(temporal.error, undefined);
+  assert.equal(temporal.result.plan.columns[0].rule.kind, "timestamp_range");
+  assert.equal(temporal.result.plan.columns[0].nullProbability, 0.25);
+  assert.ok(temporal.result.generated.rows.every((row) => row.started_at === null
+    || (row.started_at >= "2026-06-01 08:00:00.123456" && row.started_at <= "2026-07-31 23:59:59.999999")));
+
   const withRawValues = handleRuntimeRpcRequest(request({
     schema,
     options: { ...options, sampleEvidence: [{ column: "label", kind: "enum_like", sampleCount: 4, distinctCount: 2, values: ["SECRET"] }] },

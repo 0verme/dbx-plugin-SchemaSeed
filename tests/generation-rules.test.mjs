@@ -28,7 +28,7 @@ const schemas = {
   varchar: [column("value", "VARCHAR", { length: 20 })],
   boolean: [column("value", "BOOLEAN")],
   date: [column("value", "DATE")],
-  timestamp: [column("value", "TIMESTAMP", { precision: 6 })],
+  timestamp: [column("value", "TIMESTAMPTZ", { precision: 6 })],
 };
 
 describe("GenerationRule v0.1 domain model and validation", () => {
@@ -64,7 +64,7 @@ describe("GenerationRule v0.1 domain model and validation", () => {
       [column("s", "VARCHAR", { length: 20 }), { kind: "enum", values: ["a", "b"] }],
       [column("b", "BOOLEAN"), { kind: "boolean_ratio", trueRatio: 0.5 }],
       [column("d", "DATE"), { kind: "date_range", start: "2024-01-01", end: "2024-01-02" }],
-      [column("t", "TIMESTAMP", { precision: 3 }), { kind: "timestamp_range", start: "2024-01-01T00:00:00Z", end: "2024-01-02T00:00:00Z" }],
+      [column("t", "TIMESTAMPTZ", { precision: 3 }), { kind: "timestamp_range", start: "2024-01-01T00:00:00Z", end: "2024-01-02T00:00:00Z" }],
       [column("u", "UUID"), { kind: "uuid" }],
       [column("i", "INTEGER", { nullable: true }), { kind: "null_ratio", ratio: 0.5 }],
       [column("name", "VARCHAR", { length: 64 }), { kind: "semantic", semanticType: "name" }],
@@ -105,7 +105,7 @@ describe("GenerationRule scalar strategies", () => {
       column("money", "DECIMAL", { precision: 5, scale: 2 }),
       column("flag", "BOOLEAN"),
       column("day", "DATE"),
-      column("instant", "TIMESTAMP", { precision: 3 }),
+      column("instant", "TIMESTAMPTZ", { precision: 3 }),
     ], {
       integer_value: { kind: "constant", value: 42 },
       text_value: { kind: "constant", value: "猫a" },
@@ -277,9 +277,54 @@ describe("GenerationRule scalar strategies", () => {
     assert.equal(rowsFor(preEpoch)[0].value, "1969-12-31T23:59:59.000001Z");
     assert.equal(planFor(schemas.date, { value: { kind: "date_range", start: "2024-02-30", end: "2024-03-01" } }).status, "blocked");
     assert.equal(planFor(schemas.date, { value: { kind: "date_range", start: "2024-03-02", end: "2024-03-01" } }).status, "blocked");
-    assert.equal(planFor([column("ts", "TIMESTAMP", { precision: 3 })], { ts: {
+    assert.equal(planFor([column("ts", "TIMESTAMPTZ", { precision: 3 })], { ts: {
       kind: "timestamp_range", start: "2024-01-01T00:00:00.0001Z", end: "2024-01-01T00:00:00.0002Z",
     } }).status, "blocked");
+  });
+
+  it("preserves TIMESTAMP wall-clock values and normalizes TIMESTAMPTZ offsets as instants", () => {
+    const localColumn = column("local_time", "TIMESTAMP", { precision: 6 });
+    const localPlan = planFor([localColumn], { local_time: {
+      kind: "timestamp_range", start: "2024-03-10 01:59:59.999999", end: "2024-03-10 03:00:00.000001",
+    } }, { rowCount: 20 });
+    const localRows = rowsFor(localPlan);
+    assert.ok(localRows.every(({ local_time }) => /^2024-03-10 \d{2}:\d{2}:\d{2}\.\d{6}$/u.test(local_time)));
+    assert.ok(localRows.every(({ local_time }) => local_time >= "2024-03-10 01:59:59.999999" && local_time <= "2024-03-10 03:00:00.000001"));
+    assert.equal(planFor([localColumn], { local_time: {
+      kind: "timestamp_range", start: "2024-03-10T01:59:59Z", end: "2024-03-10T03:00:00Z",
+    } }).status, "blocked", "TIMESTAMP without time zone rejects timezone-bearing literals");
+
+    const instantColumn = column("instant", "TIMESTAMPTZ", { precision: 6 });
+    const instantPlan = planFor([instantColumn], { instant: {
+      kind: "timestamp_range", start: "2024-06-01T12:00:00+08:00", end: "2024-06-01T04:00:00.000002Z",
+    } }, { rowCount: 20 });
+    assert.ok(rowsFor(instantPlan).every(({ instant }) => /^2024-06-01T04:00:00\.00000[0-2]Z$/u.test(instant)));
+    assert.equal(planFor([instantColumn], { instant: {
+      kind: "timestamp_range", start: "2024-06-01 04:00:00", end: "2024-06-01 04:00:01",
+    } }).status, "blocked", "TIMESTAMPTZ requires an explicit timezone");
+
+    const localConstant = planFor([localColumn], { local_time: { kind: "constant", value: "2024-02-29 12:30:00.123" } }, { rowCount: 1 });
+    assert.equal(rowsFor(localConstant)[0].local_time, "2024-02-29 12:30:00.123000");
+    assert.equal(planFor([instantColumn], { instant: { kind: "constant", value: "2024-02-29 12:30:00" } }).status, "blocked");
+
+    const unknownPrecisionOverride = planFor([column("local_unknown", "TIMESTAMP")], {}, {
+      overrides: { local_unknown: { type: "timestamp", min: "2024-01-01 00:00:00.123", max: "2024-01-01 00:00:01.456" } },
+    });
+    assert.equal(unknownPrecisionOverride.status, "ready_with_warnings");
+    assert.ok(rowsFor(unknownPrecisionOverride).every(({ local_unknown }) => /\.\d{3}$/u.test(local_unknown)));
+    const overPrecisionOverride = planFor([column("local_unknown", "TIMESTAMP")], {}, {
+      overrides: { local_unknown: { type: "timestamp", min: "2024-01-01 00:00:00.123456", max: "2024-01-01 00:00:01.123457" } },
+    });
+    assert.equal(overPrecisionOverride.status, "blocked");
+
+    const wholeSecondOverride = planFor([column("local_second", "TIMESTAMP", { precision: 0 })], {}, {
+      overrides: { local_second: { type: "timestamp", min: "2024-01-01 00:00:00" } },
+      rowCount: 3,
+    });
+    assert.ok(rowsFor(wholeSecondOverride).every(({ local_second }) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(local_second)));
+
+    const wholeSecondFallback = planFor([column("local_second", "TIMESTAMP", { precision: 0 })], {}, { rowCount: 3 });
+    assert.ok(rowsFor(wholeSecondFallback).every(({ local_second }) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(local_second)));
   });
 
   it("generates RFC-shaped deterministic UUIDs from row identity", () => {

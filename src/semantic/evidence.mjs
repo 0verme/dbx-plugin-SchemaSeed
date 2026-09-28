@@ -30,6 +30,7 @@ export const EVIDENCE_KINDS = Object.freeze({
   sampleMobilePatternRejected: "sample_mobile_pattern_rejected",
   sampleEnumLike: "sample_enum_like",
   sampleNumericRange: "sample_numeric_range",
+  sampleTemporalRange: "sample_temporal_range",
   sampleFilenamePattern: "sample_filename_pattern",
 });
 

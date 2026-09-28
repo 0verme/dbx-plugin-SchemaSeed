@@ -5,8 +5,8 @@ const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012
 const DAY_MS = 86_400_000n;
 const DEFAULT_DATE_MIN = Date.parse("2000-01-01T00:00:00.000Z");
 const DEFAULT_DATE_MAX = Date.parse("2030-12-31T00:00:00.000Z");
-const DEFAULT_TIMESTAMP_MIN = Date.parse("2000-01-01T00:00:00.000Z");
-const DEFAULT_TIMESTAMP_MAX = Date.parse("2035-12-31T23:59:59.999Z");
+const DEFAULT_TIMESTAMP_MIN = BigInt(Date.parse("2000-01-01T00:00:00.000Z")) * 1_000_000n;
+const DEFAULT_TIMESTAMP_MAX = BigInt(Date.parse("2035-12-31T23:59:59.999Z")) * 1_000_000n;
 
 /** Build a finite, directly indexable domain or explain why it cannot be proved. */
 export function describeConstraintDomain(columnPlan, rowCount) {
@@ -75,13 +75,16 @@ export function describeConstraintDomain(columnPlan, rowCount) {
       return known("date", capacity, (index) => new Date(start + Number(index * DAY_MS)).toISOString().slice(0, 10));
     }
     case "timestamp_range": {
-      const start = parseTimestamp(p.start);
-      const end = parseTimestamp(p.end);
-      if (!start || !end) return unsupported("Timestamp Range bounds are not indexable");
-      const precision = schema.precision.state === "known" ? schema.precision.value : 3;
+      const timezoneAware = p.timezoneAware === true;
+      const start = parseTimestamp(p.start, { timezoneAware });
+      const end = parseTimestamp(p.end, { timezoneAware });
+      if (!start || !end || start.nanoseconds > end.nanoseconds) return unsupported("Timestamp Range bounds are not indexable");
+      const precision = Number.isSafeInteger(p.precision) ? p.precision : schema.precision.state === "known" ? schema.precision.value : 3;
+      if (precision < 0 || precision > 9) return unsupported("Timestamp Range precision is not indexable");
       const quantum = 10n ** BigInt(9 - precision);
+      if (start.nanoseconds % quantum !== 0n || end.nanoseconds % quantum !== 0n) return unsupported("Timestamp Range bounds are not aligned to generation precision");
       const capacity = (end.nanoseconds - start.nanoseconds) / quantum + 1n;
-      return known("timestamp", capacity, (index) => formatTimestamp(start.nanoseconds + index * quantum, precision));
+      return known("timestamp", capacity, (index) => formatTimestamp(start.nanoseconds + index * quantum, precision, timezoneAware));
     }
     case "uuid":
       return uuidDomain();
@@ -117,13 +120,20 @@ export function describeConstraintDomain(columnPlan, rowCount) {
       return known("date", capacity, (index) => new Date(start + Number(index * DAY_MS)).toISOString().slice(0, 10));
     }
     case "timestamp": {
-      const start = p.min === undefined ? DEFAULT_TIMESTAMP_MIN : Date.parse(p.min);
-      const end = p.max === undefined ? DEFAULT_TIMESTAMP_MAX : Date.parse(p.max);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return unsupported("Timestamp fallback bounds are not indexable");
+      const timezoneAware = p.timezoneAware === true;
+      const start = p.min === undefined ? DEFAULT_TIMESTAMP_MIN
+        : parseTimestamp(p.min, { timezoneAware })?.nanoseconds ?? null;
+      const end = p.max === undefined ? DEFAULT_TIMESTAMP_MAX
+        : parseTimestamp(p.max, { timezoneAware })?.nanoseconds ?? null;
+      if (start === null || end === null || start > end) return unsupported("Timestamp fallback bounds are not indexable");
       const precision = schema.precision.state === "known" ? schema.precision.value : 3;
-      const quantumMs = precision < 3 ? 10 ** (3 - precision) : 1;
-      const capacity = BigInt(Math.floor((end - start) / quantumMs) + 1);
-      return known("timestamp", capacity, (index) => formatTimestamp(BigInt(start + Number(index) * quantumMs) * 1_000_000n, precision));
+      if (!Number.isSafeInteger(precision) || precision < 0 || precision > 9) return unsupported("Timestamp precision is not indexable");
+      const quantum = 10n ** BigInt(9 - precision);
+      if (start % quantum !== 0n) return unsupported("Timestamp fallback minimum is not aligned to generation precision");
+      const alignedEnd = end - end % quantum;
+      if (alignedEnd < start) return unsupported("Timestamp fallback bounds contain no value at generation precision");
+      const capacity = (alignedEnd - start) / quantum + 1n;
+      return known("timestamp", capacity, (index) => formatTimestamp(start + index * quantum, precision, timezoneAware));
     }
     default:
       return unsupported(rule.kind.startsWith("semantic:")

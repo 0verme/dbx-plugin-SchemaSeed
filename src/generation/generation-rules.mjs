@@ -1,7 +1,10 @@
 import { sha256Hex } from "./sha256.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
+import { formatDate, formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import { interpretColumnType, interpretStringCapacity } from "../schema/schema-interpreter.mjs";
 import { checkSemanticCompatibility, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
+
+export { formatDate, formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 
 export const GENERATION_RULE_KINDS = Object.freeze([
   "auto",
@@ -135,12 +138,15 @@ export function createGenerationRuleDraft(column, kind) {
   const family = type?.kind;
   switch (kind) {
     case "auto": return { kind };
-    case "constant":
-      return { kind, value: family === "integer" ? 0
+    case "constant": {
+      const timestampDraft = type?.parameters.timezoneAware === true ? "2000-01-01T00:00:00Z" : "2000-01-01 00:00:00";
+      const value = family === "integer" ? 0
         : family === "decimal" ? formatDecimalUnits(0n, safeDraftDecimalScale(column))
           : family === "boolean" ? false
             : family === "date" ? "2000-01-01"
-              : family === "timestamp" ? "2000-01-01T00:00:00Z" : "" };
+              : family === "timestamp" ? timestampDraft : "";
+      return { kind, value };
+    }
     case "sequence": {
       if (family !== "decimal") return { kind, start: 1, step: 1 };
       const scale = safeDraftDecimalScale(column);
@@ -170,7 +176,9 @@ export function createGenerationRuleDraft(column, kind) {
     case "date_range":
       return { kind, start: "2000-01-01", end: "2030-12-31" };
     case "timestamp_range":
-      return { kind, start: "2000-01-01T00:00:00Z", end: "2030-12-31T23:59:59Z" };
+      return type?.parameters.timezoneAware === true
+        ? { kind, start: "2000-01-01T00:00:00Z", end: "2030-12-31T23:59:59Z" }
+        : { kind, start: "2000-01-01 00:00:00", end: "2030-12-31 23:59:59" };
     case "uuid":
       return { kind };
     case "null_ratio":
@@ -202,8 +210,8 @@ export function getGenerationRuleEditorFields(column, rule) {
     case "boolean_ratio": add("trueRatio", "True ratio (0–1)", "ratio", rule.trueRatio); break;
     case "date_range":
     case "timestamp_range":
-      add("start", "Start (UTC)", "text", rule.start);
-      add("end", "End (UTC)", "text", rule.end);
+      add("start", "Start", "text", rule.start);
+      add("end", "End", "text", rule.end);
       break;
     case "null_ratio": add("ratio", "Null ratio (0–1)", "ratio", rule.ratio); break;
     case "semantic": add("semanticType", "Semantic type", "semantic", rule.semanticType); break;
@@ -433,9 +441,10 @@ export function validateGenerationRule(column, rawRule, options = {}) {
     if (family !== "timestamp") return incompatible("a timestamp schema");
     const precision = timestampPrecision(column);
     if (!precision.ok) return fail(precision.code, precision.reason, precision.severity);
-    const start = parseTimestamp(normalized.start);
-    const end = parseTimestamp(normalized.end);
-    if (!start || !end) return fail("generation_rule_invalid", "Timestamp Range start/end must be valid UTC ISO timestamps ending in Z");
+    const timezoneAware = type.parameters.timezoneAware === true;
+    const start = parseTimestamp(normalized.start, { timezoneAware });
+    const end = parseTimestamp(normalized.end, { timezoneAware });
+    if (!start || !end) return fail("generation_rule_invalid", `Timestamp Range start/end must be valid ${timezoneAware ? "timezone-aware ISO timestamps" : "timezone-free local timestamps"}`);
     if (start.nanoseconds > end.nanoseconds) return fail("generation_rule_invalid", "Timestamp Range start must be earlier than or equal to end");
     if (start.precision > precision.value || end.precision > precision.value) {
       return fail("generation_rule_incompatible", `Timestamp Range fractional digits exceed the schema precision ${precision.value}`);
@@ -444,8 +453,8 @@ export function validateGenerationRule(column, rawRule, options = {}) {
     if (start.nanoseconds % quantum !== 0n || end.nanoseconds % quantum !== 0n) {
       return fail("generation_rule_incompatible", `Timestamp Range boundaries must align with schema precision ${precision.value}`);
     }
-    normalized.start = formatTimestamp(start.nanoseconds, precision.value);
-    normalized.end = formatTimestamp(end.nanoseconds, precision.value);
+    normalized.start = formatTimestamp(start.nanoseconds, precision.value, timezoneAware);
+    normalized.end = formatTimestamp(end.nanoseconds, precision.value, timezoneAware);
     if (column.precision?.state !== "known") {
       diagnostics.push(makeDiagnostic({
         severity: "warning",
@@ -545,10 +554,11 @@ function validateScalarValue(column, value) {
     case "timestamp": {
       const precision = timestampPrecision(column);
       if (!precision.ok) return { ok: false, ...precision };
-      const parsed = parseTimestamp(value);
-      if (!parsed) return failScalar("generation_rule_incompatible", "Timestamp value must be a valid UTC ISO timestamp ending in Z");
+      const timezoneAware = type.parameters.timezoneAware === true;
+      const parsed = parseTimestamp(value, { timezoneAware });
+      if (!parsed) return failScalar("generation_rule_incompatible", `Timestamp value must be a valid ${timezoneAware ? "timezone-aware ISO timestamp" : "timezone-free local timestamp"}`);
       if (parsed.precision > precision.value) return failScalar("generation_rule_incompatible", `Timestamp fractional digits exceed schema precision ${precision.value}`);
-      return { ok: true, value: formatTimestamp(parsed.nanoseconds, precision.value) };
+      return { ok: true, value: formatTimestamp(parsed.nanoseconds, precision.value, timezoneAware) };
     }
     default:
       return failScalar("generation_rule_incompatible", `Constant/Enum do not support schema family ${type.kind}`);
@@ -618,48 +628,6 @@ export function formatDecimalUnits(units, scale) {
   return `${negative ? "-" : ""}${padded.slice(0, -scale)}.${padded.slice(-scale)}`;
 }
 
-/** @param {unknown} value */
-function parseDate(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const millis = Date.parse(`${value}T00:00:00.000Z`);
-  return Number.isFinite(millis) && new Date(millis).toISOString().slice(0, 10) === value ? millis : null;
-}
-
-/** @param {number} millis */
-function formatDate(millis) {
-  return new Date(millis).toISOString().slice(0, 10);
-}
-
-/** @param {unknown} value */
-export function parseTimestamp(value) {
-  const match = typeof value === "string"
-    ? value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/)
-    : null;
-  if (!match) return null;
-  const [, date, hourText, minuteText, secondText, fraction = ""] = match;
-  const millis = parseDate(date);
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
-  if (millis === null || hour > 23 || minute > 59 || second > 59) return null;
-  const nanos = BigInt(fraction.padEnd(9, "0") || "0");
-  const nanoseconds = BigInt(millis) * 1_000_000n + BigInt(hour * 3600 + minute * 60 + second) * 1_000_000_000n + nanos;
-  return { nanoseconds, precision: fraction.length };
-}
-
-/** @param {bigint} nanoseconds @param {number} precision */
-export function formatTimestamp(nanoseconds, precision) {
-  let seconds = nanoseconds / 1_000_000_000n;
-  let fractionValue = nanoseconds % 1_000_000_000n;
-  if (fractionValue < 0n) {
-    seconds -= 1n;
-    fractionValue += 1_000_000_000n;
-  }
-  const base = new Date(Number(seconds * 1_000n)).toISOString().replace(/\.\d{3}Z$/, "");
-  if (precision === 0) return `${base}Z`;
-  const fraction = fractionValue.toString().padStart(9, "0").slice(0, precision);
-  return `${base}.${fraction}Z`;
-}
 
 /** @param {import("../schema/schema-model.mjs").ColumnSchema} column */
 export function isUuidType(column) {

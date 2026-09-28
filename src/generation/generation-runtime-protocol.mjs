@@ -8,6 +8,7 @@ const MAX_PREVIEW_ROWS = 100;
 const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings", "sampleEvidence"]);
 const SAMPLE_EVIDENCE_FIELDS = new Set([
   "column", "kind", "sampleCount", "matchedCount", "distinctCount", "min", "max", "zeroCount", "candidates", "suffixes",
+  "temporalKind", "nullCount", "nullRate", "observedCount", "observedMin", "observedMax", "precision", "timezoneAware",
 ]);
 
 /**

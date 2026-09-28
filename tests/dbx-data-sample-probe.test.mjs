@@ -9,6 +9,7 @@ import { generateRows } from "../src/generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { interpretColumnType } from "../src/schema/schema-interpreter.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
+import { parseTimestamp } from "../src/schema/temporal-values.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 import { toColumnViewModel } from "../src/workbench/workbench-view-model.mjs";
 import { createI18n } from "../src/i18n/index.mjs";
@@ -67,7 +68,6 @@ test("metadata-ready or unsupported columns produce no sampling candidates and n
     { name: "id", dataType: "integer", nullable: false },
     { name: "name", dataType: "varchar", nullable: false, length: 128 },
     { name: "email", dataType: "varchar", nullable: true, length: 254 },
-    { name: "created_at", dataType: "timestamp", nullable: false, precision: 6 },
   ]);
   assert.deepEqual(getSampleProbeCandidates(metadataSufficient), []);
   assert.deepEqual(await probeDbxDataSamples(host, context, metadataSufficient), { sampleUsed: false, evidence: [] });
@@ -80,6 +80,21 @@ test("metadata-ready or unsupported columns produce no sampling candidates and n
     { name: "status", kind: "text", sampling: "direct" },
   ]);
   assert.equal(candidates.some(({ name }) => ["payload", "picture", "last_login_at", "id", "email"].includes(name)), false);
+});
+
+test("safe date and timestamp columns become bounded temporal sample candidates", () => {
+  const schema = schemaOf([
+    { name: "started_at", dataType: "timestamp", nullable: true, precision: 6 },
+    { name: "created_on", dataType: "date", nullable: false },
+    { name: "captured_at", dataType: "timestamp with time zone", nullable: true, precision: 6 },
+    { name: "last_login_at", dataType: "timestamp", nullable: true, precision: 6 },
+    { name: "birthday", dataType: "date", nullable: true },
+  ]);
+  assert.deepEqual(getSampleProbeCandidates(schema), [
+    { name: "started_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: false, sampling: "direct" },
+    { name: "created_on", kind: "temporal", temporalKind: "date", timezoneAware: false, sampling: "direct" },
+    { name: "captured_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: true, sampling: "direct" },
+  ]);
 });
 
 test("bounded category varchar remains a direct-projection candidate", () => {
@@ -154,6 +169,54 @@ test("PostgreSQL category text triggers a bounded sample query and summary only"
       candidates: [{ value: "active", frequency: 3 }, { value: "archived", frequency: 2 }],
     }],
   });
+});
+
+test("temporal samples retain bounded min/max, exact precision, timezone semantics, and NULL counts only", async () => {
+  const schema = schemaOf([
+    { name: "started_at", dataType: "timestamp", nullable: true, precision: 6 },
+    { name: "created_on", dataType: "date", nullable: false },
+    { name: "captured_at", dataType: "timestamptz", nullable: false, precision: 6 },
+  ]);
+  const columns = [{ name: "started_at" }, { name: "created_on" }, { name: "captured_at" }];
+  const rows = [
+    ["2026-06-01 08:00:00.123456", "2026-06-01", "2026-06-01T12:00:00.123456+08:00"],
+    [null, "2026-06-07", "2026-06-07T12:00:00.456789Z"],
+    ["2026-07-31 23:59:59.999999", "2026-07-31", "2026-07-31T00:30:00.000001-05:00"],
+  ];
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns, rows }),
+  }, context, schema);
+
+  assert.deepEqual(result, {
+    sampleUsed: true,
+    evidence: [
+      {
+        column: "started_at", kind: "temporal_range", temporalKind: "timestamp",
+        sampleCount: 3, nullCount: 1, nullRate: 1 / 3, observedCount: 2,
+        observedMin: "2026-06-01 08:00:00.123456", observedMax: "2026-07-31 23:59:59.999999",
+        precision: 6, timezoneAware: false,
+      },
+      {
+        column: "created_on", kind: "temporal_range", temporalKind: "date",
+        sampleCount: 3, nullCount: 0, nullRate: 0, observedCount: 3,
+        observedMin: "2026-06-01", observedMax: "2026-07-31", precision: 0, timezoneAware: false,
+      },
+      {
+        column: "captured_at", kind: "temporal_range", temporalKind: "timestamp",
+        sampleCount: 3, nullCount: 0, nullRate: 0, observedCount: 3,
+        observedMin: "2026-06-01T04:00:00.123456Z", observedMax: "2026-07-31T05:30:00.000001Z",
+        precision: 6, timezoneAware: true,
+      },
+    ],
+  });
+  assert.doesNotMatch(JSON.stringify(result), /\+08:00|-05:00|2026-06-07T12:00:00/);
+
+  const insufficient = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns, rows: rows.slice(0, 2) }),
+  }, context, schema);
+  assert.deepEqual(insufficient, { sampleUsed: false, evidence: [] }, "fewer than three temporal rows cannot create a profile");
 });
 
 test("dataApi capability false gracefully falls back without queryData", async () => {
@@ -517,6 +580,88 @@ test("controller applies safe category profiles and shows their effective strate
   const category = view.columns.find((column) => column.column === "category");
   assert.equal(category.selectedMapping, "枚举采样");
   assert.equal(category.mappingStatusToken, "sampleStrategy");
+});
+
+test("temporal sample ranges and NULL rates drive one consistent Preview/CSV/JSON/INSERT snapshot", async () => {
+  const schema = schemaOf([
+    { name: "started_at", dataType: "timestamp", nullable: true, precision: 6 },
+    { name: "finished_at", dataType: "timestamp without time zone", nullable: true, precision: 6 },
+    { name: "created_on", dataType: "date", nullable: false },
+    { name: "created_instant", dataType: "timestamptz", nullable: false, precision: 6 },
+  ], "dbx:audit_events");
+  const sampleRows = [
+    ["2026-06-03 10:15:30.423911", null, "2026-06-03", "2026-06-03T18:15:30.423911+08:00"],
+    ["2026-06-05 10:15:31.123456", null, "2026-06-05", "2026-06-05T10:15:31.123456Z"],
+    [null, "2026-06-08 11:00:00.000001", "2026-06-08", "2026-06-08T11:00:00.000001Z"],
+    ["2026-07-08 15:47:40.423911", null, "2026-07-08", null],
+    ["2026-07-31 23:59:59.999999", null, "2026-07-31", "2026-07-31T23:59:59.999999-05:00"],
+  ];
+  const host = {
+    capabilities: { dataApi: true },
+    async queryData() {
+      return {
+        columns: [{ name: "started_at" }, { name: "finished_at" }, { name: "created_on" }, { name: "created_instant" }],
+        rows: sampleRows,
+      };
+    },
+  };
+  const controller = new DbxGenerationWorkbenchController({
+    provider: { async getTableMetadata() { return schema; } },
+    translator: createI18n("en"),
+    sampleProbe: ({ context: sampleContext, schema: sampleSchema }) => probeDbxDataSamples(host, sampleContext, sampleSchema),
+    async preview(tableSchema, options) {
+      const plan = buildGenerationPlan(tableSchema, options);
+      return { plan, generated: generateRows(plan) };
+    },
+  });
+  let view = await controller.setContext({ ...context, table: "audit_events" });
+  view = await controller.dispatch({ type: "update-controls", controls: { rowCount: 80, seed: "temporal-profile", locale: "en" } });
+
+  assert.equal(view.sampleUsed, true);
+  assert.equal(view.export.enabled, true);
+  assert.equal(controller.sampleEvidence.length, 4);
+  const started = view.columns.find(({ column }) => column === "started_at");
+  const finished = view.columns.find(({ column }) => column === "finished_at");
+  const createdOn = view.columns.find(({ column }) => column === "created_on");
+  const instant = view.columns.find(({ column }) => column === "created_instant");
+  assert.equal(started.rule.kind, "timestamp_range");
+  assert.equal(finished.rule.kind, "timestamp_range");
+  assert.equal(createdOn.rule.kind, "date_range");
+  assert.equal(instant.rule.kind, "timestamp_range");
+  assert.equal(controller.plan.columns.find(({ schema: column }) => column.name === "started_at").nullProbability, 0.2);
+  assert.equal(controller.plan.columns.find(({ schema: column }) => column.name === "finished_at").nullProbability, 0.8);
+  assert.equal(controller.plan.columns.find(({ schema: column }) => column.name === "created_instant").nullProbability, 0,
+    "NOT NULL schema facts override observed sample NULLs");
+  assert.equal(started.recommendation.label, "Sampled temporal range");
+
+  const rows = view.preview.rows;
+  assert.equal(rows.length, 80);
+  assert.ok(rows.some(({ started_at }) => started_at === null));
+  assert.ok(rows.some(({ started_at }) => started_at !== null));
+  assert.ok(rows.some(({ finished_at }) => finished_at === null));
+  assert.ok(rows.some(({ finished_at }) => finished_at !== null));
+  assert.ok(rows.every(({ started_at }) => started_at === null
+    || (started_at >= "2026-06-03 10:15:30.423911" && started_at <= "2026-07-31 23:59:59.999999")));
+  assert.ok(rows.every(({ finished_at }) => finished_at === null || finished_at === "2026-06-08 11:00:00.000001"));
+  assert.ok(rows.every(({ created_on }) => /^2026-0[67]-\d{2}$/u.test(created_on)));
+  assert.ok(rows.every(({ created_instant }) => {
+    if (created_instant === null) return false;
+    const parsed = parseTimestamp(created_instant, { timezoneAware: true });
+    return typeof created_instant === "string" && created_instant.endsWith("Z") && parsed !== null
+      && parsed.nanoseconds >= parseTimestamp("2026-06-03T10:15:30.423911Z", { timezoneAware: true }).nanoseconds
+      && parsed.nanoseconds <= parseTimestamp("2026-08-01T04:59:59.999999Z", { timezoneAware: true }).nanoseconds;
+  }));
+  assert.ok(rows.every(({ started_at, finished_at }) => [started_at, finished_at].every((value) => value === null || !value.endsWith("Z"))));
+
+  const csv = controller.prepareExport("csv").content;
+  const json = controller.prepareExport("json").content;
+  const sql = controller.prepareExport("sql").content;
+  assert.deepEqual(JSON.parse(json), rows, "JSON serializes the exact preview snapshot");
+  assert.match(csv, /2026-06-08 11:00:00\.000001/u);
+  assert.match(csv, /2026-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z/u);
+  assert.match(sql, /'2026-06-08 11:00:00\.000001'/u);
+  assert.match(sql, /'2026-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z'/u);
+  assert.doesNotMatch(sql, /'2026-06-08 11:00:00\.000001Z'/u);
 });
 
 test("Workbench session probes a table once, caches summaries only, and never resamples for UI edits", async () => {

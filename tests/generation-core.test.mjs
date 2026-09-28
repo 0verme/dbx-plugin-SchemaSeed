@@ -51,7 +51,7 @@ describe("Generation Core and fixture preview", () => {
       assert.ok(row.name === null || (typeof row.name === "string" && row.name.length <= 64));
       assert.ok(typeof row.active === "boolean");
       assert.ok(row.birthday === null || /^\d{4}-\d{2}-\d{2}$/.test(row.birthday));
-      assert.ok(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.created_at));
+      assert.ok(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/.test(row.created_at));
     }
   });
 
@@ -92,7 +92,7 @@ describe("Generation Core and fixture preview", () => {
       columns: [
         { name: "single_char", dataType: "VARCHAR", nullable: false, length: 1 },
         { name: "day", dataType: "DATE", nullable: false },
-        { name: "instant", dataType: "TIMESTAMP", nullable: false, precision: 0 },
+        { name: "instant", dataType: "TIMESTAMPTZ", nullable: false, precision: 0 },
       ],
     };
     const plan = buildGenerationPlan(schema, {

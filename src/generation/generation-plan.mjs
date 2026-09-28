@@ -1,5 +1,6 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
 import { interpretColumnType, interpretStringCapacity } from "../schema/schema-interpreter.mjs";
+import { formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import {
   createGenerationRuleDraft,
   generationRuleIdentity,
@@ -425,6 +426,15 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
   }
   validateTypeMetadata(tableIdentity, column, ruleKind, baseParameters, schemaRuleId, diagnostics, generationRule.kind, ruleDiagnostics);
   let nullProbability = defaultNullProbability(column, tableIdentity, diagnostics);
+  const hasExplicitRule = generationRule.kind !== "auto" || override !== undefined;
+  const sampleInferenceEligible = !hasExplicitRule && !semanticMapping.selected && inference.status === "unknown";
+  const temporalProfileMatches = sampleProfile?.kind === "temporal_range"
+    && sampleProfile.temporalKind === ruleKind
+    && (ruleKind !== "timestamp" || sampleProfile.timezoneAware === (baseParameters.timezoneAware === true));
+  if (sampleInferenceEligible && temporalProfileMatches
+    && column.nullable.state === "known" && column.nullable.value === true) {
+    nullProbability = sampleProfile.nullRate;
+  }
   let rule;
   let finalSemanticMapping = semanticMapping;
 
@@ -461,8 +471,7 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
     };
     nullProbability = 0;
   }
-  const hasExplicitRule = generationRule.kind !== "auto" || override !== undefined;
-  if (!rule && !hasExplicitRule && !semanticMapping.selected && inference.status === "unknown") {
+  if (!rule && sampleInferenceEligible) {
     rule = sampleGenerationRule(column, interpreted, sampleProfile, rowCount);
   }
   if (!rule) {
@@ -492,6 +501,42 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
 function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
   if (!sampleProfile || (sampleProfile.kind !== "filename_pattern" && isSensitiveSampleColumn(column.name))) return null;
   const schemaKind = interpreted?.kind;
+  if (sampleProfile.kind === "temporal_range" && schemaKind === sampleProfile.temporalKind) {
+    if (sampleProfile.observedMin === null || sampleProfile.observedMax === null) return null;
+    if (schemaKind === "date") {
+      const minimum = parseDate(sampleProfile.observedMin);
+      const maximum = parseDate(sampleProfile.observedMax);
+      if (minimum === null || maximum === null || minimum > maximum) return null;
+      return {
+        identity: "sample:temporal-range:v1",
+        kind: "date_range",
+        source: "sample_inference",
+        parameters: { start: sampleProfile.observedMin, end: sampleProfile.observedMax },
+      };
+    }
+    const timezoneAware = interpreted.parameters.timezoneAware === true;
+    if (sampleProfile.timezoneAware !== timezoneAware) return null;
+    const minimum = parseTimestamp(sampleProfile.observedMin, { timezoneAware });
+    const maximum = parseTimestamp(sampleProfile.observedMax, { timezoneAware });
+    const schemaPrecision = column.precision.state === "known" ? column.precision.value : 3;
+    if (!minimum || !maximum || !Number.isSafeInteger(schemaPrecision) || schemaPrecision < 0 || schemaPrecision > 9
+      || minimum.nanoseconds > maximum.nanoseconds) return null;
+    const precision = Math.min(schemaPrecision, sampleProfile.precision);
+    const quantum = 10n ** BigInt(9 - precision);
+    if (minimum.precision > precision || maximum.precision > precision
+      || minimum.nanoseconds % quantum !== 0n || maximum.nanoseconds % quantum !== 0n) return null;
+    return {
+      identity: "sample:temporal-range:v1",
+      kind: "timestamp_range",
+      source: "sample_inference",
+      parameters: {
+        start: formatTimestamp(minimum.nanoseconds, precision, timezoneAware),
+        end: formatTimestamp(maximum.nanoseconds, precision, timezoneAware),
+        precision,
+        timezoneAware,
+      },
+    };
+  }
   if (sampleProfile.kind === "enum_like" && schemaKind === "varchar"
     && Array.isArray(sampleProfile.candidates) && sampleProfile.candidates.length > 0) {
     const values = sampleProfile.candidates.map((candidate) => candidate.value);
@@ -594,7 +639,12 @@ function resolveExplicitGenerationRule(selection, column, schemaKind, baseParame
     case "date_range":
       return explicit("date_range", { start: selection.start, end: selection.end });
     case "timestamp_range":
-      return explicit("timestamp_range", { start: selection.start, end: selection.end });
+      return explicit("timestamp_range", {
+        start: selection.start,
+        end: selection.end,
+        precision: column.precision.state === "known" ? column.precision.value : 3,
+        timezoneAware: baseParameters.timezoneAware === true,
+      });
     case "uuid":
       return explicit("uuid");
     case "semantic":
@@ -705,7 +755,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
       table: tableIdentity,
       column: column.name,
       rule: ruleIdentity,
-      reason: `Timestamp precision is ${column.precision.state}; preview uses millisecond precision and does not claim a database precision guarantee`,
+      reason: `Timestamp precision is ${column.precision.state}; preview uses sample-observed precision only when safely aligned with the millisecond fallback, otherwise millisecond precision, and does not claim a database precision guarantee`,
       blocking: false,
     }));
   }
@@ -806,12 +856,20 @@ function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParame
     }
     parameters.maxLength = maxLength;
   } else if ((schemaKind === "date" || schemaKind === "timestamp") && (raw.min !== undefined || raw.max !== undefined)) {
-    const parsed = validateDateRange(schemaKind, raw.min, raw.max);
+    const timezoneAware = schemaKind === "timestamp" && fallbackParameters.timezoneAware === true;
+    const timestampPrecision = column.precision.state === "known" ? column.precision.value : 3;
+    if (schemaKind === "timestamp" && (!Number.isSafeInteger(timestampPrecision) || timestampPrecision < 0 || timestampPrecision > 9)) {
+      return reject(`timestamp fractional precision must be an integer from 0 through 9; received ${String(timestampPrecision)}`);
+    }
+    const parsed = validateDateRange(schemaKind, raw.min, raw.max, timezoneAware, timestampPrecision);
     if (!parsed.ok) return reject(parsed.reason);
-    if (schemaKind === "timestamp" && column.precision.state === "known") {
-      const quantum = column.precision.value < 3 ? 10 ** (3 - column.precision.value) : 1;
-      if (parseTimestamp(parsed.min) % quantum !== 0 || parseTimestamp(parsed.max) % quantum !== 0) {
-        return reject(`timestamp min/max must align with the column's ${column.precision.value}-digit fractional precision`);
+    if (schemaKind === "timestamp") {
+      const quantum = 10n ** BigInt(9 - timestampPrecision);
+      const minimum = parseTimestamp(parsed.min, { timezoneAware });
+      const maximum = parseTimestamp(parsed.max, { timezoneAware });
+      if (!minimum || !maximum || minimum.nanoseconds % quantum !== 0n || maximum.nanoseconds % quantum !== 0n) {
+        const precisionSource = column.precision.state === "known" ? "column" : "preview";
+        return reject(`timestamp min/max must align with the ${precisionSource}'s ${timestampPrecision}-digit fractional precision`);
       }
     }
     parameters.min = parsed.min;
@@ -827,37 +885,26 @@ function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParame
   };
 }
 
-function validateDateRange(kind, rawMin, rawMax) {
-  const minDefault = kind === "date" ? "2000-01-01" : "2000-01-01T00:00:00.000Z";
-  const maxDefault = kind === "date" ? "2030-12-31" : "2035-12-31T23:59:59.999Z";
+function validateDateRange(kind, rawMin, rawMax, timezoneAware = false, timestampPrecision = 3) {
+  let minDefault = "2000-01-01";
+  let maxDefault = "2030-12-31";
+  if (kind === "timestamp") {
+    const separator = timezoneAware ? "T" : " ";
+    const zoneSuffix = timezoneAware ? "Z" : "";
+    const minFraction = timestampPrecision > 0 ? `.${"0".repeat(timestampPrecision)}` : "";
+    const maxFraction = timestampPrecision > 0 ? `.${"9".repeat(timestampPrecision)}` : "";
+    minDefault = `2000-01-01${separator}00:00:00${minFraction}${zoneSuffix}`;
+    maxDefault = `2035-12-31${separator}23:59:59${maxFraction}${zoneSuffix}`;
+  }
   const min = rawMin ?? minDefault;
   const max = rawMax ?? maxDefault;
-  const parse = kind === "date" ? parseDate : parseTimestamp;
-  const minValue = parse(min);
-  const maxValue = parse(max);
-  if (minValue === null || maxValue === null) return { ok: false, reason: `${kind} min/max must be valid ${kind === "date" ? "YYYY-MM-DD dates" : "ISO timestamps"}` };
+  const minParsed = kind === "date" ? parseDate(min) : parseTimestamp(min, { timezoneAware });
+  const maxParsed = kind === "date" ? parseDate(max) : parseTimestamp(max, { timezoneAware });
+  const minValue = kind === "date" ? minParsed : minParsed?.nanoseconds ?? null;
+  const maxValue = kind === "date" ? maxParsed : maxParsed?.nanoseconds ?? null;
+  if (minValue === null || maxValue === null) return { ok: false, reason: `${kind} min/max must be valid ${kind === "date" ? "YYYY-MM-DD dates" : timezoneAware ? "timezone-aware ISO timestamps" : "timezone-free timestamps"}` };
   if (minValue > maxValue) return { ok: false, reason: `${kind} min must be earlier than or equal to max` };
   return { ok: true, min, max };
-}
-
-function parseDate(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parsed = Date.parse(`${value}T00:00:00.000Z`);
-  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value ? parsed : null;
-}
-
-function parseTimestamp(value) {
-  const match = typeof value === "string"
-    ? value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/)
-    : null;
-  if (!match || parseDate(match[1]) === null) return null;
-  const [, , hourText, minuteText, secondText, fractionText = ""] = match;
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
-  if (hour > 23 || minute > 59 || second > 59) return null;
-  const milliseconds = Number((fractionText + "000").slice(0, 3));
-  return parseDate(match[1]) + hour * 3_600_000 + minute * 60_000 + second * 1_000 + milliseconds;
 }
 
 function normalizeSeed(seed, tableIdentity, diagnostics) {

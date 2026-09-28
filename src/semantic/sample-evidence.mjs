@@ -1,6 +1,8 @@
+import { parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import { EVIDENCE_KINDS, createEvidence } from "./evidence.mjs";
 
 export const SAMPLE_EVIDENCE_MAX_ROWS = 8;
+export const TEMPORAL_PROFILE_MIN_ROWS = 3;
 export const NAME_PATTERN_MIN_SAMPLES = 3;
 export const NAME_PATTERN_MIN_RATIO = 0.8;
 export const PATTERN_NEGATIVE_MAX_RATIO = 0.2;
@@ -25,6 +27,7 @@ const SAMPLE_EVIDENCE_KINDS = new Set([
   ...SAMPLE_PATTERN_SEMANTICS.keys(),
   "enum_like",
   "numeric_range",
+  "temporal_range",
   "filename_pattern",
 ]);
 const SENSITIVE_COLUMN_TOKENS = new Set([
@@ -33,7 +36,7 @@ const SENSITIVE_COLUMN_TOKENS = new Set([
   "geolocation", "gps", "guid", "hash", "iban", "id", "identifier", "identity", "income", "ip", "key", "lat", "latitude",
   "location", "longitude", "lng", "mail", "mobile", "name", "national", "number", "order", "passport", "pass", "password",
   "payment", "phone", "price", "privilege", "profit", "ref", "reference", "revenue", "role", "salary", "secret", "sequence", "seq", "serial", "ssn", "tax", "telephone",
-  "token", "transaction", "user", "username", "uuid", "收入", "金额", "成本", "费用", "价格", "折扣", "利润", "佣金", "支付", "坐标", "位置", "经度", "纬度", "姓名", "地址", "密码", "手机号", "电话", "邮箱", "身份证",
+  "token", "transaction", "login", "user", "username", "uuid", "收入", "金额", "成本", "费用", "价格", "折扣", "利润", "佣金", "支付", "坐标", "位置", "经度", "纬度", "姓名", "地址", "密码", "手机号", "电话", "邮箱", "身份证",
 ]);
 const FREE_TEXT_COLUMN_TOKENS = new Set([
   "body", "comment", "content", "description", "detail", "message", "note", "notes", "payload",
@@ -51,6 +54,7 @@ const SENSITIVE_CATEGORICAL_LABELS = new Set([
  * retain suffixes only.
  * @typedef {{ kind: "enum_like", sampleCount: number, distinctCount: number, candidates?: Array<{ value: string, frequency: number }> }
  * | { kind: "numeric_range", sampleCount: number, min: number | string, max: number | string, zeroCount: number }
+ * | { kind: "temporal_range", temporalKind: "date" | "timestamp", sampleCount: number, nullCount: number, nullRate: number, observedCount: number, observedMin: string | null, observedMax: string | null, precision: number, timezoneAware: boolean }
  * | { kind: "filename_pattern", sampleCount: number, matchedCount: number, suffixes: Array<{ suffix: string, frequency: number }> }
  * | { kind: "chinese_name_pattern" | "chinese_name_pattern_rejected" | "email_pattern" | "email_pattern_rejected" | "mobile_pattern" | "mobile_pattern_rejected", sampleCount: number, matchedCount: number }} SampleProfile
  */
@@ -120,6 +124,12 @@ export function normalizeSampleEvidence(input, knownColumns) {
       continue;
     }
 
+    if (entry.kind === "temporal_range") {
+      const temporal = normalizeTemporalProfile(entry);
+      if (temporal && isSafeProfileColumn(entry.column, "temporal")) normalized.set(entry.column, Object.freeze(temporal));
+      continue;
+    }
+
     if (entry.kind === "filename_pattern") {
       const matchedCount = entry.matchedCount;
       if (!isSafeProfileColumn(entry.column, "filename")
@@ -137,6 +147,49 @@ export function normalizeSampleEvidence(input, knownColumns) {
     }
   }
   return normalized;
+}
+
+function normalizeTemporalProfile(entry) {
+  const {
+    temporalKind, sampleCount, nullCount, nullRate, observedCount,
+    observedMin, observedMax, precision, timezoneAware,
+  } = entry;
+  if (sampleCount < TEMPORAL_PROFILE_MIN_ROWS
+    || !Number.isSafeInteger(nullCount) || nullCount < 0 || nullCount > sampleCount
+    || typeof nullRate !== "number" || !Number.isFinite(nullRate) || nullRate !== nullCount / sampleCount
+    || !Number.isSafeInteger(observedCount) || observedCount < 0 || observedCount > sampleCount - nullCount
+    || !Number.isSafeInteger(precision) || precision < 0 || precision > 9
+    || typeof timezoneAware !== "boolean"
+    || (temporalKind !== "date" && temporalKind !== "timestamp")
+    || [observedMin, observedMax].some((value) => value !== null && (typeof value !== "string" || value.length > 40))) return null;
+
+  const hasRange = typeof observedMin === "string" && typeof observedMax === "string";
+  if (!hasRange && (observedMin !== null || observedMax !== null
+    || (observedCount > 0 && observedCount === sampleCount - nullCount))) return null;
+  if (hasRange && observedCount !== sampleCount - nullCount) return null;
+  if (temporalKind === "date") {
+    if (timezoneAware || precision !== 0) return null;
+    const min = hasRange ? parseDate(observedMin) : null;
+    const max = hasRange ? parseDate(observedMax) : null;
+    if (hasRange && (min === null || max === null || min > max)) return null;
+  } else {
+    const min = hasRange ? parseTimestamp(observedMin, { timezoneAware }) : null;
+    const max = hasRange ? parseTimestamp(observedMax, { timezoneAware }) : null;
+    if (hasRange && (!min || !max || min.nanoseconds > max.nanoseconds
+      || min.precision > precision || max.precision > precision)) return null;
+  }
+  return {
+    kind: "temporal_range",
+    temporalKind,
+    sampleCount,
+    nullCount,
+    nullRate,
+    observedCount,
+    observedMin,
+    observedMax,
+    precision,
+    timezoneAware,
+  };
 }
 
 function normalizeCategoricalCandidates(entry, summary) {
@@ -293,6 +346,30 @@ export function sampleEvidenceToCoreEvidence(summary, columnName) {
       observation: `Observed numeric range ${summary.min} to ${summary.max}; zero appeared ${summary.zeroCount}/${summary.sampleCount} times`,
       explanation: "A bounded numeric profile constrains synthetic values to the observed scale without retaining individual sample values",
       params: { column: columnName, sampleCount: summary.sampleCount, min: summary.min, max: summary.max, zeroCount: summary.zeroCount },
+    });
+  }
+  if (summary.kind === "temporal_range") {
+    const hasRange = typeof summary.observedMin === "string" && typeof summary.observedMax === "string";
+    const range = hasRange
+      ? `Observed ${summary.temporalKind} range ${summary.observedMin} to ${summary.observedMax}`
+      : "No sufficiently parseable non-NULL temporal range was observed";
+    return createEvidence({
+      kind: EVIDENCE_KINDS.sampleTemporalRange,
+      source: "sample_profile",
+      observation: `${range}; NULL appeared ${summary.nullCount}/${summary.sampleCount} samples`,
+      explanation: "A bounded temporal profile guides generated values while preserving schema timezone semantics and observed nullability",
+      params: {
+        column: columnName,
+        temporalKind: summary.temporalKind,
+        sampleCount: summary.sampleCount,
+        nullCount: summary.nullCount,
+        nullRate: summary.nullRate,
+        observedCount: summary.observedCount,
+        observedMin: summary.observedMin,
+        observedMax: summary.observedMax,
+        precision: summary.precision,
+        timezoneAware: summary.timezoneAware,
+      },
     });
   }
   if (summary.kind === "filename_pattern") {
