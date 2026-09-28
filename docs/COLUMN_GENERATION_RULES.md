@@ -17,14 +17,14 @@
 
 Rule 选择优先于已有 semantic/fallback path；hard schema facts 始终是不可覆盖的限制。`Auto` 是默认选择：保留既有 semantic mapping precedence 和现有 schema-type fallback。现有 inference candidate（包括 low confidence）不会因打开/编辑 UI 而被确认。
 
-WorkBench 可在独立、有界的 sample probe 成功后，为安全且充分的 profile 选择内部生成策略：`sample_enum`、`sample_numeric` 和 `sample_filename`。它们不是 Rule Editor 接受的用户规则 kind，不改变上面的 13-rule contract：显式用户 rule 优先；schema 类型、长度、precision/scale、nullability 与 constraints 始终校验；没有样本、证据不足、敏感列或 profile 不兼容时继续使用原 semantic/schema fallback。重复低基数类别只保留通过隐私 guard 的短 ASCII 标签及频率；数值只保留精确 min/max 和零值频次；文件名只保留扩展名，生成时使用 synthetic stem。Raw sample rows、自由文本、标识符与敏感值不会进入 GenerationPlan；UI 会显示当前生效的 sample-derived strategy 和 evidence。Preview 与 CSV/JSON/INSERT SQL 仍序列化同一 plan/seed 对应的数据快照。
+WorkBench 可在独立、有界的 sample probe 成功后，为安全且充分的 profile 选择内部生成策略：`sample_enum`、`sample_numeric`、基于现有 `date_range` / `timestamp_range` 的 sample temporal strategy 和 `sample_filename`。它们不是新增的 Rule Editor 用户规则 kind，不改变上面的 13-rule contract：显式用户 rule 优先；schema 类型、长度、precision/scale、timezone semantics、nullability 与 constraints 始终校验；没有样本、证据不足、敏感列或 profile 不兼容时继续使用原 semantic/schema fallback。重复低基数类别只保留通过隐私 guard 的短 ASCII 标签及频率；数值只保留精确 min/max 和零值频次；时间只保留至少 3 行样本的有界 observed min/max、fractional precision、timezone semantics 和 NULL count/rate；文件名只保留扩展名，生成时使用 synthetic stem。Temporal NULL rate 仅在 schema 明确 nullable=true 时生效，NOT NULL/unknown 优先于样本；跨字段时间关系因 Probe 丢弃行关联而 **DEFERRED**。Raw sample rows、自由文本、标识符与敏感值不会进入 GenerationPlan；UI 会显示当前生效的 sample-derived strategy 和 evidence。Preview 与 CSV/JSON/INSERT SQL 仍序列化同一 plan/seed 对应的数据快照。
 
 ## Rule configurations and semantics
 
 | Kind | Configuration | Compatibility / semantics |
 | --- | --- | --- |
 | `auto` | 无 | 复用现有 Semantic Mapping 与 schema fallback；不增加 inference engine。 |
-| `constant` | `value` | 每行使用同一 scalar。Integer 必须是 safe integer；decimal 用 exact decimal string；string、boolean、date、timestamp 必须严格类型匹配。varchar 不超已知 length；decimal 不超 precision/scale；date 为有效 `YYYY-MM-DD`；timestamp 为 UTC ISO `Z`。不做隐式转换、round 或 truncate。 |
+| `constant` | `value` | 每行使用同一 scalar。Integer 必须是 safe integer；decimal 用 exact decimal string；string、boolean、date、timestamp 必须严格类型匹配。varchar 不超已知 length；decimal 不超 precision/scale；date 为有效 `YYYY-MM-DD`；`timestamp`（无时区）只接受 offset-free local timestamp 并输出不带 `Z` 的 wall-clock；`timestamptz` 只接受带 `Z` 或 numeric offset 的 instant，并规范化输出 UTC `Z`。不做隐式转换、round 或 truncate。 |
 | `sequence` | `start`, `step` | 仅整数 / decimal。按 logical row ordinal 计算 `start + rowIndex × step`，可使用负 step，不依赖 mutable counter。Planning 检查本次 rowCount 的末值与 schema representability，溢出则阻塞整份 plan。Decimal start/step 是精确 string，内部按 scale 对齐整数单位计算。 |
 | `random_integer` | `min`, `max` | Safe integer，inclusive range，`min <= max` 且整个范围落在目标整数 schema bounds 内。 |
 | `random_decimal` | `min`, `max` | Exact decimal strings，inclusive range。两端必须可由 schema scale 表达，且符合 precision；内部以 BigInt unscaled units 计算，不经 JS floating-point。 |
@@ -32,7 +32,7 @@ WorkBench 可在独立、有界的 sample probe 成功后，为安全且充分�
 | `enum` | `values[]` | 至少一个 unique scalar candidate；逐个按目标 schema 校验，任一无效或重复则整条 rule invalid。Uniform deterministic selection；无 weights / probability DSL。 |
 | `boolean_ratio` | `trueRatio` | `0..1` 小数比例语义；每个 cell 独立 deterministic，`0` 全 false，`1` 全 true。 |
 | `date_range` | `start`, `end` | 严格有效 date-only `YYYY-MM-DD`，inclusive 边界，`start <= end`。只用 UTC 日期编码，不经过 local timezone。 |
-| `timestamp_range` | `start`, `end` | UTC ISO timestamp，必须以 `Z` 结尾；inclusive，`start <= end`。按 schema precision 0–9 位校验和生成；精确到 nanosecond 的逻辑时间不依赖 locale 或机器 timezone。Precision fact 未知时沿用现有 millisecond fallback 并保留 warning，不声称数据库精度保证。 |
+| `timestamp_range` | `start`, `end` | `timestamp`（无时区）使用 offset-free local timestamp，输出 `YYYY-MM-DD HH:mm:ss[.fraction]` 且不追加 `Z`；`timestamptz` 使用带 `Z` / offset 的 instant 并输出 UTC `Z`。inclusive，按 schema precision 0–9 位校验和生成；timestamp wall-clock 与 timestamptz instant 不混用。Precision fact 未知时只使用可与现有 millisecond fallback 安全对齐的 profile，并保留 warning，不声称数据库精度保证。 |
 | `uuid` | 无 | 基于稳定 cell identity 的 synthetic deterministic UUID，RFC variant 与 v4-style version bits 固定；不是业务 UUID、真实性或唯一性承诺。支持 native UUID 与可证明容纳 36 字符的 varchar。 |
 | `null_ratio` | `ratio` | `0..1` deterministic。`ratio = 0` 不产生 NULL；`ratio > 0` 仅在 schema 明确 `nullable=true` 时可用，NOT NULL 或 nullable unknown/unavailable/unsupported 时拒绝。UUID 可使用此 rule 包裹既有 synthetic UUID base strategy。 |
 | `semantic` | `semanticType` | 用户明确选择后，走现有 Semantic Mapping precedence、Safe Synthetic Person 和 Person group/row identity。不会创建新的姓名、手机号、email generator，也不会自动确认 inference。 |

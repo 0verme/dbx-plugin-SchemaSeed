@@ -79,8 +79,13 @@ export function interpretColumnType(column) {
   }
   if (/^(boolean|bool)$/.test(base)) return { kind: "boolean", parameters: {} };
   if (/^date$/.test(base)) return { kind: "date", parameters: {} };
-  if (/^(timestamp|datetime)(?:\s*\(\s*\d+\s*\))?(?:\s+(?:with|without) time zone)?$/.test(base)) {
-    return { kind: "timestamp", parameters: {} };
+  const timestampType = base.match(/^(timestamp|datetime|timestamptz)(?:\s*\(\s*\d+\s*\))?(?:\s+(with|without) time zone)?$/);
+  if (timestampType) {
+    const [, name, zoneQualifier] = timestampType;
+    return {
+      kind: "timestamp",
+      parameters: { timezoneAware: name === "timestamptz" || zoneQualifier === "with" },
+    };
   }
   return null;
 }

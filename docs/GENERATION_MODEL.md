@@ -207,7 +207,7 @@ Column Layer 不负责：
 | `varchar` / text | 最大 length、fixed/variable 信息（若有） | `bounded(n)` 必须证明输出不超过 n；原生无界类型（如 `text`）按 generation budget 生成；无法证明有界或无界时保留 unknown-capacity 诊断 | `VARCHAR(18)` 不等于身份证，`VARCHAR(11)` 不等于 mobile；无界不等于无限生成 |
 | `boolean` | native boolean capability | 基础域为 true/false；NULL 是另一个 execution intent | 列名 `is_active` 不改变 database type fact |
 | `date` | date type、nullable、可能的 user date window | 在配置的日期域内生成 date 值；日期域不是由列名自动决定 | `birthday` 需要 Semantic Layer；不从 DATE 自动推出生日 |
-| `timestamp` | timestamp precision、timezone capability（若有） | 在配置的时间域内生成 timestamp；timezone unknown 时保留诊断 | `created_at` 不自动等于 database `now()` |
+| `timestamp` / `timestamptz` | timestamp precision、`with/without time zone` 类型语义 | 使用样本或显式配置的有界范围生成；`timestamp` 保留 wall-clock 且不加 `Z`，`timestamptz` 按 instant 输出 UTC `Z` | `created_at` 不自动等于 database `now()`；不由列名推断跨字段时间关系 |
 | enum-like | metadata 明确提供的 enum members 和 provenance | 在已知有限成员中选择；成员缺失时不能凭列名伪造集合 | `status` 列名不等于某一组固定枚举值 |
 
 数据库类型还可能存在本表未覆盖的 family。没有可验证 domain 时，plan 保留 `unsupported` 或要求显式 rule；不能以任意字符串、零值或空值冒充成功。

@@ -248,6 +248,7 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "src/i18n/zh-CN.mjs",
     "src/probe-protocol.mjs",
     "src/providers/dbx-host-schema-metadata-provider.mjs",
+    "src/schema/temporal-values.mjs",
     "src/workbench/dbx-generation-workbench-controller.mjs",
     "src/workbench/workbench-view-model.mjs",
     "ui/index.html",

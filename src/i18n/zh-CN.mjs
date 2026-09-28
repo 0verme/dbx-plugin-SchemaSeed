@@ -91,6 +91,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "generatorKind.timestamp": "时间戳",
   "generatorKind.sample_enum": "枚举采样",
   "generatorKind.sample_numeric": "样本范围",
+  "generatorKind.sample_temporal": "样本时间范围",
   "generatorKind.sample_filename": "采样文件名",
   "generatorKind.uuid": "UUID",
   "generatorKind.unsupported": "不支持的策略",
@@ -117,8 +118,8 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "ruleField.semanticType": "语义类型",
   "ruleField.date_range.start": "起始日期",
   "ruleField.date_range.end": "结束日期",
-  "ruleField.timestamp_range.start": "起始时间（UTC）",
-  "ruleField.timestamp_range.end": "结束时间（UTC）",
+  "ruleField.timestamp_range.start": "起始时间（遵循字段时区语义）",
+  "ruleField.timestamp_range.end": "结束时间（遵循字段时区语义）",
 
   // Schema type state words (raw DB types are never translated).
   "schemaType.state.unknown": "未知类型",
@@ -261,6 +262,11 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "evidence.sample_enum_like.explanation": "重复出现的低基数文本类别可在短标签通过隐私检查后用于枚举采样",
   "evidence.sample_numeric_range.observation": "{column}：样本数值范围为 {min} 至 {max}；零值出现 {zeroCount}/{sampleCount} 次",
   "evidence.sample_numeric_range.explanation": "有限数值特征可约束合成数据的尺度，同时不保留单条观测值",
+  "evidence.sample_temporal_range.observation": "{column}：可用样本时间范围为 {observedMin} 至 {observedMax}；NULL 出现 {nullCount}/{sampleCount} 次",
+  "evidence.sample_temporal_range.explanation": "仅保留有界日期时间范围、精度和 NULL 频率；生成时遵循字段的 date、timestamp 或 timestamptz 语义",
+  "evidence.temporalRange.unavailable": "不可用",
+  "evidence.temporalKind.date": "日期",
+  "evidence.temporalKind.timestamp": "时间戳",
   "evidence.sample_filename_pattern.observation": "{column}：{matchedCount}/{sampleCount} 个样本具有文件名后缀（{suffixes}）",
   "evidence.sample_filename_pattern.explanation": "仅保留安全的后缀特征；生成文件名使用合成前缀",
 

@@ -64,6 +64,7 @@ try {
     "src/providers/dbx-host-schema-metadata-provider.mjs",
     "src/schema/schema-interpreter.mjs",
     "src/schema/schema-metadata-provider.mjs",
+    "src/schema/temporal-values.mjs",
     "src/schema/schema-model.mjs",
     "src/semantic/evidence.mjs",
     "src/semantic/person-groups.mjs",

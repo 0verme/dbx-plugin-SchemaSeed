@@ -47,6 +47,7 @@ const coreFiles = [
   "src/diagnostics.mjs",
   "src/schema/schema-model.mjs",
   "src/schema/schema-interpreter.mjs",
+  "src/schema/temporal-values.mjs",
   "src/schema/schema-metadata-provider.mjs",
   "src/generation/constraint-allocation.mjs",
   "src/generation/constraint-domain.mjs",
