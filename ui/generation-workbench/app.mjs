@@ -61,6 +61,7 @@ const WORKBENCH_MARKUP = `
             <span class="sswb-section-toggle" aria-hidden="true"></span>
             <h2 id="sswb-columns-title" data-i18n="columns.title"></h2>
             <span id="sswb-columns-summary" class="sswb-section-summary"></span>
+            <span id="sswb-sample-hint" class="sswb-section-hint"></span>
           </summary>
           <div class="sswb-section-body">
             <p class="sswb-caption" data-i18n="columns.caption"></p>
@@ -319,6 +320,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     element("sswb-rule-state").textContent = ruleEditorStateMessage(viewModel, t);
     element("sswb-constraint-state").textContent = constraintEditorStateMessage(viewModel, t);
     renderSectionSummaries(viewModel, t);
+    element("sswb-sample-hint").textContent = t(viewModel.sampleUsed === true
+      ? "columns.sampleHint.used" : "columns.sampleHint.metadataOnly");
     renderColumns(viewModel.columns, viewModel.status, t);
     renderConstraints(viewModel, t);
     renderDiagnostics(viewModel, t);

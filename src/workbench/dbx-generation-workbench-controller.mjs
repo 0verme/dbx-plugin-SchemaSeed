@@ -32,6 +32,7 @@ export class DbxGenerationWorkbenchController {
     this.sampleProbe = typeof options.sampleProbe === "function" ? options.sampleProbe : null;
     this.sampleEvidenceCache = new Map();
     this.sampleEvidence = [];
+    this.sampleUsed = false;
     this.seedFactory = options.seedFactory ?? defaultSeed;
     // UI language is presentation-only state: it never influences planning,
     // generation, diagnostics or blocking decisions.
@@ -88,6 +89,7 @@ export class DbxGenerationWorkbenchController {
     this.context = normalized.ok ? normalized.context : null;
     this.schema = null;
     this.sampleEvidence = [];
+    this.sampleUsed = false;
     this.plan = null;
     this.currentDataset = null;
     this.rules = {};
@@ -327,6 +329,7 @@ export class DbxGenerationWorkbenchController {
         })),
       } : null,
       columns: plan?.columns.map((column) => toColumnViewModel(column, this.diagnostics, { translator: this.translator })) ?? [],
+      sampleUsed: this.sampleUsed,
       diagnostics: this.diagnostics.map((diagnostic) => ({ ...diagnostic })),
       preview: {
         columns: plan?.table.columns.map((column) => column.name) ?? [],
@@ -422,16 +425,27 @@ export class DbxGenerationWorkbenchController {
     if (!evidencePromise) {
       const candidates = getSampleProbeCandidates(schema);
       evidencePromise = candidates.length === 0 || !this.sampleProbe
-        ? Promise.resolve([])
+        ? Promise.resolve({ sampleUsed: false, evidence: [] })
         : Promise.resolve()
           .then(() => this.sampleProbe({ context: { ...context }, schema, candidates }))
-          .then((result) => sanitizeSampleEvidence(result, new Set(schema.columns.map((column) => column.name))))
-          .catch(() => []);
+          .then((result) => {
+            const entries = Array.isArray(result) ? result
+              : isRecord(result) && Array.isArray(result.evidence) ? result.evidence : [];
+            const evidence = sanitizeSampleEvidence(entries, new Set(schema.columns.map((column) => column.name)));
+            return {
+              sampleUsed: evidence.length > 0 || (isRecord(result) && result.sampleUsed === true),
+              evidence,
+            };
+          })
+          .catch(() => ({ sampleUsed: false, evidence: [] }));
       this.sampleEvidenceCache.set(key, evidencePromise);
     }
-    const evidence = await evidencePromise;
-    if (revision === this.contextRevision) this.sampleEvidence = evidence;
-    return evidence;
+    const sampleResult = await evidencePromise;
+    if (revision === this.contextRevision) {
+      this.sampleEvidence = sampleResult.evidence;
+      this.sampleUsed = sampleResult.sampleUsed;
+    }
+    return sampleResult.evidence;
   }
 
   /** @param {number} [contextRevision] */

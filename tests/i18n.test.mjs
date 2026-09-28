@@ -136,7 +136,7 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "diagnostics.title", "preview.title", "preview.readonly", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "footer.statement"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "diagnostics.title", "preview.title", "preview.readonly", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "footer.statement", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);

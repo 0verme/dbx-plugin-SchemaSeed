@@ -254,6 +254,24 @@ describe("Workbench markup disclosure contract", () => {
     assert.match(source, /data-rule-field/, "the field rule editor fields are still rendered after expanding");
   });
 
+  it("renders a low-interference sample hint with localized lifecycle copy", async () => {
+    const source = await readFile(UI_SOURCE, "utf8");
+    const markup = markupOf(source);
+    assert.match(markup, /<span id="sswb-sample-hint" class="sswb-section-hint"><\/span>/);
+    assert.match(source, /viewModel\.sampleUsed === true[\s\S]*"columns\.sampleHint\.used"[\s\S]*"columns\.sampleHint\.metadataOnly"/);
+
+    const zh = createI18n("zh-CN");
+    const en = createI18n("en-US");
+    assert.equal(zh("columns.sampleHint.used"), "已结合表结构与少量数据样本优化字段识别");
+    assert.equal(zh("columns.sampleHint.metadataOnly"), "根据表结构识别字段类型与语义");
+    assert.equal(en("columns.sampleHint.used"), "Field recognition was refined using schema metadata and a small data sample.");
+    assert.equal(en("columns.sampleHint.metadataOnly"), "Field recognition is based on schema metadata.");
+
+    const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
+    assert.match(stylesheet, /\.sswb-section-hint/);
+    assert.doesNotMatch(stylesheet.match(/\.sswb-section-hint[^}]*}/)?.[0] ?? "", /warning|#[89a-f][0-9a-f]{5}/i);
+  });
+
   it("keeps disclosure state in the page session only", async () => {
     const source = await readFile(UI_SOURCE, "utf8");
     assert.match(source, /renderSectionSummaries/);
