@@ -112,6 +112,164 @@ describe("Generation Core and fixture preview", () => {
     }
   });
 
+  it("uses observed microsecond timestamp bounds when schema precision is unknown", () => {
+    const plan = buildGenerationPlan({
+      tableIdentity: "unknown_precision_sample",
+      columns: [{ name: "started_at", dataType: "TIMESTAMP", nullable: false, precision: { state: "unknown" } }],
+    }, {
+      rowCount: 32,
+      seed: "unknown-precision-sample",
+      sampleEvidence: [{
+        column: "started_at",
+        kind: "temporal_range",
+        temporalKind: "timestamp",
+        sampleCount: 4,
+        nullCount: 0,
+        nullRate: 0,
+        observedCount: 4,
+        observedMin: "2026-06-18 10:12:13.123456",
+        observedMax: "2026-07-08 15:45:29.780803",
+        precision: 6,
+        timezoneAware: false,
+      }],
+    });
+    const startedAt = plan.columns.find((column) => column.schema.name === "started_at");
+    assert.equal(startedAt.rule.source, "sample_inference");
+    assert.equal(startedAt.rule.kind, "timestamp_range");
+    assert.equal(startedAt.rule.parameters.precision, 6);
+
+    const generated = generateRows(plan);
+    assert.equal(generated.rows.length, 32);
+    for (const row of generated.rows) {
+      assert.match(row.started_at, /^2026-0[67]-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/);
+      assert.ok(row.started_at >= "2026-06-18 10:12:13.123456");
+      assert.ok(row.started_at <= "2026-07-08 15:45:29.780803");
+      assert.doesNotMatch(row.started_at, /T|Z$/);
+    }
+    assert.deepEqual(generateRows(plan).rows, generated.rows);
+  });
+
+  it("preserves timezone-aware timestamp sample semantics", () => {
+    const plan = buildGenerationPlan({
+      tableIdentity: "timezone_aware_sample",
+      columns: [{ name: "started_at", dataType: "TIMESTAMPTZ", nullable: false, precision: { state: "unknown" } }],
+    }, {
+      rowCount: 20,
+      seed: "timezone-aware-sample",
+      sampleEvidence: [{
+        column: "started_at",
+        kind: "temporal_range",
+        temporalKind: "timestamp",
+        sampleCount: 4,
+        nullCount: 0,
+        nullRate: 0,
+        observedCount: 4,
+        observedMin: "2026-06-18T10:12:13.123456Z",
+        observedMax: "2026-07-08T15:45:29.780803+02:00",
+        precision: 6,
+        timezoneAware: true,
+      }],
+    });
+    const startedAt = plan.columns.find((column) => column.schema.name === "started_at");
+    assert.equal(startedAt.rule.source, "sample_inference");
+    assert.equal(startedAt.rule.parameters.timezoneAware, true);
+    const generated = generateRows(plan);
+    assert.equal(generated.rows.length, 20);
+    for (const row of generated.rows) {
+      assert.match(row.started_at, /^2026-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/);
+      assert.ok(row.started_at >= "2026-06-18T10:12:13.123456Z");
+      assert.ok(row.started_at <= "2026-07-08T13:45:29.780803Z");
+    }
+  });
+
+  it("quantizes microsecond sample bounds to known timestamp precision", () => {
+    const plan = buildGenerationPlan({
+      tableIdentity: "known_precision_sample",
+      columns: [{ name: "started_at", dataType: "TIMESTAMP", nullable: false, precision: 3 }],
+    }, {
+      rowCount: 32,
+      seed: "known-precision-sample",
+      sampleEvidence: [{
+        column: "started_at",
+        kind: "temporal_range",
+        temporalKind: "timestamp",
+        sampleCount: 4,
+        nullCount: 0,
+        nullRate: 0,
+        observedCount: 4,
+        observedMin: "2026-06-18 10:12:13.123456",
+        observedMax: "2026-07-08 15:45:29.780803",
+        precision: 6,
+        timezoneAware: false,
+      }],
+    });
+    const startedAt = plan.columns.find((column) => column.schema.name === "started_at");
+    assert.equal(startedAt.rule.source, "sample_inference");
+    assert.equal(startedAt.rule.kind, "timestamp_range");
+    assert.equal(startedAt.rule.parameters.precision, 3);
+    const generated = generateRows(plan);
+    assert.equal(generated.rows.length, 32);
+    for (const row of generated.rows) {
+      assert.match(row.started_at, /^2026-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/);
+      assert.ok(row.started_at >= "2026-06-18 10:12:13.124");
+      assert.ok(row.started_at <= "2026-07-08 15:45:29.780");
+    }
+  });
+
+  it("retains precision-zero timestamp samples and generic fallback without sample evidence", () => {
+    const schema = {
+      tableIdentity: "precision_zero_sample",
+      columns: [{ name: "finished_at", dataType: "TIMESTAMP", nullable: true, precision: { state: "unknown" } }],
+    };
+    const sampled = buildGenerationPlan(schema, {
+      rowCount: 32,
+      seed: "precision-zero-sample",
+      sampleEvidence: [{
+        column: "finished_at",
+        kind: "temporal_range",
+        temporalKind: "timestamp",
+        sampleCount: 4,
+        nullCount: 1,
+        nullRate: 0.25,
+        observedCount: 3,
+        observedMin: "2026-07-08 15:45:29",
+        observedMax: "2026-07-08 15:46:30",
+        precision: 0,
+        timezoneAware: false,
+      }],
+    });
+    const sampledColumn = sampled.columns.find((column) => column.schema.name === "finished_at");
+    assert.equal(sampledColumn.rule.source, "sample_inference");
+    assert.equal(sampledColumn.rule.parameters.precision, 0);
+    assert.equal(sampledColumn.nullProbability, 0.25);
+    const sampledRows = generateRows(sampled).rows;
+    assert.equal(sampledRows.length, 32);
+    for (const row of sampledRows) {
+      if (row.finished_at !== null) {
+        assert.match(row.finished_at, /^2026-07-08 15:\d{2}:\d{2}$/);
+        assert.ok(row.finished_at >= "2026-07-08 15:45:29");
+        assert.ok(row.finished_at <= "2026-07-08 15:46:30");
+      }
+    }
+    assert.ok(sampledRows.some((row) => row.finished_at === null));
+    assert.ok(sampledRows.some((row) => row.finished_at !== null));
+
+    const unsampled = buildGenerationPlan(schema, { rowCount: 32, seed: "no-temporal-evidence" });
+    const unsampledColumn = unsampled.columns.find((column) => column.schema.name === "finished_at");
+    assert.equal(unsampledColumn.rule.source, "schema_type_fallback");
+    assert.equal(unsampledColumn.rule.kind, "timestamp");
+    const unsampledRows = generateRows(unsampled).rows;
+    assert.equal(unsampledRows.length, 32);
+    for (const row of unsampledRows) {
+      if (row.finished_at !== null) {
+        assert.match(row.finished_at, /^20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/);
+        assert.ok(row.finished_at >= "2000-01-01 00:00:00.000");
+        assert.ok(row.finished_at <= "2035-12-31 23:59:59.999");
+      }
+    }
+    assert.ok(unsampledRows.some((row) => row.finished_at !== null));
+  });
+
   it("uses deterministic nullable behavior and preserves unknown nullability", async () => {
     const first = await previewFixture({ fixtureName: "mixed_nullable", rowCount: 100, seed: "nullable-seed" });
     const second = await previewFixture({ fixtureName: "mixed_nullable", rowCount: 100, seed: "nullable-seed" });
