@@ -3,6 +3,8 @@ import { createEvidence, EVIDENCE_KINDS } from "./evidence.mjs";
 import {
   NAME_PATTERN_MIN_RATIO,
   NAME_PATTERN_MIN_SAMPLES,
+  PATTERN_NEGATIVE_MAX_RATIO,
+  SAMPLE_EVIDENCE_MAX_ROWS,
   sampleEvidenceToCoreEvidence,
 } from "./sample-evidence.mjs";
 
@@ -90,16 +92,25 @@ export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null
     email: "email_pattern",
     mobile: "mobile_pattern",
   }[semanticType];
-  const sampleVerified = expectedPattern !== undefined && sampleSummary?.kind === expectedPattern
-    && Number.isSafeInteger(sampleSummary.sampleCount) && sampleSummary.sampleCount >= NAME_PATTERN_MIN_SAMPLES
-    && Number.isSafeInteger(sampleSummary.matchedCount) && sampleSummary.matchedCount <= sampleSummary.sampleCount
-    && sampleSummary.matchedCount / sampleSummary.sampleCount >= NAME_PATTERN_MIN_RATIO;
-  const sampleEvidence = sampleVerified ? sampleEvidenceToCoreEvidence(sampleSummary, column.name) : null;
+  const samplePattern = classifySamplePattern(sampleSummary, expectedPattern);
+  const sampleVerified = samplePattern === "positive";
+  const sampleRejected = samplePattern === "negative";
+  const sampleEvidence = samplePattern ? sampleEvidenceToCoreEvidence(sampleSummary, column.name) : null;
   const evidence = [...nameEvidence, ...compatibility.evidence, ...(sampleEvidence ? [sampleEvidence] : [])];
+  if (sampleRejected && matches[0].quality !== "exact") {
+    return Object.freeze({
+      semanticType: "unknown",
+      confidence: "unknown",
+      evidence: Object.freeze([...nameEvidence, sampleEvidence]),
+      candidates: Object.freeze([]),
+      status: "unknown",
+      normalizedName,
+    });
+  }
   if (compatibility.compatible === false) {
     return Object.freeze({
       semanticType,
-      confidence: matches[0].quality === "exact" ? "medium" : "low",
+      confidence: sampleRejected ? "low" : matches[0].quality === "exact" ? "medium" : "low",
       evidence: Object.freeze(evidence),
       candidates: Object.freeze([semanticType]),
       status: "incompatible",
@@ -108,11 +119,12 @@ export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null
     });
   }
 
-  const confidence = sampleVerified && compatibility.compatible === true
-    ? "high"
-    : matches[0].quality === "exact"
-      ? compatibility.compatible === true && compatibility.lengthKnown !== false ? "high" : "medium"
-      : matches[0].quality === "suffix" ? "medium" : "low";
+  const confidence = sampleRejected ? "low"
+    : sampleVerified && compatibility.compatible === true
+      ? "high"
+      : matches[0].quality === "exact"
+        ? compatibility.compatible === true && compatibility.lengthKnown !== false ? "high" : "medium"
+        : matches[0].quality === "suffix" ? "medium" : "low";
   return Object.freeze({
     semanticType,
     confidence,
@@ -213,6 +225,18 @@ export function checkSemanticCompatibility(column, semanticType, locale = "zh-CN
     params: { length: String(length.value), semantic: semanticType },
   }));
   return { compatible: true, lengthKnown: true, evidence };
+}
+
+function classifySamplePattern(summary, expectedPattern) {
+  if (expectedPattern === undefined || !summary
+    || (summary.kind !== expectedPattern && summary.kind !== `${expectedPattern}_rejected`)
+    || !Number.isSafeInteger(summary.sampleCount) || summary.sampleCount < NAME_PATTERN_MIN_SAMPLES
+    || summary.sampleCount > SAMPLE_EVIDENCE_MAX_ROWS
+    || !Number.isSafeInteger(summary.matchedCount) || summary.matchedCount < 0
+    || summary.matchedCount > summary.sampleCount) return null;
+  const matchedRatio = summary.matchedCount / summary.sampleCount;
+  if (summary.kind.endsWith("_rejected")) return matchedRatio <= PATTERN_NEGATIVE_MAX_RATIO ? "negative" : null;
+  return summary.matchedCount > 0 && matchedRatio >= NAME_PATTERN_MIN_RATIO ? "positive" : null;
 }
 
 function minimumSafeSyntheticLength(semanticType, locale) {

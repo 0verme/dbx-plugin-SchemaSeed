@@ -37,6 +37,7 @@
 .sswb-section-summary[data-severity="error"] { color: #a02b25; font-weight: 600; }
 .sswb-section-body { padding: 0 16px 14px; }
 .sswb-section-body > .sswb-caption { margin: 0 0 10px; }
+.sswb-section-hint { flex: 0 0 100%; margin-left: 13px; color: var(--sswb-muted); font-size: 11px; font-weight: 400; }
 .sswb-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
 .sswb-heading h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .sswb-caption { margin: 3px 0 0; color: var(--sswb-muted); font-size: 12px; }

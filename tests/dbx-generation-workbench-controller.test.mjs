@@ -90,6 +90,7 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.preview.rows.length, 20);
     assert.deepEqual(view.preview.columns, ["customer_id", "display_name"]);
     assert.equal(view.export.enabled, true);
+    assert.equal(view.sampleUsed, false, "a missing sample probe keeps the Workbench in metadata-only mode");
     assert.equal(view.columns[0].column, "customer_id");
     assert.equal(view.columns[0].rule.kind, "integer");
     assert.equal(view.ruleEditor.issue, 32);

@@ -6,6 +6,7 @@ import {
   ENUM_PATTERN_MIN_SAMPLES,
   NAME_PATTERN_MIN_RATIO,
   NAME_PATTERN_MIN_SAMPLES,
+  PATTERN_NEGATIVE_MAX_RATIO,
   SAMPLE_EVIDENCE_MAX_ROWS,
 } from "../semantic/sample-evidence.mjs";
 
@@ -13,6 +14,7 @@ export const DATA_SAMPLE_ROW_LIMIT = SAMPLE_EVIDENCE_MAX_ROWS;
 export const DATA_SAMPLE_TIMEOUT_MS = 3_000;
 export const DATA_SAMPLE_FIELD_MAX_LENGTH = 1_024;
 const DATA_SAMPLE_UI_DEADLINE_MS = DATA_SAMPLE_TIMEOUT_MS + 500;
+const METADATA_ONLY_SAMPLE_RESULT = Object.freeze({ sampleUsed: false, evidence: Object.freeze([]) });
 
 const ENUM_FIELD_TOKENS = new Set(["status", "role", "type", "category"]);
 const PORTABLE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -69,14 +71,14 @@ export function getSampleProbeCandidates(schema) {
  * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
  * @param {import("../schema/schema-model.mjs").TableSchema} schema
  * @param {{ timeoutMs?: number }} [options]
- * @returns {Promise<Array<{ column: string, kind: "chinese_name_pattern" | "email_pattern" | "mobile_pattern" | "enum_like", sampleCount: number, matchedCount?: number, distinctCount?: number }>>}
+ * @returns {Promise<{ sampleUsed: boolean, evidence: Array<{ column: string, kind: string, sampleCount: number, matchedCount?: number, distinctCount?: number }> }>}
  */
 export async function probeDbxDataSamples(host, context, schema, options = {}) {
-  if (host?.capabilities?.dataApi !== true || typeof host?.queryData !== "function") return [];
+  if (host?.capabilities?.dataApi !== true || typeof host?.queryData !== "function") return METADATA_ONLY_SAMPLE_RESULT;
   const candidates = getSampleProbeCandidates(schema);
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return METADATA_ONLY_SAMPLE_RESULT;
   const query = buildSampleSelectQuery(context, candidates);
-  if (!query) return [];
+  if (!query) return METADATA_ONLY_SAMPLE_RESULT;
 
   const requestedTimeout = Number.isSafeInteger(options.timeoutMs) && options.timeoutMs > 0
     ? Math.min(options.timeoutMs, DATA_SAMPLE_TIMEOUT_MS)
@@ -98,7 +100,7 @@ export async function probeDbxDataSamples(host, context, schema, options = {}) {
     return summarizeSampleResult(result, query.columns, candidates);
   } catch {
     // Do not expose query errors: DBX owns consent and the Workbench remains usable.
-    return [];
+    return METADATA_ONLY_SAMPLE_RESULT;
   }
 }
 
@@ -128,13 +130,14 @@ export function buildSampleSelectQuery(context, candidates) {
 
 /** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "enum", sampling: "direct" | "truncate" }>} candidates */
 function summarizeSampleResult(result, selectedColumns, candidates) {
-  if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return [];
+  if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return METADATA_ONLY_SAMPLE_RESULT;
   const columnIndexes = new Map();
   for (const [index, column] of result.columns.slice(0, selectedColumns.length).entries()) {
     if (isRecord(column) && typeof column.name === "string") columnIndexes.set(column.name, index);
   }
 
   const evidence = [];
+  let sampleUsed = false;
   for (const candidate of candidates) {
     if (!selectedColumns.includes(candidate.name)) continue;
     const index = columnIndexes.get(candidate.name);
@@ -143,11 +146,15 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
       .filter(Array.isArray)
       .map((row) => row[index])
       .filter((value) => typeof value === "string" && value.length <= DATA_SAMPLE_FIELD_MAX_LENGTH && value.trim() !== "");
+    if (values.length > 0) sampleUsed = true;
     if (candidate.kind !== "enum") {
       const matchedCount = values.filter((value) => matchesSemanticPattern(candidate.kind, value)).length;
-      if (values.length >= NAME_PATTERN_MIN_SAMPLES && matchedCount / values.length >= NAME_PATTERN_MIN_RATIO) {
-        const kind = candidate.kind === "name" ? "chinese_name_pattern" : `${candidate.kind}_pattern`;
-        evidence.push({ column: candidate.name, kind, sampleCount: values.length, matchedCount });
+      if (values.length >= NAME_PATTERN_MIN_SAMPLES) {
+        const matchedRatio = matchedCount / values.length;
+        const patternKind = candidate.kind === "name" ? "chinese_name_pattern" : `${candidate.kind}_pattern`;
+        const kind = matchedRatio >= NAME_PATTERN_MIN_RATIO ? patternKind
+          : matchedRatio <= PATTERN_NEGATIVE_MAX_RATIO ? `${patternKind}_rejected` : null;
+        if (kind) evidence.push({ column: candidate.name, kind, sampleCount: values.length, matchedCount });
       }
       continue;
     }
@@ -159,7 +166,7 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
       evidence.push({ column: candidate.name, kind: "enum_like", sampleCount: values.length, distinctCount });
     }
   }
-  return evidence;
+  return { sampleUsed, evidence };
 }
 
 function matchesSemanticPattern(kind, value) {

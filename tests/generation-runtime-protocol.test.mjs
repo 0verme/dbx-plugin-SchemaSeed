@@ -76,6 +76,15 @@ test("runtime accepts only value-free sample summaries and rejects copied row va
   assert.equal(withEvidence.result.plan.columns[0].semanticMapping.confidence, "high");
   assert.equal(withEvidence.result.plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
 
+  const negativeEvidence = handleRuntimeRpcRequest(request({
+    schema: { ...schema, columns: [{ name: "file_name", dataType: "varchar", nullable: false, length: 128 }] },
+    options: { ...options, sampleEvidence: [{ column: "file_name", kind: "chinese_name_pattern_rejected", sampleCount: 8, matchedCount: 0 }] },
+  }));
+  assert.equal(negativeEvidence.error, undefined);
+  assert.equal(negativeEvidence.result.plan.columns[0].inference.status, "unknown");
+  assert.equal(negativeEvidence.result.plan.columns[0].inference.evidence.some((entry) => entry.kind === "sample_name_pattern_rejected"), true);
+  assert.equal(negativeEvidence.result.plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
+
   const withRawValues = handleRuntimeRpcRequest(request({
     schema,
     options: { ...options, sampleEvidence: [{ column: "label", kind: "enum_like", sampleCount: 4, distinctCount: 2, values: ["SECRET"] }] },
