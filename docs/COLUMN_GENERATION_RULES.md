@@ -17,6 +17,8 @@
 
 Rule 选择优先于已有 semantic/fallback path；hard schema facts 始终是不可覆盖的限制。`Auto` 是默认选择：保留既有 semantic mapping precedence 和现有 schema-type fallback。现有 inference candidate（包括 low confidence）不会因打开/编辑 UI 而被确认。
 
+WorkBench 可在独立、有界的 sample probe 成功后，为安全且充分的 profile 选择内部生成策略：`sample_enum`、`sample_numeric` 和 `sample_filename`。它们不是 Rule Editor 接受的用户规则 kind，不改变上面的 13-rule contract：显式用户 rule 优先；schema 类型、长度、precision/scale、nullability 与 constraints 始终校验；没有样本、证据不足、敏感列或 profile 不兼容时继续使用原 semantic/schema fallback。重复低基数类别只保留通过隐私 guard 的短 ASCII 标签及频率；数值只保留精确 min/max 和零值频次；文件名只保留扩展名，生成时使用 synthetic stem。Raw sample rows、自由文本、标识符与敏感值不会进入 GenerationPlan；UI 会显示当前生效的 sample-derived strategy 和 evidence。Preview 与 CSV/JSON/INSERT SQL 仍序列化同一 plan/seed 对应的数据快照。
+
 ## Rule configurations and semantics
 
 | Kind | Configuration | Compatibility / semantics |

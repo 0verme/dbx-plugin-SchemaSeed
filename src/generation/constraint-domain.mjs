@@ -45,6 +45,24 @@ export function describeConstraintDomain(columnPlan, rowCount) {
       const values = p.values.filter((value) => value !== null && value !== undefined);
       return known("enum", BigInt(values.length), (index) => values[Number(index)], { values });
     }
+    case "sample_enum": {
+      const values = p.candidates.map((candidate) => candidate.value);
+      return known("enum", BigInt(values.length), (index) => values[Number(index)], { values });
+    }
+    case "sample_numeric": {
+      const min = p.numericKind === "decimal" ? BigInt(p.minUnits) : BigInt(p.min);
+      const max = p.numericKind === "decimal" ? BigInt(p.maxUnits) : BigInt(p.max);
+      const excludesZero = p.zeroCount === 0 && min <= 0n && max >= 0n;
+      const capacity = max - min + 1n - (excludesZero ? 1n : 0n);
+      return known("sample_numeric_range", capacity, (index) => {
+        let value = min + index;
+        if (excludesZero && value >= 0n) value += 1n;
+        if (p.numericKind === "decimal") return formatDecimalUnits(value, p.scale);
+        return Number(value);
+      });
+    }
+    case "sample_filename":
+      return sampleFilenameDomain(p);
     case "boolean_ratio": {
       const values = p.trueRatio === 0 ? [false] : p.trueRatio === 1 ? [true] : [false, true];
       return known("boolean", BigInt(values.length), (index) => values[Number(index)], { values });
@@ -112,6 +130,29 @@ export function describeConstraintDomain(columnPlan, rowCount) {
         ? "Semantic generation does not expose an enumerable, collision-free domain"
         : `Generation strategy ${rule.kind} does not expose an enumerable, collision-free domain`);
   }
+}
+
+function sampleFilenameDomain(parameters) {
+  const prefix = "generated_";
+  const entries = parameters.suffixes.map(({ suffix }) => {
+    const tokenLength = Math.min(8, parameters.maxLength - prefix.length - suffix.length);
+    const capacity = BigInt(STRING_ALPHABET.length) ** BigInt(tokenLength);
+    return { suffix, tokenLength, capacity };
+  });
+  const capacity = entries.reduce((sum, entry) => sum + entry.capacity, 0n);
+  return {
+    state: "known",
+    kind: "sample_filenames",
+    capacity,
+    decode(index) {
+      let remaining = index;
+      for (const entry of entries) {
+        if (remaining < entry.capacity) return `${prefix}${decodeString(remaining, entry.tokenLength)}${entry.suffix}`;
+        remaining -= entry.capacity;
+      }
+      throw new Error("Filename allocation index exceeded its planned domain");
+    },
+  };
 }
 
 function stringDomain(length) {

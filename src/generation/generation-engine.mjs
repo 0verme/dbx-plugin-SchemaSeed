@@ -115,6 +115,15 @@ function generateValue(rule, identity, column, locale, rowIndex) {
       return randomString(parameters.length, identity, true);
     case "enum":
       return parameters.values[Number(randomBigIntBelowUniform(BigInt(parameters.values.length), [...identity, "enum-choice"]))];
+    case "sample_enum":
+      return chooseWeighted(parameters.candidates, identity, "sample-category", "value");
+    case "sample_numeric":
+      return generateSampleNumeric(parameters, identity);
+    case "sample_filename": {
+      const suffix = chooseWeighted(parameters.suffixes, identity, "sample-filename-suffix", "suffix");
+      const tokenLength = Math.min(8, parameters.maxLength - "generated_".length - suffix.length);
+      return `generated_${randomString(tokenLength, [...identity, "sample-filename-token"])}${suffix}`;
+    }
     case "boolean_ratio":
       return parameters.trueRatio === 1
         || (parameters.trueRatio !== 0 && randomUnit([...identity, "boolean-ratio"]) < parameters.trueRatio);
@@ -160,6 +169,36 @@ function generateValue(rule, identity, column, locale, rowIndex) {
     default:
       throw new Error(`No generator is available for rule ${rule.kind}`);
   }
+}
+
+function generateSampleNumeric(parameters, identity) {
+  const isDecimal = parameters.numericKind === "decimal";
+  const min = isDecimal ? BigInt(parameters.minUnits) : BigInt(parameters.min);
+  const max = isDecimal ? BigInt(parameters.maxUnits) : BigInt(parameters.max);
+  const zeroCount = BigInt(parameters.zeroCount);
+  const sampleCount = BigInt(parameters.sampleCount);
+  const zero = () => isDecimal ? formatDecimalUnits(0n, parameters.scale) : 0;
+  if (zeroCount === sampleCount) return zero();
+  if (zeroCount > 0n && randomUnit([...identity, "sample-zero-frequency"]) < Number(zeroCount) / Number(sampleCount)) {
+    return zero();
+  }
+
+  const includesZero = min <= 0n && max >= 0n;
+  const capacity = max - min + 1n - (includesZero ? 1n : 0n);
+  if (capacity <= 0n) throw new Error("Sample Numeric range has no nonzero values");
+  let value = min + randomBigIntBelowUniform(capacity, [...identity, "sample-numeric-range"]);
+  if (includesZero && value >= 0n) value += 1n;
+  return isDecimal ? formatDecimalUnits(value, parameters.scale) : Number(value);
+}
+
+function chooseWeighted(candidates, identity, purpose, valueKey) {
+  const total = candidates.reduce((sum, candidate) => sum + candidate.frequency, 0);
+  let choice = randomBigIntBelowUniform(BigInt(total), [...identity, purpose]);
+  for (const candidate of candidates) {
+    choice -= BigInt(candidate.frequency);
+    if (choice < 0n) return candidate[valueKey];
+  }
+  throw new Error(`No candidate is available for ${purpose}`);
 }
 
 function randomString(length, identity, uniform = false) {

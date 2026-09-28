@@ -6,7 +6,9 @@ export { GENERATION_PREVIEW_METHOD } from "./generation-runtime-contract.mjs";
 export const GENERATION_RUNTIME_JSON_RPC_VERSION = "2.0";
 const MAX_PREVIEW_ROWS = 100;
 const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings", "sampleEvidence"]);
-const SAMPLE_EVIDENCE_FIELDS = new Set(["column", "kind", "sampleCount", "matchedCount", "distinctCount"]);
+const SAMPLE_EVIDENCE_FIELDS = new Set([
+  "column", "kind", "sampleCount", "matchedCount", "distinctCount", "min", "max", "zeroCount", "candidates", "suffixes",
+]);
 
 /**
  * Build and execute an existing Core GenerationPlan for the packaged Workbench.
@@ -70,7 +72,7 @@ function validateSampleEvidencePayload(value) {
   if (!Array.isArray(value)) throw new TypeError("sampleEvidence must contain value-free inference summaries");
   for (const entry of value) {
     if (!isRecord(entry) || Object.keys(entry).some((key) => !SAMPLE_EVIDENCE_FIELDS.has(key))) {
-      throw new TypeError("sampleEvidence may contain only column, kind, and bounded counts; sample values are forbidden");
+      throw new TypeError("sampleEvidence may contain only bounded profile fields and safe categorical labels; raw sample values are forbidden");
     }
   }
 }

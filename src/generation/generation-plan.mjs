@@ -16,7 +16,7 @@ import {
 import { normalizeTableSchema } from "../schema/schema-model.mjs";
 import { checkSemanticCompatibility, inferSemanticType, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
 import { createEvidence, EVIDENCE_KINDS } from "../semantic/evidence.mjs";
-import { normalizeSampleEvidence } from "../semantic/sample-evidence.mjs";
+import { isFilenameColumnName, isSensitiveSampleColumn, normalizeSampleEvidence } from "../semantic/sample-evidence.mjs";
 import { resolvePersonGroups } from "../semantic/person-groups.mjs";
 import { buildConstraintPlan } from "./manual-constraints.mjs";
 
@@ -150,7 +150,7 @@ export function buildGenerationPlan(tableInput, options = {}) {
       locale,
       diagnostics,
     );
-    const planned = planColumn(schema.tableIdentity, column, overrides.get(column.name), semanticMapping, inference, locale, mode, diagnostics, generationRule, displayGenerationRule, validation.diagnostics);
+    const planned = planColumn(schema.tableIdentity, column, overrides.get(column.name), semanticMapping, inference, sampleEvidence.get(column.name) ?? null, locale, mode, diagnostics, generationRule, displayGenerationRule, validation.diagnostics, rowCount);
     const ruleKinds = getCompatibleGenerationRules(column);
     if (!ruleKinds.includes(displayGenerationRule.kind)) ruleKinds.push(displayGenerationRule.kind);
     return {
@@ -374,7 +374,7 @@ function mappingFromInference(inference, status, selected) {
   };
 }
 
-function planColumn(tableIdentity, column, override, semanticMapping, inference, locale, mode, diagnostics, generationRule, displayGenerationRule, ruleDiagnostics) {
+function planColumn(tableIdentity, column, override, semanticMapping, inference, sampleProfile, locale, mode, diagnostics, generationRule, displayGenerationRule, ruleDiagnostics, rowCount) {
   const interpreted = interpretColumnType(column);
   const schemaRuleId = `schema:${column.name}`;
   if (!interpreted && isUuidType(column)
@@ -461,6 +461,10 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
     };
     nullProbability = 0;
   }
+  const hasExplicitRule = generationRule.kind !== "auto" || override !== undefined;
+  if (!rule && !hasExplicitRule && !semanticMapping.selected && inference.status === "unknown") {
+    rule = sampleGenerationRule(column, interpreted, sampleProfile, rowCount);
+  }
   if (!rule) {
     rule = {
       identity: schemaRuleId,
@@ -469,16 +473,85 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
       parameters: { ...baseParameters, nullProbability },
     };
   }
+  let plannedInference = inference;
+  if (inference.recommendation?.source === "sample_inference" && rule.source === "schema_type_fallback") {
+    plannedInference = { ...inference, recommendation: null };
+  }
 
   return {
     schema: column,
     semanticMapping: finalSemanticMapping,
-    inference,
+    inference: plannedInference,
     rule: { ...rule, parameters: { ...rule.parameters } },
     generationRule: displayGenerationRule,
     nullProbability,
     personGroupIdentity: null,
   };
+}
+
+function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
+  if (!sampleProfile || (sampleProfile.kind !== "filename_pattern" && isSensitiveSampleColumn(column.name))) return null;
+  const schemaKind = interpreted?.kind;
+  if (sampleProfile.kind === "enum_like" && schemaKind === "varchar"
+    && Array.isArray(sampleProfile.candidates) && sampleProfile.candidates.length > 0) {
+    const values = sampleProfile.candidates.map((candidate) => candidate.value);
+    const validation = validateGenerationRule(column, { kind: "enum", values }, { tableIdentity: "sample-profile", rowCount });
+    if (!validation.valid || !validation.rule) return null;
+    const frequencies = new Map(sampleProfile.candidates.map((candidate) => [candidate.value, candidate.frequency]));
+    return {
+      identity: "sample:categorical:v1",
+      kind: "sample_enum",
+      source: "sample_inference",
+      parameters: { candidates: validation.rule.values.map((value) => ({ value, frequency: frequencies.get(value) })) },
+    };
+  }
+
+  if (sampleProfile.kind === "numeric_range" && ["integer", "decimal"].includes(schemaKind)) {
+    const { min, max, zeroCount, sampleCount } = sampleProfile;
+    if (!Number.isSafeInteger(sampleCount) || sampleCount < 1
+      || !Number.isSafeInteger(zeroCount) || zeroCount < 0 || zeroCount > sampleCount) return null;
+    if (schemaKind === "integer") {
+      const schemaMin = interpreted.parameters.schemaMin;
+      const schemaMax = interpreted.parameters.schemaMax;
+      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min > max || min < schemaMin || max > schemaMax) return null;
+      return {
+        identity: "sample:numeric-range:v1",
+        kind: "sample_numeric",
+        source: "sample_inference",
+        parameters: { numericKind: "integer", min, max, zeroCount, sampleCount },
+      };
+    }
+    const scale = column.scale.state === "known" ? column.scale.value : null;
+    const precision = column.precision.state === "known" ? column.precision.value : null;
+    if (!Number.isSafeInteger(scale) || !Number.isSafeInteger(precision) || precision < 1 || scale < 0 || scale > precision) return null;
+    const minUnits = parseDecimalUnits(String(min), scale);
+    const maxUnits = parseDecimalUnits(String(max), scale);
+    const decimalBound = 10n ** BigInt(precision) - 1n;
+    if (minUnits === null || maxUnits === null || minUnits > maxUnits
+      || minUnits < -decimalBound || maxUnits > decimalBound) return null;
+    return {
+      identity: "sample:numeric-range:v1",
+      kind: "sample_numeric",
+      source: "sample_inference",
+      parameters: { numericKind: "decimal", minUnits: String(minUnits), maxUnits: String(maxUnits), zeroCount, sampleCount, scale },
+    };
+  }
+
+  if (sampleProfile.kind === "filename_pattern" && schemaKind === "varchar" && isFilenameColumnName(column.name)) {
+    const capacity = interpretStringCapacity(column);
+    if (capacity?.model !== "bounded" && capacity?.model !== "unbounded") return null;
+    const maxLength = capacity.model === "bounded" ? capacity.maxLength : 32;
+    const suffixes = sampleProfile.suffixes;
+    if (!Array.isArray(suffixes) || suffixes.length === 0
+      || suffixes.some((entry) => maxLength < "generated_".length + 1 + entry.suffix.length)) return null;
+    return {
+      identity: "sample:filename-pattern:v1",
+      kind: "sample_filename",
+      source: "sample_inference",
+      parameters: { suffixes, maxLength },
+    };
+  }
+  return null;
 }
 
 function resolveExplicitGenerationRule(selection, column, schemaKind, baseParameters, semanticMapping, locale, mode) {

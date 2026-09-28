@@ -19,11 +19,12 @@ Sample evidence 不能替代或覆盖 schema facts：data type、varchar length�
 
 ## 候选字段与查询上限
 
-当前只考虑已知、bounded、最大 1024 字符的 varchar 列：
+候选范围按类型和隐私风险筛选，而非按固定业务列名：
 
-- 现有 name/email/mobile inference 为非高置信度候选时，可用相应 pattern evidence 辅助确认；例如 `display_name`。
-- `status`、`role`、`type`、`category` 等字符串列可以被探测低基数 enum-like 特征。
-- 不采样 text/unbounded、binary/BLOB、未知或不支持类型、超过长度上限的字段；metadata 已足够的字段不采样。
+- 已知、bounded 且最大 1024 字符的 varchar 可用于 name/email/mobile pattern、低基数类别或文件名后缀分析；native unbounded `text` 只允许对合格候选作数据库端 `SUBSTR(..., 1, 1024)`，不把未知长度的 varchar 当作无界。
+- 普通非敏感 integer/decimal 可用于数值范围和零值频次；拒绝 ID/UUID/业务标识符、已知 identity 和按样本顺序单调递增/递减的全唯一数值列。
+- 文件名/路径列只分析后缀；敏感、自由文本、binary/BLOB、未知或不支持类型、超出长度上限的字段不进入相应 profile。已有高置信度 semantic mapping 不采样。
+- 不依赖 `category`、`dws`、`err`、`audit_results` 等具体字段名或样本业务值；相同规则应用于通过 guard 的字段。
 
 Probe 构造 `SELECT` 时只包含候选字段，并同时设置 SQL `LIMIT 8` 与 Host `maxRows: 8`；Host 请求 `timeoutMs` 最多为 3000 ms，Workbench deadline 最多为 3500 ms。没有 COUNT / DISTINCT 聚合、全表 histogram、percentile 或分布 profiling。
 
@@ -31,15 +32,19 @@ Probe 构造 `SELECT` 时只包含候选字段，并同时设置 SQL `LIMIT 8` �
 
 ## 证据与生成
 
-原始 rows 只在 UI-side analyzer 的本次调用内存中短暂使用。当前 pattern 支持中文姓名、邮箱、手机号和低基数字符串类别；样本不足、全 NULL、混乱或不一致时不给出证据。
+原始 rows 只在 UI-side analyzer 的本次调用内存中短暂使用。Probe 生成的 profile 包括：姓名/邮箱/手机号的 pattern 计数；类别的 sample/distinct 计数及可选安全 label/frequency；numeric min/max/zeroCount；filename suffix/frequency。样本不足、全 NULL、全唯一类别、混乱或不一致时不给出可应用 profile。
 
-传入 Generation Core 的只包含字段名、pattern kind 和有界计数（例如匹配数、样本数、不同类别数）。姓名/邮箱/手机号确认后仍调用 SchemaSeed 的 Safe Synthetic generator；enum-like 只显示规则建议，不复制生产枚举值，也不把样本值作为用户配置或 preview 内容。
+传入 Generation Core 的只包含字段名和有界 profile：类别 label 只有在列和值都通过 guard（短 lowercase ASCII、重复低基数、非敏感/非标识符）时保留，除此之外不携带类别原值；numeric decimal bounds 保留 exact decimal string；filename 仅保留扩展名。姓名/邮箱/手机号的 pattern evidence 只携带匹配计数，实际输出继续使用 SchemaSeed Safe Synthetic generator。允许通过类别 guard 的短 label 在合成结果中按观察频率重复出现，这是为保持类别分布而设的明确例外；其余原始行、自由文本、敏感值和文件名 stem 不会进入生成结果。Numeric profile 限定生成范围并按 observed zero frequency 做 seed-addressed 抽样，filename profile 使用新的 synthetic stem。
 
-Session cache 按 connection/database/schema/table 保存一次探测 promise 及已脱敏证据；失败和空结果同样缓存，避免重试。改变行数、随机种子、规则或展开面板不会再 query；cache 仅在 Workbench 内存生命周期存在，不持久化原始值或证据。
+GenerationPlan 的 effective rule/provenance 可观察为 sample-derived strategy；显式用户 rule、已确认 semantic mapping 与 schema bounds 优先。没有样本、不兼容或安全性不足时保持原 schema/semantic fallback。Preview 与 CSV/JSON/INSERT SQL 仍共用同一已生成 dataset；profile/generator 的同 seed 输出可 replay。
+
+Profile threshold 以最多 8 行为上限：categorical 至少 4 个非空样本、2–6 个 distinct 且至少有一个重复（distinct ratio ≤ 0.9）；数值范围至少 3 个合法样本；filename 至少 3 个有效 suffix 且覆盖率 ≥ 0.8。类别候选最多 24 字符并要求 lowercase ASCII，suffix 为 1–8 个 ASCII 字母/数字；不满足阈值不强推策略。
+
+Session cache 按 connection/database/schema/table 保存一次探测 promise 及 value-minimized profile；失败和空结果同样缓存，避免重试。改变行数、随机种子、规则或展开面板不会再 query；cache 仅在 Workbench 内存生命周期存在，不持久化原始 rows 或脱敏 profile。
 
 ## 隐私和诊断
 
-原始 sample values 不进入日志、diagnostics、export、telemetry、analytics、localStorage、persistent plugin storage、fixtures/snapshots、AI/LLM 或外部 HTTP。Probe errors 不展示为 fatal modal，也不影响生成。Core RPC 会拒绝携带原始 values 的 sampleEvidence payload。
+原始 sample rows / free text / 敏感值不进入日志、diagnostics、telemetry、analytics、localStorage、persistent plugin storage、fixtures/snapshots、AI/LLM 或外部 HTTP；唯一可出现在生成结果中的观察值是通过列和值两侧隐私 guard 的短类别 label，numeric 只保留 bounded range，filename 只保留 suffix。Probe errors 不展示为 fatal modal，也不影响生成。Core RPC 会拒绝携带未声明字段或原始行值的 sampleEvidence payload，并在 Core 再次执行 profile guard。
 
 Sampling 只可能移除由足够强的 semantic ambiguity 产生的确认 warning。Schema metadata 问题（如 timestamp precision 缺失）、混乱样本或真实业务歧义仍按原有规则提示用户。
 

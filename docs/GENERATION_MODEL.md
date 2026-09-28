@@ -295,7 +295,7 @@ Evidence
   explanation: "name and length are compatible with a certificate-like identifier"
 ```
 
-Baseline 不读取真实行样本，不依赖外部网络，也不调用 AI。Evidence 必须能在 normalized metadata 和用户选择中复核。
+原始 Issue #12 conceptual baseline 不读取真实行样本；当前 production Workbench 的有界 sample probe 位于 Core 外部，仅通过 DBX Host API 读取候选字段，并把经过 profile/隐私 guard 的特征传入 Core（边界和策略见 [LIGHTWEIGHT_DATA_SAMPLING.md](LIGHTWEIGHT_DATA_SAMPLING.md)）。Core 仍不访问 Host、数据库、外部网络或 AI；所有自动决策都必须在 GenerationPlan 中以 profile、evidence、strategy source 可复核。
 
 ### 2.3 Confidence 与处理策略
 

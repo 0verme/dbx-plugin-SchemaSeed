@@ -1,0 +1,25 @@
+{
+  "schema": {
+    "tableIdentity": "audit_results",
+    "columns": [
+      { "name": "id", "dataType": "bigint", "nullable": false, "identity": true },
+      { "name": "task_id", "dataType": "bigint", "nullable": false },
+      { "name": "category", "dataType": "text", "nullable": false },
+      { "name": "file_name", "dataType": "text", "nullable": false },
+      { "name": "line_no", "dataType": "int", "nullable": false },
+      { "name": "rule_name", "dataType": "text", "nullable": false },
+      { "name": "level", "dataType": "text", "nullable": false },
+      { "name": "message", "dataType": "text", "nullable": true }
+    ]
+  },
+  "sampleRows": [
+    { "id": 1, "task_id": 1001, "category": "dws", "file_name": "dws_cust_asset_d.sql", "line_no": 18, "rule_name": "null_check", "level": "err", "message": "synthetic fixture message one" },
+    { "id": 2, "task_id": 1001, "category": "dws", "file_name": "dws_cust_asset_d.sql", "line_no": 42, "rule_name": "syntax_rule", "level": "err", "message": "synthetic fixture message two" },
+    { "id": 3, "task_id": 1002, "category": "hive", "file_name": "dwd_acct_event_i.hql", "line_no": 12, "rule_name": "required_field", "level": "err", "message": "synthetic fixture message three" },
+    { "id": 4, "task_id": 1002, "category": "python", "file_name": "load_loan_daily.py", "line_no": 88, "rule_name": "duplicate_rule", "level": "err", "message": "synthetic fixture message four" },
+    { "id": 5, "task_id": 1003, "category": "sbin", "file_name": "post_dws_cust_asset.sh", "line_no": 5, "rule_name": "unique_key", "level": "warn", "message": "synthetic fixture message five" },
+    { "id": 6, "task_id": 1003, "category": "config", "file_name": "dws_loan_balance_sum.json", "line_no": 9, "rule_name": "not_null", "level": "err", "message": "synthetic fixture message six" },
+    { "id": 7, "task_id": 1004, "category": "recv", "file_name": "cust_asset_recv.json", "line_no": 3, "rule_name": "type_check", "level": "warn", "message": "synthetic fixture message seven" },
+    { "id": 8, "task_id": 1004, "category": "dws", "file_name": "dws_cust_asset_i.sql", "line_no": 0, "rule_name": "valid_email", "level": "info", "message": null }
+  ]
+}
