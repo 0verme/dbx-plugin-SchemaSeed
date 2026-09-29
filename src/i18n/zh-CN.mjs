@@ -20,6 +20,8 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "context.database": "数据库",
   "context.schema": "Schema",
   "context.table": "数据表",
+  "dataAccess.title": "数据访问",
+  "dataAccess.description": "仅在 DBX Host 获得你对此插件和连接的授权后，SchemaSeed 才会通过只读 Host Data API 对最多 8 行候选字段进行采样。敏感原始值仅在内存中短暂处理以提取安全特征，随后丢弃；不会展示或持久化。",
 
   // Dataset controls.
   "controls.rows": "生成行数",
@@ -264,6 +266,9 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "evidence.sample_numeric_range.explanation": "有限数值特征可约束合成数据的尺度，同时不保留单条观测值",
   "evidence.sample_temporal_range.observation": "{column}：可用样本时间范围为 {observedMin} 至 {observedMax}；NULL 出现 {nullCount}/{sampleCount} 次",
   "evidence.sample_temporal_range.explanation": "仅保留有界日期时间范围、精度和 NULL 频率；生成时遵循字段的 date、timestamp 或 timestamptz 语义",
+  "evidence.sample_temporal_shape.observation": "{column}：{observedCount}/{sampleCount} 个样本可解析，精度为 {precision}；NULL 出现 {nullCount}/{sampleCount} 次",
+  "evidence.sample_temporal_shape.explanation": "敏感时间字段仅保留精度、时区语义、NULL 分布和可解析计数，不保留原始时间值或观测范围",
+  "evidence.temporalShape.precisionUnknown": "未知",
   "evidence.temporalRange.unavailable": "不可用",
   "evidence.temporalKind.date": "日期",
   "evidence.temporalKind.timestamp": "时间戳",
@@ -523,7 +528,7 @@ export const ZH_CN_DIAGNOSTICS = Object.freeze({
   },
   safe_synthetic_mode: {
     title: "当前处于安全合成模式",
-    description: "所有取值只来自表结构与确定性生成器，不会读取任何真实数据行。",
+    description: "生成结果不是对真实数据行的复制；授权的只读采样可为适用字段提取安全特征，再由合成策略生成结果。",
   },
   validator_mode_unsupported: {
     title: "不支持该校验模式",

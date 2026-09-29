@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { createI18n } from "../src/i18n/index.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
-import { normalizeSampleEvidence, sanitizeSampleEvidence } from "../src/semantic/sample-evidence.mjs";
+import { isSensitiveSampleColumn, normalizeSampleEvidence, sampleEvidenceToCoreEvidence, sanitizeSampleEvidence } from "../src/semantic/sample-evidence.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 
 const zh = createI18n("zh-CN");
@@ -113,6 +113,40 @@ describe("semantic and value-minimized sample profiles", () => {
       { column: "line_no", kind: "numeric_range", sampleCount: 4, min: 0, max: 8, zeroCount: 0 },
     ], knownColumns);
     assert.equal(inconsistentZero.has("line_no"), false, "a zero-valued endpoint requires a positive zero frequency");
+  });
+
+  it("accepts only restricted value-free temporal shapes for sensitive temporal columns", () => {
+    assert.equal(isSensitiveSampleColumn("last_login_at"), true);
+    const profiles = normalizeSampleEvidence([
+      {
+        column: "last_login_at", kind: "temporal_shape", temporalKind: "timestamp",
+        sampleCount: 4, nullCount: 1, nullRate: 0.25, observedCount: 3,
+        precision: 0, timezoneAware: false,
+        observedMin: "2026-07-18 09:30:00", observedMax: "2026-07-20 09:30:00",
+      },
+      {
+        column: "started_at", kind: "temporal_shape", temporalKind: "timestamp",
+        sampleCount: 4, nullCount: 0, nullRate: 0, observedCount: 4,
+        precision: 0, timezoneAware: false,
+      },
+      {
+        column: "last_login_at", kind: "temporal_range", temporalKind: "timestamp",
+        sampleCount: 4, nullCount: 0, nullRate: 0, observedCount: 4,
+        observedMin: "2026-07-18 09:30:00", observedMax: "2026-07-20 09:30:00",
+        precision: 0, timezoneAware: false,
+      },
+    ], new Set(["last_login_at", "started_at"]));
+
+    assert.deepEqual(profiles.get("last_login_at"), {
+      kind: "temporal_shape", temporalKind: "timestamp", sampleCount: 4,
+      nullCount: 1, nullRate: 0.25, observedCount: 3, precision: 0, timezoneAware: false,
+    });
+    assert.equal(profiles.has("started_at"), false, "restricted shapes are reserved for sensitive names");
+    assert.doesNotMatch(JSON.stringify(profiles), /observedMin|observedMax|2026-07-1[08]|2026-07-20/u);
+    const evidence = sampleEvidenceToCoreEvidence(profiles.get("last_login_at"), "last_login_at");
+    assert.equal(describeEvidence(evidence, zh).fallback, false);
+    assert.match(describeEvidence(evidence, zh).observation, /精度为 0/u);
+    assert.match(describeEvidence(evidence, en).explanation, /original time values and observed bounds are not retained/u);
   });
 
   it("does not recommend categorical generation when labels or columns fail privacy guards", () => {

@@ -143,6 +143,26 @@ describe("i18n locale strategy", () => {
     }
   });
 
+  it("localizes the DBX data-access privacy disclosure without claiming sensitive values are never read", async () => {
+    const zh = createI18n("zh-CN");
+    const en = createI18n("en-US");
+    assert.equal(zh("dataAccess.title"), "数据访问");
+    assert.match(zh("dataAccess.description"), /DBX Host 获得你对此插件和连接的授权/u);
+    assert.match(zh("dataAccess.description"), /内存中短暂处理以提取安全特征，随后丢弃；不会展示或持久化/u);
+    assert.doesNotMatch(zh("dataAccess.description"), /不会读取|不查看/u);
+    assert.match(zh("diagnostic.safe_synthetic_mode.description"), /授权的只读采样/u);
+    assert.doesNotMatch(zh("diagnostic.safe_synthetic_mode.description"), /不会读取任何真实数据行/u);
+    assert.match(en("dataAccess.description"), /DBX Host obtains your consent for this plugin and connection/u);
+    assert.match(en("dataAccess.description"), /processed briefly in memory only to derive safe features, then discarded/u);
+    assert.match(en("dataAccess.description"), /never displayed or persisted/u);
+    assert.match(en("diagnostic.safe_synthetic_mode.description"), /authorized read-only sampling/u);
+    assert.doesNotMatch(en("dataAccess.description"), /\{/u);
+
+    const workbench = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
+    assert.match(workbench, /data-i18n="dataAccess\.title"/u);
+    assert.match(workbench, /data-i18n="dataAccess\.description"/u);
+  });
+
   it("interpolates raw values without translating them", () => {
     const zh = createI18n("zh-CN");
     const summary = zh("preview.summary", { rows: 20, seed: "demo", locale: "zh-CN", profile: "sha256-v1" });

@@ -20,7 +20,7 @@ const MAX_IDENTIFIER_LENGTH = 256;
  */
 export class DbxGenerationWorkbenchController {
   /**
-   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => Promise<{ plan: object, generated: object }>, sampleProbe?: (request: { context: object, schema: object, candidates: Array<{ name: string, kind: string, sampling: "direct" | "truncate" }> }) => Promise<unknown>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
+   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => Promise<{ plan: object, generated: object }>, sampleProbe?: (request: { context: object, schema: object, candidates: Array<{ name: string, kind: string, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }> }) => Promise<unknown>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
    */
   constructor(options) {
     if (typeof options?.provider?.getTableMetadata !== "function") {

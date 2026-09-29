@@ -37,6 +37,10 @@ const WORKBENCH_MARKUP = `
           <div><span data-i18n="context.schema"></span><strong id="sswb-schema">—</strong></div>
           <div><span data-i18n="context.table"></span><strong id="sswb-table">—</strong></div>
         </div>
+        <aside class="sswb-data-access" role="note" aria-labelledby="sswb-data-access-title">
+          <h3 id="sswb-data-access-title" data-i18n="dataAccess.title"></h3>
+          <p data-i18n="dataAccess.description"></p>
+        </aside>
         <form id="sswb-controls" class="sswb-controls">
           <label><span data-i18n="controls.rows"></span> <small data-i18n="controls.rowsRange"></small><input id="sswb-rows" name="rowCount" type="number" min="1" max="100" value="20" required></label>
           <label><span data-i18n="controls.seed"></span><input id="sswb-seed" name="seed" type="text" value="demo" maxlength="128"></label>

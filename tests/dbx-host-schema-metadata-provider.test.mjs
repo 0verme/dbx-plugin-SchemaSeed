@@ -110,6 +110,7 @@ test("MySQL, PostgreSQL, and SQLite contract schemas flow through planning and g
         { name: "id", dataType: "bigint", nullable: false, default: null },
         { name: "amount", dataType: "numeric", nullable: false, precision: 10, scale: 3, default: null },
         { name: "happened_at", dataType: "timestamp", nullable: false, precision: 6, default: null },
+        { name: "last_login_at", dataType: "timestamp without time zone", nullable: true, precision: 4, default: null },
       ]),
       expectedStatus: "ready",
     },
@@ -154,6 +155,22 @@ test("MySQL, PostgreSQL, and SQLite contract schemas flow through planning and g
           const timestamp = schema.columns.find((column) => column.name === "happened_at");
           assert.equal(timestamp.precision.state, "known");
           assert.equal(timestamp.precision.value, 6);
+          const sensitiveTimestamp = schema.columns.find((column) => column.name === "last_login_at");
+          assert.equal(sensitiveTimestamp.precision.state, "known");
+          assert.equal(sensitiveTimestamp.precision.value, 4);
+          const restrictedPlan = buildGenerationPlan(schema, {
+            rowCount: 8,
+            seed: "host-precision-restricted-profile",
+            sampleEvidence: [{
+              column: "last_login_at", kind: "temporal_shape", temporalKind: "timestamp",
+              sampleCount: 4, nullCount: 0, nullRate: 0, observedCount: 4,
+              precision: 0, timezoneAware: false,
+            }],
+          });
+          assert.equal(restrictedPlan.columns.find((column) => column.schema.name === "last_login_at").rule.parameters.precision, 4,
+            "explicit structured DBX timestamp precision stays authoritative over sampled shape");
+          const restrictedRows = generateRows(restrictedPlan).rows;
+          assert.ok(restrictedRows.every((row) => row.last_login_at === null || /\.\d{4}$/u.test(row.last_login_at)));
           assert.equal(plan.diagnostics.some((diagnostic) => diagnostic.code === "timestamp_precision_unknown"), false,
             "DBX schema precision is consumed as authoritative metadata, never guessed from row samples");
         }

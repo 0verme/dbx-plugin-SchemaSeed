@@ -13,6 +13,7 @@ import { generateRows } from "../src/generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { createI18n } from "../src/i18n/index.mjs";
 import { probeDbxDataSamples, getSampleProbeCandidates } from "../src/host/dbx-data-sample-probe.mjs";
+import { isSensitiveSampleColumn } from "../src/semantic/sample-evidence.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 import { toColumnViewModel } from "../src/workbench/workbench-view-model.mjs";
@@ -199,8 +200,12 @@ test("sensitive and identifier-like columns cannot use observed categorical valu
     tableIdentity: "privacy-guard",
     columns: [
       { name: "email", dataType: "varchar", length: 128, nullable: false },
+      { name: "username", dataType: "varchar", length: 128, nullable: false },
+      { name: "password", dataType: "varchar", length: 128, nullable: false },
+      { name: "token", dataType: "varchar", length: 128, nullable: false },
       { name: "access_token", dataType: "varchar", length: 128, nullable: false },
       { name: "account_number", dataType: "varchar", length: 32, nullable: false },
+      { name: "account_balance", dataType: "decimal", precision: 12, scale: 2, nullable: false },
       { name: "personal_name", dataType: "varchar", length: 64, nullable: false },
       { name: "mobile_phone", dataType: "varchar", length: 32, nullable: false },
       { name: "home_address", dataType: "varchar", length: 128, nullable: false },
@@ -213,7 +218,7 @@ test("sensitive and identifier-like columns cannot use observed categorical valu
   }).schema;
   const secretCandidates = ["alice", "bob"].map((value) => ({ value, frequency: 2 }));
   const sampleEvidence = [
-    "email", "access_token", "account_number", "personal_name", "mobile_phone", "home_address",
+    "email", "username", "password", "token", "access_token", "account_number", "personal_name", "mobile_phone", "home_address",
     "business_uuid", "customer_code", "user_id", "file_id",
   ].map((column) => ({
     column,
@@ -224,20 +229,26 @@ test("sensitive and identifier-like columns cannot use observed categorical valu
     candidates: secretCandidates,
     suffixes: [{ suffix: ".csv", frequency: 4 }],
   }));
+  sampleEvidence.push({ column: "account_balance", kind: "numeric_range", sampleCount: 4, min: "1.00", max: "9.00", zeroCount: 0 });
   sampleEvidence.push({ column: "safe_label", kind: "enum_like", sampleCount: 4, distinctCount: 2, candidates: [
     { value: "open", frequency: 3 }, { value: "closed", frequency: 1 },
   ] });
 
   const plan = buildGenerationPlan(sensitiveSchema, { rowCount: 8, seed: "sensitive-sample", sampleEvidence });
   for (const name of [
-    "email", "access_token", "account_number", "personal_name", "mobile_phone", "home_address",
-    "business_uuid", "customer_code", "user_id", "file_id",
+    "email", "username", "password", "token", "access_token", "account_number", "personal_name", "mobile_phone", "home_address",
+    "business_uuid", "customer_code", "user_id", "file_id", "account_balance",
   ]) {
     const column = plan.columns.find((entry) => entry.schema.name === name);
     assert.notEqual(column.rule.source, "sample_inference", name);
     assert.notEqual(column.rule.kind, "sample_enum", name);
     assert.notEqual(column.rule.kind, "sample_filename", name);
+    if (["username", "email", "token", "password", "account_number"].includes(name)) {
+      assert.equal(isSensitiveSampleColumn(name), true);
+      assert.equal(column.rule.source, "schema_type_fallback");
+    }
   }
+  assert.notEqual(plan.columns.find((entry) => entry.schema.name === "account_balance").rule.kind, "sample_numeric");
   assert.equal(plan.columns.find((entry) => entry.schema.name === "safe_label").rule.kind, "sample_enum");
   const generated = generateRows(plan).rows;
   const serialized = JSON.stringify({ plan, generated });

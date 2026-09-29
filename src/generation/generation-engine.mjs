@@ -51,7 +51,7 @@ export function generateRows(plan) {
           entries.push([schema.name, null]);
           continue;
         }
-        entries.push([schema.name, generateValue(rule, identity, schema, plan.locale, rowIndex)]);
+        entries.push([schema.name, generateValue(rule, identity, plan.locale, rowIndex)]);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -84,7 +84,7 @@ export function generateRows(plan) {
   return { rows, diagnostics, status: planStatus(diagnostics) };
 }
 
-function generateValue(rule, identity, column, locale, rowIndex) {
+function generateValue(rule, identity, locale, rowIndex) {
   const parameters = rule.parameters;
   if (rule.kind.startsWith("semantic:")) {
     return generatePersonSyntheticValue(rule.kind.slice("semantic:".length), identity, locale);
@@ -129,7 +129,7 @@ function generateValue(rule, identity, column, locale, rowIndex) {
     case "date_range":
       return randomDate(parameters.start, parameters.end, identity);
     case "timestamp_range":
-      return randomTimestamp(parameters.start, parameters.end, column, identity, parameters);
+      return randomTimestamp(parameters.start, parameters.end, identity, parameters);
     case "uuid":
       return deterministicUuid(identity);
     case "integer": {
@@ -160,7 +160,7 @@ function generateValue(rule, identity, column, locale, rowIndex) {
       const timezoneAware = parameters.timezoneAware === true;
       const min = parseTimestampBound(parameters.min, DEFAULT_TIMESTAMP_MIN, timezoneAware);
       const max = parseTimestampBound(parameters.max, DEFAULT_TIMESTAMP_MAX, timezoneAware);
-      const precision = column.precision.state === "known" ? column.precision.value : 3;
+      const precision = parameters.precision;
       if (!Number.isSafeInteger(precision) || precision < 0 || precision > 9) throw new Error("Invalid timestamp precision in GenerationPlan");
       const quantum = 10n ** BigInt(9 - precision);
       if (min > max || min % quantum !== 0n) throw new Error("Invalid timestamp bounds in GenerationPlan");
@@ -225,14 +225,12 @@ function randomDate(start, end, identity) {
   return new Date(value).toISOString().slice(0, 10);
 }
 
-function randomTimestamp(start, end, column, identity, parameters) {
+function randomTimestamp(start, end, identity, parameters) {
   const timezoneAware = parameters.timezoneAware === true;
   const minimum = parseTimestamp(start, { timezoneAware });
   const maximum = parseTimestamp(end, { timezoneAware });
   if (!minimum || !maximum || minimum.nanoseconds > maximum.nanoseconds) throw new Error("Invalid Timestamp Range in GenerationPlan");
-  const precision = Number.isSafeInteger(parameters.precision)
-    ? parameters.precision
-    : column.precision.state === "known" ? column.precision.value : 3;
+  const precision = parameters.precision;
   if (precision < 0 || precision > 9) throw new Error("Invalid Timestamp Range precision in GenerationPlan");
   const quantum = 10n ** BigInt(9 - precision);
   if (minimum.nanoseconds % quantum !== 0n || maximum.nanoseconds % quantum !== 0n) throw new Error("Timestamp Range bounds are not aligned to GenerationPlan precision");

@@ -41,7 +41,7 @@ const RESERVED_TABLE_IDENTIFIERS = new Set([
  * authoritative: bounded strings retain direct projection; only strong semantic
  * candidates with native unbounded text receive a database-side truncated projection.
  * @param {import("../schema/schema-model.mjs").TableSchema} schema
- * @returns {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric" | "temporal", numericKind?: "integer" | "decimal", temporalKind?: "date" | "timestamp", timezoneAware?: boolean, sampling: "direct" | "truncate" }>}
+ * @returns {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric" | "temporal", numericKind?: "integer" | "decimal", temporalKind?: "date" | "timestamp", timezoneAware?: boolean, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }>}
  */
 export function getSampleProbeCandidates(schema) {
   if (!schema || !Array.isArray(schema.columns)) return [];
@@ -54,12 +54,14 @@ export function getSampleProbeCandidates(schema) {
       continue;
     }
     if ((type?.kind === "date" || type?.kind === "timestamp")
-      && !isSensitiveSampleColumn(column.name) && !isFreeTextSampleColumn(column.name) && !hasDatabaseIdentity(column)) {
+      && !isFreeTextSampleColumn(column.name) && !hasDatabaseIdentity(column)) {
+      const privacy = temporalSamplePrivacy(column.name);
       candidates.push({
         name: column.name,
         kind: "temporal",
         temporalKind: type.kind,
         timezoneAware: type.parameters.timezoneAware === true,
+        privacy,
         sampling: "direct",
       });
       continue;
@@ -136,7 +138,7 @@ export async function probeDbxDataSamples(host, context, schema, options = {}) {
  * ANSI quotes are not portable to MySQL's default mode. Database/schema scope
  * travels in the Host request, not interpolated into SQL.
  * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
- * @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric" | "temporal", numericKind?: "integer" | "decimal", temporalKind?: "date" | "timestamp", timezoneAware?: boolean, sampling: "direct" | "truncate" }>} candidates
+ * @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric" | "temporal", numericKind?: "integer" | "decimal", temporalKind?: "date" | "timestamp", timezoneAware?: boolean, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }>} candidates
  */
 export function buildSampleSelectQuery(context, candidates) {
   if (!context || typeof context.table !== "string" || !isPortableIdentifier(context.table)
@@ -154,7 +156,7 @@ export function buildSampleSelectQuery(context, candidates) {
   };
 }
 
-/** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric" | "temporal", numericKind?: "integer" | "decimal", temporalKind?: "date" | "timestamp", timezoneAware?: boolean, sampling: "direct" | "truncate" }>} candidates */
+/** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric" | "temporal", numericKind?: "integer" | "decimal", temporalKind?: "date" | "timestamp", timezoneAware?: boolean, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }>} candidates */
 function summarizeSampleResult(result, selectedColumns, candidates) {
   if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return METADATA_ONLY_SAMPLE_RESULT;
   const rows = result.rows.slice(0, DATA_SAMPLE_ROW_LIMIT).filter(Array.isArray);
@@ -171,7 +173,9 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
     if (!Number.isSafeInteger(index)) continue;
     const rawValues = rows.map((row) => row[index]);
     if (candidate.kind === "temporal") {
-      const profile = summarizeTemporalProfile(candidate, rawValues);
+      const profile = candidate.privacy === "restricted"
+        ? summarizeTemporalShapeProfile(candidate, rawValues)
+        : summarizeTemporalProfile(candidate, rawValues);
       if (profile) {
         sampleUsed = true;
         evidence.push(profile);
@@ -222,6 +226,38 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
   return { sampleUsed, evidence };
 }
 
+function summarizeTemporalShapeProfile(candidate, rawValues) {
+  if (rawValues.length < TEMPORAL_PROFILE_MIN_ROWS || rawValues.some((value) => value === undefined)) return null;
+  const nullCount = rawValues.filter((value) => value === null).length;
+  const nonNullValues = rawValues.filter((value) => value !== null);
+  const timezoneAware = candidate.temporalKind === "timestamp" && candidate.timezoneAware === true;
+  const parsedValues = nonNullValues.map((value) => {
+    if (typeof value !== "string") return null;
+    if (candidate.temporalKind === "date") return parseDate(value) === null ? null : { precision: 0 };
+    const parsed = parseTimestamp(value, { timezoneAware });
+    return parsed ? { precision: parsed.precision } : null;
+  });
+  const allNonNullValuesValid = parsedValues.every((value) => value !== null);
+  const precision = allNonNullValuesValid && parsedValues.length > 0
+    ? parsedValues.reduce((maximum, value) => Math.max(maximum, value.precision), 0)
+    : null;
+  return {
+    column: candidate.name,
+    kind: "temporal_shape",
+    temporalKind: candidate.temporalKind,
+    sampleCount: rawValues.length,
+    nullCount,
+    nullRate: nullCount / rawValues.length,
+    observedCount: parsedValues.filter((value) => value !== null).length,
+    precision,
+    timezoneAware,
+  };
+}
+
+function temporalSamplePrivacy(columnName) {
+  return isSensitiveSampleColumn(columnName) ? "restricted" : "standard";
+}
+
 function summarizeTemporalProfile(candidate, rawValues) {
   if (rawValues.length < TEMPORAL_PROFILE_MIN_ROWS || rawValues.some((value) => value === undefined)) return null;
   const nullCount = rawValues.filter((value) => value === null).length;
@@ -238,7 +274,9 @@ function summarizeTemporalProfile(candidate, rawValues) {
   });
   const allNonNullValuesValid = parsedValues.every((value) => value !== null);
   const ordered = allNonNullValuesValid ? [...parsedValues].sort((left, right) => left.order < right.order ? -1 : left.order > right.order ? 1 : 0) : [];
-  const precision = allNonNullValuesValid ? parsedValues.reduce((maximum, value) => Math.max(maximum, value.precision), 0) : 0;
+  const precision = allNonNullValuesValid && parsedValues.length > 0
+    ? parsedValues.reduce((maximum, value) => Math.max(maximum, value.precision), 0)
+    : null;
   const observedMin = ordered.length === 0 ? null : candidate.temporalKind === "date"
     ? formatDate(ordered[0].value)
     : formatTimestamp(ordered[0].value, ordered[0].precision, timezoneAware);

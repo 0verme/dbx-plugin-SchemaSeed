@@ -134,6 +134,43 @@ test("runtime transports bounded sample profiles and rejects copied row values",
   assert.ok(temporal.result.generated.rows.every((row) => row.started_at === null
     || (row.started_at >= "2026-06-01 08:00:00.123456" && row.started_at <= "2026-07-31 23:59:59.999999")));
 
+  const restrictedTemporal = handleRuntimeRpcRequest(request({
+    schema: {
+      tableIdentity: schema.tableIdentity,
+      columns: [{ name: "last_login_at", dataType: "timestamp without time zone", nullable: true }],
+    },
+    options: {
+      ...options,
+      sampleEvidence: [{
+        column: "last_login_at", kind: "temporal_shape", temporalKind: "timestamp", sampleCount: 4,
+        nullCount: 1, nullRate: 0.25, observedCount: 3, precision: 0, timezoneAware: false,
+      }],
+    },
+  }));
+  assert.equal(restrictedTemporal.error, undefined);
+  assert.equal(restrictedTemporal.result.plan.columns[0].rule.kind, "timestamp");
+  assert.equal(restrictedTemporal.result.plan.columns[0].rule.parameters.precision, 0);
+  assert.doesNotMatch(JSON.stringify(restrictedTemporal.result.plan), /observedMin|observedMax/);
+  assert.ok(restrictedTemporal.result.generated.rows.every((row) => row.last_login_at === null
+    || /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(row.last_login_at)));
+
+  const restrictedTemporalWithBounds = handleRuntimeRpcRequest(request({
+    schema: {
+      tableIdentity: schema.tableIdentity,
+      columns: [{ name: "last_login_at", dataType: "timestamp without time zone", nullable: true }],
+    },
+    options: {
+      ...options,
+      sampleEvidence: [{
+        column: "last_login_at", kind: "temporal_shape", temporalKind: "timestamp", sampleCount: 4,
+        nullCount: 0, nullRate: 0, observedCount: 4, precision: 0, timezoneAware: false,
+        observedMin: "2026-07-18 09:30:00",
+      }],
+    },
+  }));
+  assert.equal(restrictedTemporalWithBounds.error.code, -32602);
+  assert.match(restrictedTemporalWithBounds.error.message, /must not contain observed bounds or values/u);
+
   const withRawValues = handleRuntimeRpcRequest(request({
     schema,
     options: { ...options, sampleEvidence: [{ column: "label", kind: "enum_like", sampleCount: 4, distinctCount: 2, values: ["SECRET"] }] },
