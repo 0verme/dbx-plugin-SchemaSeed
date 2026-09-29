@@ -2,6 +2,7 @@
 
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
+import { PLUGIN_IDENTITY } from "./plugin-identity.mjs";
 import { parseProtocolLine, handleRpcRequest as handleProbeRpcRequest } from "../src/probe-protocol.mjs";
 import { GENERATION_PREVIEW_METHOD, handleGenerationRuntimeRequest } from "../src/generation/generation-runtime-protocol.mjs";
 
@@ -13,7 +14,7 @@ export function handleRuntimeRpcRequest(request) {
   if (request && typeof request === "object" && request.method === GENERATION_PREVIEW_METHOD) {
     return handleGenerationRuntimeRequest(request);
   }
-  return handleProbeRpcRequest(request);
+  return handleProbeRpcRequest(request, PLUGIN_IDENTITY);
 }
 
 /** @param {NodeJS.ReadableStream} input @param {NodeJS.WritableStream} output */

@@ -1,26 +1,24 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import path from "node:path";
 
-import {
-  PLUGIN_ID,
-  PLUGIN_VERSION,
-  TABLE_CONTEXT_METHOD,
-  normalizeTableContextPayload,
-} from "../src/table-context.mjs";
-import { handleRpcRequest, TAKE_TABLE_CONTEXT_METHOD } from "../src/probe-protocol.mjs";
+import { normalizeTableContextPayload } from "../src/table-context.mjs";
+import { TAKE_TABLE_CONTEXT_METHOD } from "../src/probe-protocol.mjs";
+import { handleRuntimeRpcRequest } from "../backend/schema-seed-runtime.mjs";
 import { pendingTableContextStore } from "../src/probe-state.mjs";
 import {
   runDbxSchemaMetadataProbe,
   SCHEMA_METADATA_PROBE_ERROR_CODES as PROBE_ERROR,
 } from "../src/host/dbx-schema-metadata-probe.mjs";
 
-const backend = fileURLToPath(new URL("../backend/schema-seed-probe.mjs", import.meta.url));
+const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+const tableContextMethod = `contextMenu/${manifest.id}.table-context-probe`;
+const backend = fileURLToPath(new URL("../backend/schema-seed-runtime.mjs", import.meta.url));
 
-function request(params, method = TABLE_CONTEXT_METHOD, id = 1) {
-  return handleRpcRequest({ jsonrpc: "2.0", id, method, params });
+function request(params, method = tableContextMethod, id = 1) {
+  return handleRuntimeRpcRequest({ jsonrpc: "2.0", id, method, params });
 }
 
 function contextFrom(response) {
@@ -73,22 +71,18 @@ describe("SchemaSeed Table Context adapter", () => {
   });
 
   it("treats an unsupported contribution method as capability unsupported", () => {
-    const response = request({ table: { connectionId: "conn-1", table: "users" } }, "contextMenu/io.github.0verme.schema-seed.unknown");
+    const response = request({ table: { connectionId: "conn-1", table: "users" } }, `contextMenu/${manifest.id}.unknown`);
     assert.equal(response.error.code, -32601);
   });
 
-  it("keeps old-host behavior safe: an old connection payload is not accepted as table context", () => {
-    const initialize = handleRpcRequest({
+  it("matches the source plugin handshake identity to manifest.json without echoing host identity", () => {
+    const initialize = handleRuntimeRpcRequest({
       jsonrpc: "2.0",
       id: 1,
       method: "plugin/initialize",
-      params: { host: { hostApiVersion: "1.0.0" } },
+      params: { plugin: { id: "host-supplied-id", version: "host-supplied-version" } },
     });
-    assert.deepEqual(initialize.result, {
-      protocolVersion: 1,
-      capabilities: [],
-      plugin: { id: PLUGIN_ID, version: PLUGIN_VERSION },
-    });
+    assert.deepEqual(initialize.result.plugin, { id: manifest.id, version: manifest.version });
 
     // A host without #9918 does not expose menu: "table". If a legacy-shaped
     // request reaches the backend, it must fail rather than infer a table.
@@ -133,7 +127,7 @@ describe("SchemaSeed Table Context adapter", () => {
       { connectionId: "conn-2", table: "table_c" },
     ];
 
-    const contexts = tables.map((table, index) => contextFrom(request({ table }, TABLE_CONTEXT_METHOD, index + 1)));
+    const contexts = tables.map((table, index) => contextFrom(request({ table }, tableContextMethod, index + 1)));
     assert.deepEqual(contexts, [
       { connectionId: "conn-1", database: "app", schema: "public", table: "table_a" },
       { connectionId: "conn-1", database: "app", schema: "public", table: "table_b" },
@@ -146,14 +140,14 @@ describe("SchemaSeed Table Context adapter", () => {
   it("serves the real JSONL sidecar handshake and invocation path", () => {
     const input = [
       JSON.stringify({ jsonrpc: "2.0", id: 1, method: "plugin/initialize", params: {} }),
-      JSON.stringify({ jsonrpc: "2.0", id: 2, method: TABLE_CONTEXT_METHOD, params: { table: { connectionId: "conn-1", table: "users" } } }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: tableContextMethod, params: { table: { connectionId: "conn-1", table: "users" } } }),
       JSON.stringify({ jsonrpc: "2.0", id: 3, method: TAKE_TABLE_CONTEXT_METHOD, params: {} }),
     ].join("\n") + "\n";
     const result = spawnSync(process.execPath, [backend], { input, encoding: "utf8" });
 
     assert.equal(result.status, 0, result.stderr);
     const responses = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
-    assert.equal(responses[0].result.plugin.id, PLUGIN_ID);
+    assert.deepEqual(responses[0].result.plugin, { id: manifest.id, version: manifest.version });
     assert.deepEqual(responses[1].result.context, { connectionId: "conn-1", table: "users" });
     assert.deepEqual(responses[2].result.context, { connectionId: "conn-1", table: "users" });
   });

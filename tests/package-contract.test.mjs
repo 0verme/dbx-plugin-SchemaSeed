@@ -2,16 +2,18 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { collectUiRuntimeGraph } from "../scripts/ui-runtime-graph.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const PLUGIN_ID = "io.github.0verme.schema-seed";
-const WORKBENCH_ID = "io.github.0verme.schema-seed.generation-workbench";
-const TABLE_ACTION_ID = "io.github.0verme.schema-seed.generate-test-data";
-const PHASE0_PROBE_ID = "io.github.0verme.schema-seed.table-context-probe";
+const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
+const PLUGIN_ID = manifest.id;
+const WORKBENCH_ID = `${PLUGIN_ID}.generation-workbench`;
+const TABLE_ACTION_ID = `${PLUGIN_ID}.generate-test-data`;
+const PHASE0_PROBE_ID = `${PLUGIN_ID}.table-context-probe`;
 // WebView2 maps DBX's dbx-plugin scheme to this origin; the host injects it as
 // the sandbox document <base> and allows exactly this origin in its CSP.
 const HOST_PLUGIN_BASE = `http://dbx-plugin.localhost/${PLUGIN_ID}/`;
@@ -131,7 +133,7 @@ test("manifest declares the production Workbench and DBX v0.6.23 table action co
   assert.equal(manifest.entrypoints.backend.executable, "bin/universal/schema-seed-runtime");
 
   const workbenches = manifest.contributions.filter((entry) => entry.type === "workbench");
-  assert.equal(workbenches.some((entry) => entry.id === "io.github.0verme.schema-seed.schema-metadata-probe"), true);
+  assert.equal(workbenches.some((entry) => entry.id === `${PLUGIN_ID}.schema-metadata-probe`), true);
   assert.equal(workbenches.some((entry) => entry.id === WORKBENCH_ID), true);
   const generationWorkbench = workbenches.find((entry) => entry.id === WORKBENCH_ID);
   assert.equal(generationWorkbench.icon, manifest.icon);
@@ -148,7 +150,9 @@ test("manifest declares the production Workbench and DBX v0.6.23 table action co
   assert.equal(manifest.localizations?.["zh-CN"]?.contributions?.[PHASE0_PROBE_ID], undefined, "the Phase 0 table context probe localization is removed");
 
   const router = await readFile(path.join(root, "ui/app.mjs"), "utf8");
-  assert.match(router, new RegExp(WORKBENCH_ID.replaceAll(".", "\\.")));
+  assert.match(router, /GENERATION_WORKBENCH_SUFFIX/);
+  assert.match(router, /PHASE0_WORKBENCH_SUFFIX/);
+  assert.equal(router.includes(PLUGIN_ID), false, "browser UI must not duplicate the manifest plugin id");
   assert.match(router, /dbx-plugin-init/);
   assert.match(router, /await host\.ready/, "the Workbench waits for Host initialization before reading capabilities");
   const productionApp = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
@@ -173,14 +177,19 @@ test("manifest declares the production Workbench and DBX v0.6.23 table action co
   assert.match(productionApp, /\.\.\/src\/workbench\/dbx-generation-workbench-controller\.mjs/, "the Workbench module imports the DBX ui-root-relative vendored runtime");
   assert.doesNotMatch(productionApp, /node:crypto|\bBuffer\s*\./, "the browser Workbench module must stay WebView-safe");
   assert.doesNotMatch(productionApp, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider/);
+  assert.match(config, /backend\/plugin-identity\.mjs/);
   assert.match(config, /src\/workbench\/dbx-generation-workbench-controller\.mjs/);
   assert.doesNotMatch(config, /^\s+"(?:fixtures|web|tests|src\/providers\/fixture|src\/workbench\/workbench-controller)/m);
 });
 
-test("source version contract matches the manifest that the release packages", async () => {
-  const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
-  const { PLUGIN_VERSION } = await import("../src/table-context.mjs");
-  assert.equal(PLUGIN_VERSION, manifest.version, "src/table-context.mjs PLUGIN_VERSION must track manifest.json version");
+test("backend manifest identity stays outside the browser UI runtime graph", async () => {
+  const identitySource = await readFile(path.join(root, "backend/plugin-identity.mjs"), "utf8");
+  assert.match(identitySource, /node:fs\/promises/);
+  assert.match(identitySource, /new URL\("\.\.\/manifest\.json", import\.meta\.url\)/);
+
+  const uiGraph = await collectUiRuntimeGraph((sourcePath) => readFile(path.join(root, sourcePath), "utf8"));
+  assert.equal([...uiGraph.values()].some(({ source }) => /node:(?:fs|fs\/promises)/.test(source)), false);
+  assert.equal(uiGraph.has("ui/backend/plugin-identity.mjs"), false);
 });
 
 test("package build refuses to mislabel a platform target", () => {
@@ -197,7 +206,8 @@ test("candidate artifact metadata matches the packaged bytes and stays unsigned"
   execFileSync(process.execPath, [path.join(root, "scripts/build.mjs")], { cwd: root, stdio: "pipe" });
   const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
   const candidateName = `${manifest.id}-${manifest.version}-universal`;
-  const packageBytes = await readFile(path.join(root, "dist", `${candidateName}.dbxp`));
+  const packagePath = path.join(root, "dist", `${candidateName}.dbxp`);
+  const packageBytes = await readFile(packagePath);
   const metadata = JSON.parse(await readFile(path.join(root, "dist", `${candidateName}.artifact.json`), "utf8"));
   assert.equal(metadata.target, "universal");
   assert.equal(metadata.url, `${candidateName}.dbxp`);
@@ -210,6 +220,13 @@ test("candidate artifact metadata matches the packaged bytes and stays unsigned"
   assert.equal(packagedManifest.id, manifest.id);
   assert.equal(packagedManifest.publisher, manifest.publisher);
   assert.equal(packagedManifest.version, manifest.version);
+
+  const smoke = spawnSync(process.execPath, [path.join(root, "scripts/packaged-identity-smoke.mjs"), packagePath], {
+    cwd: os.tmpdir(),
+    encoding: "utf8",
+  });
+  assert.equal(smoke.status, 0, `${smoke.stdout}\n${smoke.stderr}`);
+  assert.match(smoke.stdout, /Packaged backend identity matches its manifest/u);
 });
 
 test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes fixture/dev resources", async () => {
@@ -223,6 +240,7 @@ test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes 
     "manifest.json",
     "assets/plugin.svg",
     "backend/schema-seed-runtime.mjs",
+    "backend/plugin-identity.mjs",
     "src/diagnostics.mjs",
     "src/export/export-dataset.mjs",
     "src/generation/constraint-allocation.mjs",
