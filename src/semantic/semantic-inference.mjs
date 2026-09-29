@@ -35,7 +35,7 @@ const stringSemanticTypes = new Set(["name", "gender", "mobile", "email", "addre
  * sample summaries. Raw sample rows are analyzed outside Core and never enter this function.
  * @param {import("../schema/schema-model.mjs").ColumnSchema} column
  * @param {string} locale
- * @param {{ kind: string, sampleCount: number, matchedCount?: number, distinctCount?: number, min?: number | string, max?: number | string, zeroCount?: number, candidates?: Array<{ value: string, frequency: number }>, suffixes?: Array<{ suffix: string, frequency: number }>, temporalKind?: "date" | "timestamp", nullCount?: number, nullRate?: number, observedCount?: number, observedMin?: string | null, observedMax?: string | null, precision?: number, timezoneAware?: boolean } | null} [sampleSummary]
+ * @param {{ kind: string, sampleCount: number, matchedCount?: number, distinctCount?: number, min?: number | string, max?: number | string, zeroCount?: number, candidates?: Array<{ value: string, frequency: number }>, suffixes?: Array<{ suffix: string, frequency: number }>, temporalKind?: "date" | "timestamp", nullCount?: number, nullRate?: number, observedCount?: number, observedMin?: string | null, observedMax?: string | null, precision?: number | null, timezoneAware?: boolean } | null} [sampleSummary]
  */
 export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null) {
   const normalizedName = normalizeColumnName(column.name);
@@ -64,7 +64,7 @@ export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null
   }));
 
   if (semanticCandidates.length === 0) {
-    const sampleEvidence = ["enum_like", "numeric_range", "temporal_range", "filename_pattern"].includes(sampleSummary?.kind)
+    const sampleEvidence = ["enum_like", "numeric_range", "temporal_range", "temporal_shape", "filename_pattern"].includes(sampleSummary?.kind)
       ? sampleEvidenceToCoreEvidence(sampleSummary, column.name)
       : null;
     const schemaKind = interpretColumnType(column)?.kind;

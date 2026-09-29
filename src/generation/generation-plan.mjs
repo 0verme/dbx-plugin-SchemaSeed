@@ -428,7 +428,7 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
   let nullProbability = defaultNullProbability(column, tableIdentity, diagnostics);
   const hasExplicitRule = generationRule.kind !== "auto" || override !== undefined;
   const sampleInferenceEligible = !hasExplicitRule && !semanticMapping.selected && inference.status === "unknown";
-  const temporalProfileMatches = sampleProfile?.kind === "temporal_range"
+  const temporalProfileMatches = ["temporal_range", "temporal_shape"].includes(sampleProfile?.kind)
     && sampleProfile.temporalKind === ruleKind
     && (ruleKind !== "timestamp" || sampleProfile.timezoneAware === (baseParameters.timezoneAware === true));
   if (sampleInferenceEligible && temporalProfileMatches
@@ -482,6 +482,15 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
       parameters: { ...baseParameters, nullProbability },
     };
   }
+  if (rule.kind === "timestamp") {
+    rule = {
+      ...rule,
+      parameters: {
+        ...rule.parameters,
+        precision: temporalPrecisionForPlan(column, baseParameters, sampleInferenceEligible ? sampleProfile : null),
+      },
+    };
+  }
   let plannedInference = inference;
   if (inference.recommendation?.source === "sample_inference" && rule.source === "schema_type_fallback") {
     plannedInference = { ...inference, recommendation: null };
@@ -499,8 +508,23 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
 }
 
 function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
-  if (!sampleProfile || (sampleProfile.kind !== "filename_pattern" && isSensitiveSampleColumn(column.name))) return null;
+  if (!sampleProfile || (sampleProfile.kind !== "filename_pattern" && isSensitiveSampleColumn(column.name)
+    && sampleProfile.kind !== "temporal_shape")
+    || (sampleProfile.kind === "temporal_shape" && !isSensitiveSampleColumn(column.name))) return null;
   const schemaKind = interpreted?.kind;
+  if (sampleProfile.kind === "temporal_shape" && schemaKind === "timestamp"
+    && schemaKind === sampleProfile.temporalKind) {
+    const timezoneAware = interpreted.parameters.timezoneAware === true;
+    if (sampleProfile.timezoneAware !== timezoneAware) return null;
+    const precision = column.precision.state === "known" ? column.precision.value : sampleProfile.precision;
+    if (!Number.isSafeInteger(precision) || precision < 0 || precision > 9) return null;
+    return {
+      identity: "sample:temporal-shape:v1",
+      kind: "timestamp",
+      source: "sample_inference",
+      parameters: { ...interpreted.parameters, precision },
+    };
+  }
   if (sampleProfile.kind === "temporal_range" && schemaKind === sampleProfile.temporalKind) {
     if (sampleProfile.observedMin === null || sampleProfile.observedMax === null) return null;
     if (schemaKind === "date") {
@@ -607,6 +631,16 @@ function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
     };
   }
   return null;
+}
+
+function temporalPrecisionForPlan(column, parameters, sampleProfile) {
+  if (column.precision.state === "known") return column.precision.value;
+  if (["temporal_range", "temporal_shape"].includes(sampleProfile?.kind)
+    && sampleProfile.temporalKind === "timestamp"
+    && sampleProfile.timezoneAware === (parameters.timezoneAware === true)
+    && Number.isSafeInteger(sampleProfile.precision)
+    && sampleProfile.precision >= 0 && sampleProfile.precision <= 9) return sampleProfile.precision;
+  return 3;
 }
 
 function ceilTimestampToPrecision(nanoseconds, quantum) {
@@ -783,7 +817,7 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
       table: tableIdentity,
       column: column.name,
       rule: ruleIdentity,
-      reason: `Timestamp precision is ${column.precision.state}; preview uses sample-observed precision only when safely aligned with the millisecond fallback, otherwise millisecond precision, and does not claim a database precision guarantee`,
+      reason: `Timestamp precision is ${column.precision.state}; preview uses a matching legal sample precision when available, otherwise millisecond precision, and does not claim a database precision guarantee`,
       blocking: false,
     }));
   }

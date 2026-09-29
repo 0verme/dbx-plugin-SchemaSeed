@@ -10,6 +10,9 @@ const SAMPLE_EVIDENCE_FIELDS = new Set([
   "column", "kind", "sampleCount", "matchedCount", "distinctCount", "min", "max", "zeroCount", "candidates", "suffixes",
   "temporalKind", "nullCount", "nullRate", "observedCount", "observedMin", "observedMax", "precision", "timezoneAware",
 ]);
+const RESTRICTED_TEMPORAL_FIELDS = new Set([
+  "column", "kind", "sampleCount", "temporalKind", "nullCount", "nullRate", "observedCount", "precision", "timezoneAware",
+]);
 
 /**
  * Build and execute an existing Core GenerationPlan for the packaged Workbench.
@@ -74,6 +77,9 @@ function validateSampleEvidencePayload(value) {
   for (const entry of value) {
     if (!isRecord(entry) || Object.keys(entry).some((key) => !SAMPLE_EVIDENCE_FIELDS.has(key))) {
       throw new TypeError("sampleEvidence may contain only bounded profile fields and safe categorical labels; raw sample values are forbidden");
+    }
+    if (entry.kind === "temporal_shape" && Object.keys(entry).some((key) => !RESTRICTED_TEMPORAL_FIELDS.has(key))) {
+      throw new TypeError("temporal_shape sampleEvidence must not contain observed bounds or values");
     }
   }
 }

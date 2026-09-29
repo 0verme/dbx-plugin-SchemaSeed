@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { probeDbxDataSamples, buildSampleSelectQuery, DATA_SAMPLE_FIELD_MAX_LENGTH, DATA_SAMPLE_ROW_LIMIT, DATA_SAMPLE_TIMEOUT_MS, getSampleProbeCandidates } from "../src/host/dbx-data-sample-probe.mjs";
+import { describeConstraintDomain } from "../src/generation/constraint-domain.mjs";
 import { generateRows } from "../src/generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { interpretColumnType } from "../src/schema/schema-interpreter.mjs";
+import { isSensitiveSampleColumn } from "../src/semantic/sample-evidence.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import { parseTimestamp } from "../src/schema/temporal-values.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
@@ -78,8 +80,10 @@ test("metadata-ready or unsupported columns produce no sampling candidates and n
   assert.deepEqual(candidates, [
     { name: "display_name", kind: "name", sampling: "direct" },
     { name: "status", kind: "text", sampling: "direct" },
+    { name: "last_login_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: false, privacy: "restricted", sampling: "direct" },
   ]);
-  assert.equal(candidates.some(({ name }) => ["payload", "picture", "last_login_at", "id", "email"].includes(name)), false);
+  assert.equal(isSensitiveSampleColumn("last_login_at"), true);
+  assert.equal(candidates.some(({ name }) => ["payload", "picture", "id", "email"].includes(name)), false);
 });
 
 test("safe date and timestamp columns become bounded temporal sample candidates", () => {
@@ -91,9 +95,11 @@ test("safe date and timestamp columns become bounded temporal sample candidates"
     { name: "birthday", dataType: "date", nullable: true },
   ]);
   assert.deepEqual(getSampleProbeCandidates(schema), [
-    { name: "started_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: false, sampling: "direct" },
-    { name: "created_on", kind: "temporal", temporalKind: "date", timezoneAware: false, sampling: "direct" },
-    { name: "captured_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: true, sampling: "direct" },
+    { name: "started_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: false, privacy: "standard", sampling: "direct" },
+    { name: "created_on", kind: "temporal", temporalKind: "date", timezoneAware: false, privacy: "standard", sampling: "direct" },
+    { name: "captured_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: true, privacy: "standard", sampling: "direct" },
+    { name: "last_login_at", kind: "temporal", temporalKind: "timestamp", timezoneAware: false, privacy: "restricted", sampling: "direct" },
+    { name: "birthday", kind: "temporal", temporalKind: "date", timezoneAware: false, privacy: "restricted", sampling: "direct" },
   ]);
 });
 
@@ -219,6 +225,100 @@ test("temporal samples retain bounded min/max, exact precision, timezone semanti
   assert.deepEqual(insufficient, { sampleUsed: false, evidence: [] }, "fewer than three temporal rows cannot create a profile");
 });
 
+test("sensitive temporal fields keep a value-minimized precision/NULL profile without observed bounds", async () => {
+  const schema = schemaOf([{ name: "last_login_at", dataType: "timestamp without time zone", nullable: true }]);
+  assert.equal(isSensitiveSampleColumn("last_login_at"), true);
+  assert.notEqual(schema.columns[0].precision.state, "known");
+  const sourceTimes = [
+    "2026-07-20 09:30:00",
+    "2026-07-19 09:30:00",
+    "2026-07-18 09:30:00",
+  ];
+  const evidence = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({
+      columns: [{ name: "last_login_at" }],
+      rows: [[sourceTimes[0]], [sourceTimes[1]], [sourceTimes[2]], [null]],
+    }),
+  }, context, schema);
+
+  assert.deepEqual(evidence, {
+    sampleUsed: true,
+    evidence: [{
+      column: "last_login_at", kind: "temporal_shape", temporalKind: "timestamp",
+      sampleCount: 4, nullCount: 1, nullRate: 0.25, observedCount: 3,
+      precision: 0, timezoneAware: false,
+    }],
+  });
+  assert.doesNotMatch(JSON.stringify(evidence), /observedMin|observedMax|2026-07-2[018]/u);
+
+  const plan = buildGenerationPlan(schema, { rowCount: 32, seed: "restricted-temporal", sampleEvidence: evidence.evidence });
+  const column = plan.columns[0];
+  assert.equal(column.rule.kind, "timestamp");
+  assert.equal(column.rule.source, "sample_inference");
+  assert.equal(column.rule.parameters.precision, 0);
+  assert.equal(column.nullProbability, 0.25);
+  assert.equal(column.inference.evidence[0].kind, "sample_temporal_shape");
+  assert.equal(Object.hasOwn(column.inference.evidence[0].params, "observedMin"), false);
+  assert.equal(Object.hasOwn(column.inference.evidence[0].params, "observedMax"), false);
+  assert.doesNotMatch(JSON.stringify(plan), /observedMin|observedMax|2026-07-2[018]/u);
+
+  const generated = generateRows(plan);
+  assert.ok(generated.rows.some((row) => row.last_login_at !== null));
+  for (const row of generated.rows) {
+    if (row.last_login_at === null) continue;
+    assert.match(row.last_login_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u);
+    assert.doesNotMatch(row.last_login_at, /\.\d{1,9}|Z|[+-]\d{2}:?\d{2}$/u);
+  }
+});
+
+test("same-type timestamps keep observed seconds precision across standard and restricted profiles", async () => {
+  const schema = schemaOf([
+    { name: "created_at", dataType: "timestamp without time zone", nullable: false },
+    { name: "updated_at", dataType: "timestamp without time zone", nullable: false },
+    { name: "last_login_at", dataType: "timestamp without time zone", nullable: true },
+  ]);
+  const columns = [{ name: "created_at" }, { name: "updated_at" }, { name: "last_login_at" }];
+  const rows = Array.from({ length: 8 }, (_value, index) => {
+    const date = `2026-07-${String(20 - index).padStart(2, "0")} 09:30:00`;
+    return [date, date, date];
+  });
+  const sampled = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({ columns, rows }),
+  }, context, schema);
+  assert.deepEqual(sampled.evidence.map(({ column, kind, precision }) => [column, kind, precision]), [
+    ["created_at", "temporal_range", 0],
+    ["updated_at", "temporal_range", 0],
+    ["last_login_at", "temporal_shape", 0],
+  ]);
+  assert.equal(Object.hasOwn(sampled.evidence[2], "observedMin"), false);
+  assert.equal(Object.hasOwn(sampled.evidence[2], "observedMax"), false);
+
+  const plan = buildGenerationPlan(schema, { rowCount: 24, seed: "timestamp-shape-consistency", sampleEvidence: sampled.evidence });
+  const created = plan.columns[0];
+  const updated = plan.columns[1];
+  const login = plan.columns[2];
+  assert.equal(created.rule.kind, "timestamp_range");
+  assert.equal(updated.rule.kind, "timestamp_range");
+  assert.equal(login.rule.kind, "timestamp");
+  assert.equal(login.rule.source, "sample_inference");
+  assert.deepEqual([created.rule.parameters.precision, updated.rule.parameters.precision, login.rule.parameters.precision], [0, 0, 0]);
+  const loginDomain = describeConstraintDomain(login, 24);
+  assert.equal(loginDomain.state, "known");
+  assert.match(loginDomain.decode(0n), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u);
+  assert.match(created.rule.parameters.start, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u);
+  assert.equal(Object.hasOwn(login.rule.parameters, "start"), false, "restricted generation keeps the schema fallback range");
+
+  const generated = generateRows(plan);
+  for (const name of ["created_at", "updated_at", "last_login_at"]) {
+    const values = generated.rows.map((row) => row[name]).filter((value) => value !== null);
+    assert.ok(values.length > 0, `${name} has non-NULL generated timestamps`);
+    assert.ok(values.every((value) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(value)), name);
+    assert.ok(values.every((value) => !/[.]\d{1,9}|Z|[+-]\d{2}:?\d{2}$/u.test(value)), name);
+  }
+});
+
 test("dataApi capability false gracefully falls back without queryData", async () => {
   let calls = 0;
   const result = await probeDbxDataSamples({
@@ -245,8 +345,8 @@ test("queryData reads only uncertain candidate columns using bounded rows and ti
   assert.equal(requests[0].schema, context.schema);
   assert.equal(requests[0].maxRows, DATA_SAMPLE_ROW_LIMIT);
   assert.equal(requests[0].timeoutMs, DATA_SAMPLE_TIMEOUT_MS, "an excessive timeout is clamped to the local bound");
-  assert.match(requests[0].sql, /^SELECT ss\.display_name, ss\.status FROM p_admin_user AS ss LIMIT 8$/);
-  assert.doesNotMatch(requests[0].sql, /\*|payload|picture|last_login_at|email|role|id/);
+  assert.match(requests[0].sql, /^SELECT ss\.display_name, ss\.status, ss\.last_login_at FROM p_admin_user AS ss LIMIT 8$/);
+  assert.doesNotMatch(requests[0].sql, /\*|payload|picture|email|role|\bid\b/);
   assert.match(requests[0].sql, /^SELECT\b/i);
   assert.doesNotMatch(requests[0].sql, /;|\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i);
   assert.deepEqual(evidence, {

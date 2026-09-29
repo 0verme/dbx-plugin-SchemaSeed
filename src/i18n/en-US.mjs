@@ -25,6 +25,8 @@ export const EN_US_MESSAGES = Object.freeze({
   "context.database": "Database",
   "context.schema": "Schema",
   "context.table": "Table",
+  "dataAccess.title": "Data access",
+  "dataAccess.description": "Only after DBX Host obtains your consent for this plugin and connection may SchemaSeed sample up to 8 rows from candidate columns through the read-only Host Data API. Sensitive raw values are processed briefly in memory only to derive safe features, then discarded; they are never displayed or persisted.",
 
   // Dataset controls.
   "controls.rows": "Rows",
@@ -270,6 +272,9 @@ export const EN_US_MESSAGES = Object.freeze({
   "evidence.sample_numeric_range.explanation": "The bounded sample range constrains synthetic numeric scale without retaining individual observations",
   "evidence.sample_temporal_range.observation": "{column}: usable sample temporal range was {observedMin} to {observedMax}; NULL appeared {nullCount}/{sampleCount} times",
   "evidence.sample_temporal_range.explanation": "Only bounded temporal ranges, precision, and NULL frequency are retained; generation follows the column's date, timestamp, or timestamptz semantics",
+  "evidence.sample_temporal_shape.observation": "{column}: {observedCount}/{sampleCount} samples were parseable at precision {precision}; NULL appeared {nullCount}/{sampleCount} times",
+  "evidence.sample_temporal_shape.explanation": "Sensitive temporal fields retain only precision, timezone semantics, NULL distribution, and parseable counts; original time values and observed bounds are not retained",
+  "evidence.temporalShape.precisionUnknown": "unknown",
   "evidence.temporalRange.unavailable": "unavailable",
   "evidence.temporalKind.date": "date",
   "evidence.temporalKind.timestamp": "timestamp",
@@ -533,7 +538,7 @@ export const EN_US_DIAGNOSTICS = Object.freeze({
   },
   safe_synthetic_mode: {
     title: "Safe synthetic mode is active",
-    description: "Values are produced only from schema facts and the deterministic generator; no real row data is read.",
+    description: "Generated output is not a copy of real data rows; authorized read-only sampling may derive safe features for eligible fields before synthetic strategies produce the result.",
   },
   validator_mode_unsupported: {
     title: "The requested validation mode is not supported",

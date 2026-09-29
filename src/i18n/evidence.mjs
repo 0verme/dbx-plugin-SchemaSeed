@@ -111,5 +111,6 @@ function presentationParams(params, t) {
     semantic: typeof params.semantic === "string" ? semanticLabel(params.semantic, t) : "",
     observedMin: typeof params.observedMin === "string" ? params.observedMin : t("evidence.temporalRange.unavailable"),
     observedMax: typeof params.observedMax === "string" ? params.observedMax : t("evidence.temporalRange.unavailable"),
+    precision: Number.isSafeInteger(params.precision) ? params.precision : t("evidence.temporalShape.precisionUnknown"),
   };
 }

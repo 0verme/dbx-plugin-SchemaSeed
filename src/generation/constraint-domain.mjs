@@ -126,7 +126,8 @@ export function describeConstraintDomain(columnPlan, rowCount) {
       const end = p.max === undefined ? DEFAULT_TIMESTAMP_MAX
         : parseTimestamp(p.max, { timezoneAware })?.nanoseconds ?? null;
       if (start === null || end === null || start > end) return unsupported("Timestamp fallback bounds are not indexable");
-      const precision = schema.precision.state === "known" ? schema.precision.value : 3;
+      const precision = Number.isSafeInteger(p.precision) ? p.precision
+        : schema.precision.state === "known" ? schema.precision.value : 3;
       if (!Number.isSafeInteger(precision) || precision < 0 || precision > 9) return unsupported("Timestamp precision is not indexable");
       const quantum = 10n ** BigInt(9 - precision);
       if (start % quantum !== 0n) return unsupported("Timestamp fallback minimum is not aligned to generation precision");
