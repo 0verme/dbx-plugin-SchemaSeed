@@ -7,6 +7,7 @@
     "lint": "node scripts/lint.mjs",
     "typecheck": "node scripts/verify.mjs",
     "build": "node scripts/build.mjs",
+    "smoke:package-identity": "node scripts/packaged-identity-smoke.mjs",
     "workbench": "node scripts/workbench.mjs"
   }
 }

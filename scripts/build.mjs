@@ -31,6 +31,7 @@ try {
   });
 
   const runtimeModules = [
+    "backend/plugin-identity.mjs",
     "backend/schema-seed-runtime.mjs",
     "src/diagnostics.mjs",
     "src/export/csv-exporter.mjs",

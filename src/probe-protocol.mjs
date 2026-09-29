@@ -1,10 +1,4 @@
-import {
-  PLUGIN_ID,
-  PLUGIN_VERSION,
-  TABLE_CONTEXT_METHOD,
-  isRecord,
-  probeTableContextPayload,
-} from "./table-context.mjs";
+import { isRecord, probeTableContextPayload } from "./table-context.mjs";
 import { pendingTableContextStore } from "./probe-state.mjs";
 
 export const JSON_RPC_VERSION = "2.0";
@@ -16,9 +10,10 @@ export const TAKE_TABLE_CONTEXT_METHOD = "schemaMetadataProbe/takeTableContext";
  * a short-lived, one-shot table identity for the documented Workbench handoff.
  *
  * @param {unknown} request
+ * @param {{ id: string, version: string } | null} [pluginIdentity]
  * @returns {Record<string, unknown> | null}
  */
-export function handleRpcRequest(request) {
+export function handleRpcRequest(request, pluginIdentity = null) {
   const id = isRecord(request) && Object.hasOwn(request, "id") ? request.id : null;
   if (!isRecord(request)) return errorResponse(id, -32600, "Invalid Request");
   if (request.jsonrpc !== JSON_RPC_VERSION || typeof request.method !== "string") {
@@ -26,13 +21,14 @@ export function handleRpcRequest(request) {
   }
 
   if (request.method === "plugin/initialize") {
+    if (!isPluginIdentity(pluginIdentity)) return errorResponse(id, -32603, "Plugin identity is unavailable");
     return {
       jsonrpc: JSON_RPC_VERSION,
       id,
       result: {
         protocolVersion: PLUGIN_PROTOCOL_VERSION,
         capabilities: [],
-        plugin: { id: PLUGIN_ID, version: PLUGIN_VERSION },
+        plugin: { id: pluginIdentity.id, version: pluginIdentity.version },
       },
     };
   }
@@ -44,7 +40,10 @@ export function handleRpcRequest(request) {
     return { jsonrpc: JSON_RPC_VERSION, id, result: { context: pendingTableContextStore.take() } };
   }
 
-  if (request.method !== TABLE_CONTEXT_METHOD) {
+  const tableContextMethod = isPluginIdentity(pluginIdentity)
+    ? `contextMenu/${pluginIdentity.id}.table-context-probe`
+    : null;
+  if (request.method !== tableContextMethod) {
     return errorResponse(id, -32601, `Method not found: ${request.method}`);
   }
 
@@ -60,6 +59,12 @@ export function parseProtocolLine(line) {
   } catch {
     return { ok: false, response: errorResponse(null, -32700, "Invalid JSON") };
   }
+}
+
+function isPluginIdentity(value) {
+  return isRecord(value)
+    && typeof value.id === "string" && value.id.trim() !== ""
+    && typeof value.version === "string" && value.version.trim() !== "";
 }
 
 function errorResponse(id, code, message) {

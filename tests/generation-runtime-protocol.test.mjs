@@ -7,6 +7,7 @@ import { handleRuntimeRpcRequest } from "../backend/schema-seed-runtime.mjs";
 import { GENERATION_PREVIEW_METHOD } from "../src/generation/generation-runtime-contract.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
 const schema = {
   tableIdentity: "dbx:[\"conn\",\"sales\",\"public\",\"customer\"]",
   columns: [
@@ -191,7 +192,8 @@ test("runtime rejects oversized or malformed preview input without generating ro
 
 test("same backend keeps Phase 0 Probe RPC separate from production generation RPC", () => {
   const initialized = handleRuntimeRpcRequest({ jsonrpc: "2.0", id: "init", method: "plugin/initialize", params: {} });
-  assert.equal(initialized.result.plugin.id, "io.github.0verme.schema-seed");
+  assert.equal(initialized.result.plugin.id, manifest.id);
+  assert.equal(initialized.result.plugin.version, manifest.version);
 
   const unsupported = handleRuntimeRpcRequest({ jsonrpc: "2.0", id: 4, method: "not/a-method", params: {} });
   assert.equal(unsupported.error.code, -32601);

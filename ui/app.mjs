@@ -1,7 +1,7 @@
 import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "./src/i18n/ui-locale.mjs";
 
-const GENERATION_WORKBENCH_ID = "io.github.0verme.schema-seed.generation-workbench";
-const PHASE0_WORKBENCH_ID = "io.github.0verme.schema-seed.schema-metadata-probe";
+const GENERATION_WORKBENCH_SUFFIX = ".generation-workbench";
+const PHASE0_WORKBENCH_SUFFIX = ".schema-metadata-probe";
 let latestInit = null;
 
 document.addEventListener("dbx-plugin-init", (event) => {
@@ -29,7 +29,9 @@ async function start() {
     await host.ready;
     const context = host.context;
     const contributionId = latestInit?.contributionId;
-    if (contributionId === GENERATION_WORKBENCH_ID || (contributionId !== PHASE0_WORKBENCH_ID && isTableContext(context))) {
+    const isGenerationWorkbench = typeof contributionId === "string" && contributionId.endsWith(GENERATION_WORKBENCH_SUFFIX);
+    const isPhase0Workbench = typeof contributionId === "string" && contributionId.endsWith(PHASE0_WORKBENCH_SUFFIX);
+    if (isGenerationWorkbench || (!isPhase0Workbench && isTableContext(context))) {
       document.getElementById("phase0-probe").hidden = true;
       const root = document.getElementById("generation-workbench-root");
       root.hidden = false;
