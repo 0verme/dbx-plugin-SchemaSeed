@@ -17,7 +17,15 @@
     <script type="module" src="./app.mjs"></script>
   </head>
   <body>
-    <div id="boot-state" role="status">正在连接 DBX Plugin Host…</div>
+    <div id="boot-state" role="status">
+      <p id="boot-message">正在连接 DBX Plugin Host…</p>
+      <section id="boot-fatal" hidden>
+        <h1 id="boot-fatal-title"></h1>
+        <p id="boot-fatal-description"></p>
+        <p id="boot-fatal-detail"></p>
+        <button id="boot-retry" type="button" hidden></button>
+      </section>
+    </div>
     <div id="phase0-probe" hidden>
       <main>
         <header>

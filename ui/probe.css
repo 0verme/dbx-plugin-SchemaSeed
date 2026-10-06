@@ -1,3 +1,10 @@
+#boot-state { padding: 24px; color: var(--color-foreground, #1f2937); background: var(--color-background, #fff); font: 14px/1.5 system-ui, sans-serif; }
+#boot-message { margin: 0; }
+#boot-fatal { max-width: 760px; margin: 0 auto; padding: 20px; border: 1px solid var(--color-border, #d1d5db); border-radius: 8px; background: var(--color-background, #fff); }
+#boot-fatal h1 { margin: 0 0 8px; font-size: 20px; }
+#boot-fatal p { overflow-wrap: anywhere; }
+#boot-fatal-detail { padding: 10px; border-radius: 6px; background: var(--color-muted, #f3f4f6); font-family: ui-monospace, monospace; }
+#boot-retry { padding: 9px 14px; border: 1px solid var(--color-border, #cbd5e1); border-radius: 6px; color: var(--color-foreground, #1f2937); background: var(--color-background, #fff); cursor: pointer; }
 #phase0-probe { padding: 24px; color: var(--color-foreground, #1f2937); background: var(--color-background, #fff); font: 14px/1.5 system-ui, sans-serif; }
 #phase0-probe *, #phase0-probe *::before, #phase0-probe *::after { box-sizing: border-box; }
 #phase0-probe main { max-width: 1100px; margin: 0 auto; }
