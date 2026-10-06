@@ -12,7 +12,11 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "app.subtitle": "基于当前表结构生成测试数据",
   "app.boot.connecting": "正在连接 DBX Plugin Host…",
   "app.boot.bridgeUnavailable": "DBX Plugin Host bridge 不可用。",
-  "app.boot.failed": "SchemaSeed 初始化失败：{message}",
+  "app.boot.errorTitle": "SchemaSeed 加载失败",
+  "app.boot.errorDescription": "生成测试数据工作台未能启动。",
+  "app.boot.errorLabel": "错误：",
+  "app.boot.retry": "重试",
+  "app.boot.redacted": "[已隐藏]",
 
   // Table context.
   "context.title": "当前表",

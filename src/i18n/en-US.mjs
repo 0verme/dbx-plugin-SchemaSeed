@@ -17,7 +17,11 @@ export const EN_US_MESSAGES = Object.freeze({
   "app.subtitle": "DBX Table Context · schema-aware synthetic data",
   "app.boot.connecting": "Connecting to the DBX Plugin Host…",
   "app.boot.bridgeUnavailable": "The DBX Plugin Host bridge is unavailable.",
-  "app.boot.failed": "SchemaSeed failed to initialize: {message}",
+  "app.boot.errorTitle": "SchemaSeed failed to load",
+  "app.boot.errorDescription": "The test data generation workbench could not start.",
+  "app.boot.errorLabel": "Error: ",
+  "app.boot.retry": "Retry",
+  "app.boot.redacted": "[redacted]",
 
   // Table context.
   "context.title": "Current table",
