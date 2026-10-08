@@ -14,13 +14,13 @@ const MAX_IDENTIFIER_LENGTH = 256;
 
 /**
  * Production DBX Workbench state. The injected provider consumes the direct
- * TableContext contract; the injected preview runtime executes existing Core
- * planning/generation. This controller has no fixture or standalone-server
- * dependency.
+ * TableContext contract; the preview executor runs existing Core planning and
+ * generation locally in the Workbench. This controller has no fixture,
+ * sidecar, or standalone-server dependency.
  */
 export class DbxGenerationWorkbenchController {
   /**
-   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => Promise<{ plan: object, generated: object }>, sampleProbe?: (request: { context: object, schema: object, candidates: Array<{ name: string, kind: string, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }> }) => Promise<unknown>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
+   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => { plan: object, generated: object } | Promise<{ plan: object, generated: object }>, sampleProbe?: (request: { context: object, schema: object, candidates: Array<{ name: string, kind: string, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }> }) => Promise<unknown>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
    */
   constructor(options) {
     if (typeof options?.provider?.getTableMetadata !== "function") {

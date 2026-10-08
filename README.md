@@ -36,15 +36,16 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 ## 快速开始
 
 1. 在 DBX「插件中心 → Marketplace」搜索并安装 SchemaSeed。
-2. 在数据库树中找到目标表，右键选择「生成测试数据」。
+2. 在数据库树中找到目标表，右键选择「生成测试数据」。从插件中心单独打开时若没有表上下文，工作台会显示可见诊断；请从具体表的右键菜单进入。
 3. 设置生成行数、随机种子和数据语言；需要时展开字段规则，调整具体字段的生成方式。
 4. 点击「生成预览」，检查数据和提示信息。
 5. 确认后导出 CSV、JSON 或 INSERT SQL。导出的是当前预览中的数据。
 
 ## 安装与运行要求
 
-- **DBX：**`0.6.23` 或更高版本，并需提供 Data API（Host API 1.4）；如 runtime 未提供 `capabilities.dataApi`，SchemaSeed 仅依据表结构运行。
-- **Node.js：**`22` 或更高版本，并确保 `node` 可从系统 `PATH` 调用；SchemaSeed 的插件运行时需要 Node.js。
+- **支持系统：**Windows、macOS 与 Linux 上运行的 DBX Desktop。SchemaSeed 是 DBX sandbox 内的前端插件，发布为官方 universal `.dbxp`，不包含平台专用运行二进制。
+- **DBX：**`0.6.23` 或更高版本；表结构读取要求 Host API 1.3 `schemaMetadataApi` 和 `host.schema:read`。可选样本推断使用 Host API 1.4 Data API、`host.data:read` 及 DBX 按插件/连接管理的用户授权；Data API 不可用或未授权时按表结构 metadata-only 生成。
+- **普通用户无需安装 Node.js/npm、修改 PATH 或执行命令。**Node.js 22+ 只用于开发和 CI 构建，不是插件安装包的运行依赖。
 - **推荐安装：**从 DBX 插件中心的 Marketplace 搜索 SchemaSeed 安装。SchemaSeed 已上架 DBX Store；可查看[Store 目录条目](https://github.com/t8y2/dbx-store/blob/main/plugins/io.github.0verme.schema-seed.json)。
 - **手动安装：**[GitHub Releases](https://github.com/0verme/dbx-plugin-SchemaSeed/releases/latest) 提供 `.dbxp` 包。Release 中的包是未签名开发候选包；如需在 DBX 中手动安装，需按 DBX 插件中心设置启用 `Allow unsigned development packages`。日常使用建议通过 Marketplace 安装已签名的 Store 版本。
 
@@ -72,11 +73,12 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 - [Workbench i18n](docs/I18N.md)
 - [Production Workbench](docs/PHASE1E_PRODUCTION_WORKBENCH.md)
 - [Host API Audit](docs/HOST_API_AUDIT.md)
+- [Node-free 生产运行时架构审计](docs/NODE_FREE_RUNTIME.md)
 - [轻量只读样本探测](docs/LIGHTWEIGHT_DATA_SAMPLING.md)
 - [DBX 插件开发文档](https://dbxio.com/en/docs/plugin-development)
 - [更多开发文档](docs/)
 
-本地 fixture Workbench 可用 `npm run workbench` 启动，它使用仓库中的示例表结构，不连接 DBX。常用检查命令：`npm test`、`npm run lint`、`npm run typecheck`、`npm run build`。
+本地 fixture Workbench 可用 `npm run workbench` 启动，它使用仓库中的示例表结构，不连接 DBX。开发和构建需要 Node.js（22+）及 `npm ci` 安装的 DBX 官方 CLI；这不是生产插件的运行依赖。常用检查命令：`npm test`、`npm run lint`、`npm run typecheck`、`npm run build`、`npm run smoke:package-identity`。
 
 ## License
 

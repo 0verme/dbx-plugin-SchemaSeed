@@ -129,7 +129,7 @@ test("invalid metadata response is preserved for diagnosis but never normalized"
   assert.equal(Object.hasOwn(result, "metadata"), false);
 });
 
-test("one probe performs only one injected public metadata Host API call", async () => {
+test("metadata adapter uses only the injected public Host API and local Core preview", async () => {
   const calls = [];
   const host = {
     capabilities: { schemaMetadataApi: true },
@@ -139,9 +139,11 @@ test("one probe performs only one injected public metadata Host API call", async
   assert.deepEqual(calls, [["getTableMetadata", tableContext]]);
 
   const implementation = await readFile(path.join(root, "src/host/dbx-schema-metadata-probe.mjs"), "utf8");
-  const ui = await readFile(path.join(root, "ui/probe-app.mjs"), "utf8");
+  const ui = await readFile(path.join(root, "src/workbench/dbx-generation-workbench-adapter.mjs"), "utf8");
   const forbidden = /information_schema|pg_catalog|\bSHOW\s+(?:COLUMNS|CREATE\s+TABLE)|\bPRAGMA\s+table_info|new\s+(?:Pool|Client|Connection)\b|createConnection\s*\(|@tauri|tauri::/i;
   assert.equal(forbidden.test(implementation), false);
   assert.equal(forbidden.test(ui), false);
-  assert.match(ui, /window\.dbxPlugin/);
+  assert.match(ui, /host\.getTableMetadata/);
+  assert.match(ui, /preview: executeGenerationPreview/);
+  assert.doesNotMatch(ui, /host\.invoke/);
 });

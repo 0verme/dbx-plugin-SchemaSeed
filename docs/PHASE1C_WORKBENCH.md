@@ -28,7 +28,7 @@ Run it from the repository root with:
 npm run workbench
 ```
 
-It binds to `127.0.0.1` (default port `4173`; override with `PORT`) and serves the standalone development UI. **This fixture-driven harness remains standalone and is not packaged in DBX.** The current package separately contains a minimal Phase 0 Schema Metadata Probe Workbench using the documented UI entrypoint; this does not package or wire the fixture-driven Phase 1C UI into DBX.
+It binds to `127.0.0.1` (default port `4173`; override with `PORT`) and serves the standalone development UI. **This fixture-driven harness remains standalone and is not packaged in DBX.** Earlier package versions contained a minimal Phase 0 Schema Metadata Probe Workbench; the current node-free frontend-only candidate removes that historical Probe UI and packages only the production Generation Workbench.
 
 ## Information Architecture
 

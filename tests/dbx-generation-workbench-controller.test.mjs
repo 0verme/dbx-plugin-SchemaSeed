@@ -373,7 +373,7 @@ describe("DBX Generation Workbench production controller", () => {
 
   it("production controller and runtime RPC remain fixture-free", async () => {
     const source = await readFile(path.join(root, "src/workbench/dbx-generation-workbench-controller.mjs"), "utf8");
-    const runtime = await readFile(path.join(root, "backend/schema-seed-runtime.mjs"), "utf8");
+    const runtime = await readFile(path.join(root, "src/generation/generation-runtime.mjs"), "utf8");
     const rpc = await readFile(path.join(root, "src/generation/generation-runtime-protocol.mjs"), "utf8");
     assert.doesNotMatch(source, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider|fixtures\/schemas/);
     assert.doesNotMatch(runtime, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider|fixtures\/schemas/);

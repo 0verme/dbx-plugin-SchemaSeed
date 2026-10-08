@@ -1,12 +1,10 @@
 /**
  * Small isomorphic SHA-256 for the generation identity helpers.
  *
- * The DBX Workbench UI imports the shared Generation Core modules directly, and
- * those modules must run both in Node (the JSONL backend runtime) and in the
- * sandboxed WebView (the production Workbench). `node:crypto` only exists in
- * Node, so the digest is computed here with plain typed arrays. The output is
- * byte-identical to `createHash("sha256")`; `tests/sha256.test.mjs` pins that
- * equivalence against node:crypto.
+ * The DBX Workbench UI imports the shared Generation Core modules directly, so
+ * this digest uses plain typed arrays rather than a Node-only runtime API. The
+ * output is byte-identical to `createHash("sha256")`; tests pin that equivalence
+ * against Node's crypto implementation.
  */
 
 const K = new Uint32Array([

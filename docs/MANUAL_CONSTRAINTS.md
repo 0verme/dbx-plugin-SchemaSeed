@@ -33,7 +33,7 @@ TableSchema → GenerationPlan → ConstraintPlan
             → constrained generation → independent dataset validation → Dataset
 ```
 
-`buildGenerationPlan(schema, { rules, constraints, rowCount, seed, locale })` builds the existing GenerationPlan and an independent ConstraintPlan. RPC continues through the existing `generation/preview` method; `validateOnly` builds both plans and diagnostics without materializing rows.
+`buildGenerationPlan(schema, { rules, constraints, rowCount, seed, locale })` builds the existing GenerationPlan and an independent ConstraintPlan. Production Workbench invokes the shared local `executeGenerationPreview()` entrypoint; it retains the former `generation/preview` validation/result contract, and `validateOnly` builds both plans and diagnostics without materializing rows.
 
 Each valid ConstraintPlan entry exposes its `id`, stable identity, kind, ordered columns, normalized configuration, capacity, satisfiability, active/comparable row count, requiredness provenance, allocation strategy, blocking state and diagnostics. Capacity is an explicit tagged value:
 
@@ -92,7 +92,7 @@ Configuration / planning diagnostics include `invalid_constraint_config`, `inval
 
 The production Workbench provides a minimal Constraints editor with add, edit and delete, Core diagnostics and an inspectable capacity / satisfiability summary. UI code owns only form state and rendering; validation, capacity, requiredness and tuple semantics remain in Core.
 
-Edits use the existing `generation/preview` validation-only path and immediately clear the old Plan / Preview / Export dataset. Invalid plans show Core diagnostics and block Generate / Export. A successful Generate creates a fresh Preview / Export dataset. Constraints are scoped to the current table session; A→B→C context refresh clears constraints and all old generated state.
+Edits use the shared local runtime's validation-only path and immediately clear the old Plan / Preview / Export dataset. Invalid plans show Core diagnostics and block Generate / Export. A successful Generate creates a fresh Preview / Export dataset. Constraints are scoped to the current table session; A→B→C context refresh clears constraints and all old generated state.
 
 The `.dbxp` package includes the constraint domain, planner, allocator, validator, runtime integration and production Workbench assets. It excludes tests, fixtures, fixture providers and standalone development resources. This local implementation does not verify the separate #31 runtime smoke or #32 runtime E2E gate and does not change either gate's status.
 

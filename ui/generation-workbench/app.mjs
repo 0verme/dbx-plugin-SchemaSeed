@@ -1,4 +1,4 @@
-import { GENERATION_PREVIEW_METHOD } from "../src/generation/generation-runtime-contract.mjs";
+import { createGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-adapter.mjs";
 import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
 import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
@@ -16,9 +16,6 @@ import {
   stateMessage,
   statusLabel,
 } from "../src/i18n/workbench-messages.mjs";
-import { DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
-import { probeDbxDataSamples } from "../src/host/dbx-data-sample-probe.mjs";
-import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
 import { initialSectionExpansion, sectionSummaries, shouldAutoExpandDiagnostics } from "../src/workbench/workbench-sections.mjs";
 import { saveExportWithHost } from "./export-save.mjs";
 
@@ -120,22 +117,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     hostLocale: readHostLocale(host),
     navigatorLanguage: globalThis.navigator?.language,
   });
-  const controller = new DbxGenerationWorkbenchController({
-    provider: new DbxHostSchemaMetadataProvider({
-      capabilities: host.capabilities,
-      getTableMetadata: (tableContext) => host.getTableMetadata(tableContext),
-    }),
-    sampleProbe: ({ context, schema }) => probeDbxDataSamples({
-      capabilities: host.capabilities,
-      queryData: typeof host.queryData === "function" ? (request) => host.queryData(request) : undefined,
-    }, context, schema),
-    preview: (schema, options_) => host.invoke(
-      GENERATION_PREVIEW_METHOD,
-      { schema, options: options_ },
-      { timeoutMs: 30_000 },
-    ),
-    translator: localeStore.getTranslator(),
-  });
+  const controller = createGenerationWorkbenchController(host, localeStore.getTranslator());
   const unsubscribeRender = controller.subscribe(render);
   // Last Host save state (saving / waiting / saved / cancelled / failed). It
   // keeps the inline message attached to a real save result, and is cleared by

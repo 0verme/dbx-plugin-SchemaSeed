@@ -1,18 +1,6 @@
-# DBX official plugin release flow (the reusable workflow Plan Detective runs).
-#
-# A published GitHub Release builds the unsigned candidate, validates the
-# artifact metadata against the real package bytes, rejects a `signature.json`
-# and uploads the `.dbxp` plus a merged `release-candidates.json` to the
-# Release. Repository signing stays with DBX Store, so this workflow holds no
-# signing key and uses no secret beyond the default `contents: write` token.
-#
-# `package-command` is `npm run build` (scripts/build.mjs) instead of
-# `dbx-plugin package .`: SchemaSeed's backend is the platform-independent Node
-# runtime launched from `bin/universal/`, which the official CLI cannot stage
-# (it builds Rust/Go sidecars from `[backend]`), and `ui/src/**` is vendored by
-# the build instead of being checked in. `scripts/build.mjs` produces exactly
-# one `.dbxp` and one `.artifact.json` for `DBX_PLUGIN_TARGET`, which is the
-# package command contract of this reusable workflow.
+# The UI-only universal package is built with DBX's official plugin CLI. The
+# build script stages the reachable, browser-safe Generation Core module graph
+# under ui/src before invoking `dbx-plugin package`; Node is build-only.
 name: Release DBX plugin
 
 on:
@@ -27,7 +15,7 @@ jobs:
     uses: t8y2/dbx/.github/workflows/plugin-release-reusable.yml@plugin-cli-v0.1.9
     with:
       release-tag: ${{ github.event.release.tag_name }}
-      package-command: npm run build
+      package-command: npm ci && npm run build
       package-path: dist/*.dbxp
       metadata-path: dist/*.artifact.json
       install-plugin-cli: false

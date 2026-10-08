@@ -592,6 +592,18 @@ describe("Generation Core and fixture preview", () => {
     assert.equal(preview.plan.semanticGroups.length, 1);
     assert.equal(preview.plan.semanticGroups[0].groupIdentity, "person:default");
     assert.equal(preview.plan.semanticGroups[0].status, "ready");
+    assert.deepEqual(preview.rows.slice(0, 3).map((row) => ({
+      customer_name: row.customer_name,
+      gender: row.gender,
+      birthday: row.birthday,
+      mobile: row.mobile,
+      email: row.email,
+      address: row.address,
+    })), [
+      { customer_name: "测试用户71AAA6", gender: "测试-男", birthday: "1997-06-09", mobile: "测试号99335404", email: "p6F51F02D@example.com", address: "测试地址0F9524" },
+      { customer_name: "测试用户E5DA48", gender: "测试-男", birthday: "1993-09-12", mobile: "测试号09145701", email: "p14C9195A@example.com", address: "测试地址AF2F45" },
+      { customer_name: "测试用户D9D6DD", gender: "测试-女", birthday: "1977-03-01", mobile: "测试号06738879", email: "pFD5684FE@example.com", address: "测试地址F5FD8D" },
+    ], "browser-safe hashing preserves the established Safe Synthetic output");
 
     for (const row of preview.rows) {
       assert.match(row.customer_name, /^测试用户[A-F0-9]{6}$/);
