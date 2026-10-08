@@ -9,8 +9,8 @@
   font: 14px/1.45 Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 .sswb *, .sswb *::before, .sswb *::after { box-sizing: border-box; }
-.sswb button, .sswb input, .sswb select { color: inherit; font: inherit; }
-.sswb button:focus-visible, .sswb input:focus-visible, .sswb select:focus-visible, .sswb summary:focus-visible { outline: 2px solid #1683a3; outline-offset: 2px; }
+.sswb button, .sswb input, .sswb select, .sswb textarea { color: inherit; font: inherit; }
+.sswb button:focus-visible, .sswb input:focus-visible, .sswb select:focus-visible, .sswb textarea:focus-visible, .sswb summary:focus-visible { outline: 2px solid #1683a3; outline-offset: 2px; }
 .sswb-header { display: flex; align-items: center; gap: 14px; min-height: 68px; padding: 10px max(18px, calc((100vw - 1500px) / 2)); background: var(--sswb-panel); border-bottom: 1px solid var(--sswb-line); }
 .sswb-brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .sswb-mark { display: grid; place-items: center; flex: 0 0 36px; height: 36px; border-radius: 4px; background: #e2f2f6; color: #075a76; font-weight: 750; }
@@ -126,6 +126,10 @@
 .sswb-preview { min-width: 100%; width: max-content; border-collapse: collapse; text-align: left; }
 .sswb-preview td { max-width: 300px; font-size: 12px; white-space: nowrap; }
 .sswb-preview td.sswb-null { color: #8b5e15; font-style: italic; }
+.sswb-sql-details { margin-top: 9px; border: 1px solid var(--sswb-line); border-radius: 3px; }
+.sswb-sql-details summary { padding: 8px 10px; color: #176b87; cursor: pointer; font-size: 12px; font-weight: 600; }
+.sswb-sql-details[open] > summary { border-bottom: 1px solid var(--sswb-line); }
+.sswb-sql-details textarea { display: block; width: 100%; min-height: 150px; max-height: 45vh; margin: 0; padding: 10px; resize: vertical; border: 0; border-radius: 0 0 3px 3px; background: var(--sswb-panel); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; overflow: auto; }
 .sswb footer { padding: 2px 0 0; color: var(--sswb-muted); text-align: center; font-size: 11px; }
 @media (max-width: 1050px) { .sswb-controls { grid-template-columns: repeat(3, minmax(100px, 1fr)); } .sswb-actions { grid-column: 1 / -1; } }
 @media (max-width: 640px) { .sswb-header { padding: 10px 12px; } .sswb-main { padding: 10px; gap: 9px; } .sswb-panel { padding: 12px; } .sswb-context-grid { grid-template-columns: 1fr; } .sswb-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sswb-actions { grid-column: 1 / -1; } .sswb-actions .sswb-button { flex: 1; } .sswb-export-row { align-items: flex-start; flex-direction: column; } .sswb-diagnostic { grid-template-columns: 90px minmax(0, 1fr); } .sswb-diagnostic-body { grid-column: 2; } }

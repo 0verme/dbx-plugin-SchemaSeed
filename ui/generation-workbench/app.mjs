@@ -55,8 +55,10 @@ const WORKBENCH_MARKUP = `
         <div class="sswb-heading"><div><h2 id="sswb-preview-title" data-i18n="preview.title"></h2><p id="sswb-preview-summary" class="sswb-caption"></p></div><span class="sswb-readonly" data-i18n="preview.readonly"></span></div>
         <p id="sswb-state-message" class="sswb-state-message" role="status"></p>
         <p id="sswb-safe-notice" class="sswb-safe-notice"></p>
-        <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
+        <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button><button id="sswb-preview-sql" class="sswb-button" type="button" data-sswb-preview-sql data-i18n="actions.previewSql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
         <div class="sswb-scroll sswb-preview-scroll"><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
+        <details id="sswb-sql-details" class="sswb-sql-details" hidden><summary data-i18n="preview.sqlTitle"></summary><textarea id="sswb-sql-content" readonly spellcheck="false" aria-label="INSERT SQL"></textarea></details>
+        <p id="sswb-sql-preview-error" class="sswb-inline-error" role="alert" hidden></p>
       </section>
 
       <section class="sswb-panel sswb-section" aria-labelledby="sswb-columns-title">
@@ -141,6 +143,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   // keeps the inline message attached to a real save result, and is cleared by
   // any action that starts a new dataset so a stale success cannot mislead.
   let exportSaveState = null;
+  let sqlPreviewContent = null;
+  let sqlPreviewFailed = false;
   const unsubscribeContext = host.onContext((context) => {
     // A new table context invalidates the dataset, so a previously displayed
     // save result must not keep describing it.
@@ -241,7 +245,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   }
 
   function onClick(event) {
-    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-constraint-add], [data-constraint-delete]");
+    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-constraint-add], [data-constraint-delete]");
     if (!target) return;
     if (target.dataset.sswbExport) {
       void saveExport(target.dataset.sswbExport);
@@ -250,6 +254,23 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     // Any non-export action may invalidate the dataset, so it also clears a
     // previously displayed save result.
     exportSaveState = null;
+    if (target.matches("[data-sswb-preview-sql]")) {
+      sqlPreviewContent = null;
+      sqlPreviewFailed = false;
+      element("sswb-sql-details").open = false;
+      element("sswb-sql-details").hidden = true;
+      element("sswb-sql-content").value = "";
+      try {
+        const descriptor = controller.prepareExport("sql");
+        if (typeof descriptor?.content !== "string") throw new TypeError("SQL export did not return text");
+        sqlPreviewContent = descriptor.content;
+      } catch {
+        sqlPreviewFailed = true;
+      }
+      render(controller.getViewModel());
+      if (sqlPreviewContent !== null) element("sswb-sql-details").open = true;
+      return;
+    }
     if (target.matches("[data-constraint-add]")) {
       void controller.dispatch({ type: "add-constraint", kind: "unique" });
       return;
@@ -330,6 +351,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     renderConstraints(viewModel, t);
     renderDiagnostics(viewModel, t);
     renderPreview(viewModel, t);
+    renderSqlPreview(viewModel, t);
     const exportBusy = exportSaveState?.status === "saving" || exportSaveState?.status === "waiting";
     const exportDisabled = !viewModel.export.enabled || viewModel.status === "loading" || exportBusy;
     const exportHint = exportDisabled && !exportBusy ? exportDisabledHint(viewModel, t) : "";
@@ -606,6 +628,30 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       item.append(details);
     }
     return item;
+  }
+
+  function renderSqlPreview(viewModel, t) {
+    const button = element("sswb-preview-sql");
+    const details = element("sswb-sql-details");
+    const content = element("sswb-sql-content");
+    const error = element("sswb-sql-preview-error");
+    button.disabled = !viewModel.export.enabled;
+    if (!viewModel.export.enabled) {
+      sqlPreviewContent = null;
+      sqlPreviewFailed = false;
+      details.open = false;
+      details.hidden = true;
+      content.value = "";
+    } else if (sqlPreviewContent !== null) {
+      details.hidden = false;
+      content.value = sqlPreviewContent;
+    } else {
+      details.open = false;
+      details.hidden = true;
+      content.value = "";
+    }
+    error.hidden = !sqlPreviewFailed;
+    error.textContent = sqlPreviewFailed ? t("preview.sqlError") : "";
   }
 
   function renderPreview(viewModel, t) {

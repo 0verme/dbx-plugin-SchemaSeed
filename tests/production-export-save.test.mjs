@@ -227,6 +227,18 @@ describe("production Workbench export save adapter", () => {
 });
 
 describe("production Workbench save path regression", () => {
+  it("previews only the current prepared SQL export in a collapsed read-only disclosure", async () => {
+    const source = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
+    assert.match(source, /id="sswb-preview-sql"[^>]*data-sswb-preview-sql[^>]*disabled/u);
+    assert.match(source, /<details id="sswb-sql-details"[^>]*hidden>/u, "SQL disclosure starts hidden and collapsed");
+    assert.match(source, /<textarea id="sswb-sql-content" readonly/u, "SQL is presented in a read-only control");
+    assert.match(source, /controller\.prepareExport\("sql"\)/u, "preview uses the existing SQL export path");
+    assert.match(source, /sqlPreviewContent = descriptor\.content/u, "the descriptor content is displayed without reserialization");
+    assert.match(source, /button\.disabled = !viewModel\.export\.enabled/u, "preview is disabled without a current exportable dataset");
+    assert.match(source, /if \(!viewModel\.export\.enabled\) \{[\s\S]*?sqlPreviewContent = null;[\s\S]*?details\.open = false;[\s\S]*?content\.value = "";/u, "invalidating the dataset clears and collapses old SQL");
+    assert.doesNotMatch(source, /exportInsertSql|sql-exporter\.mjs/u, "the browser UI does not add a second SQL serializer");
+  });
+
   it("uses the DBX Host native save and no browser Blob download in the production Workbench", async () => {
     const source = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
     assert.match(source, /saveExportWithHost/);

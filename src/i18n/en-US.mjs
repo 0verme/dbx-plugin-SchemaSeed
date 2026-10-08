@@ -42,6 +42,7 @@ export const EN_US_MESSAGES = Object.freeze({
 
   // Primary actions.
   "actions.generate": "Generate",
+  "actions.previewSql": "Preview INSERT SQL",
   "actions.regenerateSameSeed": "Regenerate Same Seed",
   "actions.newSeed": "New Seed",
 
@@ -292,6 +293,8 @@ export const EN_US_MESSAGES = Object.freeze({
   "preview.summary": "{rows} rows · seed {seed} · data language {locale} · {profile}",
   "preview.readonly": "READ ONLY",
   "preview.null": "NULL",
+  "preview.sqlTitle": "INSERT SQL preview",
+  "preview.sqlError": "The INSERT SQL preview could not be prepared. Check that the current dataset is valid, then try again.",
 
   // Workbench status line.
   "status.loading.metadata": "Loading metadata",
