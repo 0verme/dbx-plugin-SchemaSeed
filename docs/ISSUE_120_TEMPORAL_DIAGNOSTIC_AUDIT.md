@@ -71,7 +71,9 @@ DBX getTableMetadata()
 
 PostgreSQL 查询由 DBX `queryData()` 执行并受现有 `host.data:read` permission、Data API capability、connection consent 控制；没有新建 DB 连接。Fixture 仅验证 resolver 消费 SQL/result 的约定，真实 DBX PostgreSQL Runtime 仍 PENDING。
 
-P0 最终定向验证覆盖 `temporal-precision`、DBX Host Provider、Workbench Controller、sample probe、诊断本地化、高级设置、Preview/Export 保存七个测试文件：**131/131 passed，0 failed**。P1 最终诊断/i18n/Workbench/temporal 定向测试覆盖七个测试文件：**121/121 passed，0 failed**。完整 `npm test` 和其余最终质量命令留待 P2。
+P0 最终定向验证覆盖 `temporal-precision`、DBX Host Provider、Workbench Controller、sample probe、诊断本地化、高级设置、Preview/Export 保存七个测试文件：**131/131 passed，0 failed**。P1 最终诊断/i18n/Workbench/temporal 定向测试覆盖七个测试文件：**121/121 passed，0 failed**；12-field/compact-list 补充回归 **36/36 passed**。
+
+P2 全量验证：`npm test` **386/386 passed，0 failed（48 suites）**；`npm run lint` 通过（103 files）；`npm run typecheck` 的 manifest/Core/Host/package-input checks 通过；`npm run build` 构建 universal `.dbxp` review candidate（unsigned），`npm run smoke:package-identity` 确认 manifest/archive/artifact 一致。`dist/` 被 ignore，tracked dist files 为 0；最终 `git diff --check` 通过。首次全量测试因为该 Worktree 的 ignored `node_modules` 缺少锁定的 `@dbx-app/plugin-cli@0.1.9` 未通过；为本 Worktree 执行 `npm ci --include=dev` 后 package-contract **5/5** 和全量测试全部通过，无 tracked dependency/artifact 变更。
 
 ## 结论与未完成的真实证据
 
