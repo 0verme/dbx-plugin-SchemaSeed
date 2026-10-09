@@ -209,6 +209,10 @@ describe("SQL preview Modal markup and layout contract", () => {
     for (const action of ["close", "copy", "export"]) assert.match(markup, new RegExp(`data-sswb-sql-modal-${action}`));
     assert.match(markup, /data-sswb-export="sql"/u, "the existing top-level SQL export remains");
     assert.doesNotMatch(markup, /sswb-sql-details|sswb-sql-content/u);
+    assert.match(markup, /id="sswb-sql-modal-error"[^>]*role="alert"[^>]*hidden/u, "preview failures have an accessible Modal alert");
+    assert.match(source, /if \(descriptor\.content\.length === 0\) sqlPreviewError = .*preview\.sqlEmpty/u, "empty SQL gets an explicit message");
+    assert.match(source, /catch \(error\) \{[\s\S]*?sqlPreviewError = error\?\.code \? exportErrorMessage\(error, localeStore\.getTranslator\(\)\) : localeStore\.getTranslator\(\)\("preview\.sqlError"\)/u, "SQL generation failures are surfaced to the user");
+    assert.match(source, /error\.hidden = !sqlPreviewError/u, "the error alert becomes visible when preview preparation fails");
 
     const css = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
     assert.match(css, /\.sswb-sql-dialog\s*\{[^}]*width:\s*min\(80vw,/u);
