@@ -48,7 +48,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "columns.title": "字段与生成策略",
   "columns.summary": "{count} 个字段",
   "columns.summaryPending": "{count} 个字段 · {pending} 个待确认",
-  "columns.sampleHint.pending": "点击“生成”后才会显示采样状态；打开表时不会读取真实样本。",
+  "columns.sampleHint.pending": "点击“生成预览”或“换一批数据”后才会显示采样状态；打开表时不会读取真实样本。",
   "columns.sampleHint.not_attempted": "未进行真实数据采样；当前识别依据表结构与字段名。",
   "columns.sampleHint.unavailable": "DBX 当前未提供数据读取能力；未查询真实数据。",
   "columns.sampleHint.permission_denied": "DBX 未授权本次数据读取；未使用真实样本。",
