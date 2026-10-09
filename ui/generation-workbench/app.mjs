@@ -62,7 +62,7 @@ const WORKBENCH_MARKUP = `
           <label><span data-i18n="controls.rows"></span><input id="sswb-rows" name="rowCount" type="number" min="1" max="1000" step="1" value="50" required></label>
           <label><span data-i18n="controls.seed"></span><input id="sswb-seed" name="seed" type="text" value="demo" maxlength="128"></label>
           <label><span data-i18n="controls.dataLocale"></span><select id="sswb-locale" name="locale" data-i18n-title="controls.dataLocaleHelp"><option value="zh-CN">zh-CN</option><option value="en">en</option></select></label>
-          <div class="sswb-actions"><button class="sswb-button sswb-primary" type="button" data-sswb-action="generate" data-i18n="actions.generate"></button><button class="sswb-button" type="button" data-sswb-action="regenerate-same-seed" data-i18n="actions.regenerateSameSeed"></button><button class="sswb-button" type="button" data-sswb-action="new-seed" data-i18n="actions.newSeed"></button></div>
+          <div class="sswb-actions"><button class="sswb-button sswb-primary" type="button" data-sswb-action="generate" data-i18n="actions.generate"></button><button class="sswb-button" type="button" data-sswb-action="generate-new-data" data-i18n="actions.generateNewData"></button></div>
         </form>
         <p id="sswb-action-error" class="sswb-inline-error" role="alert" hidden></p>
       </section>
@@ -393,11 +393,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     for (const control of root.querySelector(".sswb").querySelectorAll("button, input, select, textarea")) {
       if (control.id !== "sswb-ui-locale") control.disabled = viewModel.status === "loading";
     }
-    for (const control of root.querySelectorAll('[data-sswb-action="generate"], [data-sswb-action="regenerate-same-seed"]')) {
+    for (const control of root.querySelectorAll('[data-sswb-action="generate"], [data-sswb-action="generate-new-data"]')) {
       control.disabled = viewModel.status === "loading" || !viewModel.canGenerate;
-    }
-    for (const control of root.querySelectorAll('[data-sswb-action="new-seed"]')) {
-      control.disabled = viewModel.status === "loading" || !viewModel.context;
     }
     element("sswb-rule-state").textContent = ruleEditorStateMessage(viewModel, t);
     element("sswb-constraint-state").textContent = constraintEditorStateMessage(viewModel, t);

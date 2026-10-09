@@ -94,6 +94,7 @@ export class DbxGenerationWorkbenchController {
 
     this.contextRevision += 1;
     this.operationRevision += 1;
+    this.generationPromise = null;
     const revision = this.contextRevision;
     this.contextKey = key;
     this.context = normalized.ok ? normalized.context : null;
@@ -140,12 +141,18 @@ export class DbxGenerationWorkbenchController {
 
   /** @param {unknown} action */
   async dispatch(action) {
+    if (this.status === "loading" && this.stage === "generation" && this.generationPromise) {
+      if (action?.type === "generate") return this.generationPromise;
+      return this.getViewModel();
+    }
     this.actionError = null;
     try {
       switch (action?.type) {
         case "generate":
-        case "regenerate-same-seed":
           await this.generateCurrent();
+          break;
+        case "generate-new-data":
+          await this.generateNewData();
           break;
         case "update-controls":
           if (this.updateControls(action.controls)) {
@@ -164,13 +171,6 @@ export class DbxGenerationWorkbenchController {
         case "delete-constraint":
           await this.deleteConstraint(action.id);
           break;
-        case "new-seed": {
-          const seed = String(this.seedFactory());
-          if (seed === this.controls.seed) throw new Error("New Seed must differ from the current seed");
-          this.controls = { ...this.controls, seed };
-          await this.validateCurrent({ stage: "controls-validation" });
-          break;
-        }
         case "retry":
           // Invalid inputs are deliberately not retained; the Host's onContext
           // notification is the authoritative path for a corrected context.
@@ -250,6 +250,18 @@ export class DbxGenerationWorkbenchController {
     const changed = rowCount !== this.controls.rowCount || seed !== this.controls.seed || locale !== this.controls.locale;
     this.controls = { rowCount, seed, locale };
     return changed;
+  }
+
+  async generateNewData() {
+    if (!this.context || !this.schema || this.status === "loading") return this.getViewModel();
+    const currentSeed = this.controls.seed;
+    let seed = currentSeed;
+    for (let attempt = 0; attempt < 3 && seed === currentSeed; attempt += 1) {
+      seed = String(this.seedFactory());
+    }
+    if (seed === currentSeed) throw new Error("Seed generator did not produce a different seed");
+    this.controls = { ...this.controls, seed };
+    return this.generateCurrent();
   }
 
   /** @returns {ReturnType<DbxGenerationWorkbenchController["getViewModel"]>} */
