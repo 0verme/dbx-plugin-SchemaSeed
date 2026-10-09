@@ -1,4 +1,5 @@
 import { validateDatasetConstraints } from "../generation/manual-constraints.mjs";
+import { isJsonDocumentValue, normalizeJsonValue, unwrapJsonDocumentValue } from "../json-document.mjs";
 
 const SAFE_STATUSES = new Set(["ready", "ready_with_warnings"]);
 const EXPORT_SCALAR_TYPES = new Set(["string", "number", "boolean"]);
@@ -153,6 +154,14 @@ function validateRows(rows, columns) {
         throw new ExportError("export_row_shape_mismatch", `Dataset row ${index + 1} is missing column ${column}`);
       }
       const value = row[column];
+      if (isJsonDocumentValue(value)) {
+        try {
+          normalizeJsonValue(unwrapJsonDocumentValue(value));
+        } catch (error) {
+          throw new ExportError("export_serialization_failed", `Column ${column} contains an invalid JSON document: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        continue;
+      }
       if (value !== null && !EXPORT_SCALAR_TYPES.has(typeof value)) {
         throw new ExportError("export_serialization_failed", `Column ${column} contains a value that CSV / JSON cannot safely serialize`);
       }
@@ -168,7 +177,7 @@ function validateRows(rows, columns) {
  * @property {string} tableIdentity
  * @property {{ database: string | null, schema: string | null, table: string } | null} table Database / schema / table reference captured with this snapshot.
  * @property {string[]} columns Explicit TableSchema column order.
- * @property {Array<Record<string, string | number | boolean | null>>} rows
+ * @property {Array<Record<string, string | number | boolean | null | import("../json-document.mjs").JsonDocumentValue>>} rows
  * @property {{ seed: string, locale: string, rowCount: number, determinismProfile: string }} generationContext
  */
 

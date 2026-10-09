@@ -1,4 +1,5 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
+import { normalizeJsonValue } from "../json-document.mjs";
 import { interpretColumnType, interpretStringCapacity, resolveTemporalPrecision } from "../schema/schema-interpreter.mjs";
 import { formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import {
@@ -22,7 +23,7 @@ import { resolvePersonGroups } from "../semantic/person-groups.mjs";
 import { buildConstraintPlan } from "./manual-constraints.mjs";
 import { MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "./row-count.mjs";
 
-const SUPPORTED_RULES = new Set(["integer", "decimal", "varchar", "string", "boolean", "date", "timestamp"]);
+const SUPPORTED_RULES = new Set(["integer", "decimal", "varchar", "string", "json", "boolean", "date", "timestamp"]);
 const MAX_DECIMAL_PRECISION = 1_000;
 
 /**
@@ -692,7 +693,7 @@ function resolveExplicitGenerationRule(selection, column, schemaKind, baseParame
   });
   switch (selection.kind) {
     case "constant":
-      return explicit("constant", { value: selection.value });
+      return explicit(schemaKind === "json" ? "json_constant" : "constant", { value: selection.value });
     case "sequence": {
       if (schemaKind === "decimal") {
         const scale = column.scale.value;
@@ -718,7 +719,7 @@ function resolveExplicitGenerationRule(selection, column, schemaKind, baseParame
     case "random_string":
       return explicit("random_string", { length: selection.length });
     case "enum":
-      return explicit("enum", { values: [...selection.values] });
+      return explicit(schemaKind === "json" ? "json_enum" : "enum", { values: [...selection.values] });
     case "boolean_ratio":
       return explicit("boolean_ratio", { trueRatio: selection.trueRatio });
     case "date_range":
@@ -785,6 +786,17 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
         reason: capacity?.reason ?? "varchar capacity is unknown: the declared type does not include an explicit length and length metadata is missing",
       }));
     }
+  }
+
+  if (kind === "json" && column.default?.state === "known") {
+    diagnostics.push(makeDiagnostic({
+      severity: "unsupported",
+      code: "json_default_unsupported",
+      table: tableIdentity,
+      column: column.name,
+      rule: ruleIdentity,
+      reason: "A JSON column has a database default expression, but SchemaSeed cannot safely evaluate or preserve it as a generation value",
+    }));
   }
 
   if (kind === "decimal") {
@@ -894,7 +906,7 @@ function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParame
   const unknownKeys = Object.keys(raw).filter((key) => !allowed.has(key));
   if (unknownKeys.length) return reject(`Unsupported rule parameter(s): ${unknownKeys.join(", ")}`);
   if (typeof raw.type !== "string" || !SUPPORTED_RULES.has(raw.type.toLowerCase())) {
-    return reject("Override type must be one of integer, decimal, varchar/string, boolean, date, timestamp");
+    return reject("Override type must be one of integer, decimal, varchar/string, json, boolean, date, timestamp");
   }
 
   const overrideKind = raw.type.toLowerCase() === "string" ? "varchar" : raw.type.toLowerCase();
@@ -1068,8 +1080,12 @@ function safeRuleForDisplay(input) {
   const output = { kind: input.kind };
   for (const field of fields) {
     const value = input[field];
-    if (field === "values" && Array.isArray(value)) {
-      output[field] = value.filter((entry) => entry === null || ["string", "number", "boolean"].includes(typeof entry));
+    if (field === "value" || field === "values") {
+      try {
+        output[field] = normalizeJsonValue(value);
+      } catch {
+        // Invalid values are diagnosed by rule validation; never render them as a valid editor value.
+      }
     } else if (value === null || ["string", "number", "boolean"].includes(typeof value)) {
       output[field] = value;
     }

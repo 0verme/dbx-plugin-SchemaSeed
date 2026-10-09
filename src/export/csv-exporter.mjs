@@ -1,4 +1,5 @@
 import { ExportError, validateExportDataset } from "./export-dataset.mjs";
+import { isJsonDocumentValue, serializeJsonDocumentValue } from "../json-document.mjs";
 
 const CSV_MODES = new Set(["raw", "spreadsheet_safe"]);
 const UTF8_BOM = "\uFEFF";
@@ -23,6 +24,9 @@ export function exportCsv(dataset, options = {}) {
       records.push(dataset.columns.map((column) => {
         const value = row[column];
         if (value === null) return serializeField(nullToken, mode, true);
+        if (isJsonDocumentValue(value)) {
+          return serializeField(serializeJsonDocumentValue(value), mode, true);
+        }
         return serializeField(value, mode, typeof value === "string");
       }).join(","));
     }

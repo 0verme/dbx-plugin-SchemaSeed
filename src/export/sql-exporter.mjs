@@ -1,4 +1,5 @@
 import { ExportError, validateExportDataset } from "./export-dataset.mjs";
+import { isJsonDocumentValue, serializeJsonDocumentValue } from "../json-document.mjs";
 
 /**
  * INSERT SQL serializer for the frozen ExportDataset snapshot.
@@ -6,6 +7,10 @@ import { ExportError, validateExportDataset } from "./export-dataset.mjs";
  * Scope is deliberately small: one plain `INSERT INTO ... VALUES (...)` per
  * preview row. It never executes SQL, opens a database connection, batches rows
  * into one multi-row VALUES list, or emits UPSERT / MERGE / TRUNCATE / DELETE.
+ * JSON document values use MySQL's JSON cast and utf8mb4 conversion because
+ * DBX does not provide a dialect discriminator to this exporter. That JSON
+ * expression is mode-independent for MySQL; this is not a claim that JSON SQL
+ * output targets every other database dialect.
  */
 
 /**
@@ -97,23 +102,27 @@ export function quoteSqlIdentifier(name) {
 }
 
 /**
- * Serialize one scalar ExportDataset value as a SQL literal.
+ * Serialize one scalar or typed JSON document ExportDataset value as a SQL literal.
  *
- * - `null` becomes `NULL`; the empty string stays `''`.
- * - Strings quote with single quotes and double embedded quotes; a NUL
- *   character fails closed because many database text protocols cannot carry
- *   it inside a literal.
+ * - SQL `null` becomes `NULL`; a SchemaSeed JSON document (including JSON
+ *   literal `null`) is emitted as a MySQL JSON CAST over a UTF-8 hex literal.
+ *   The hex form avoids quote/backslash parsing differences between MySQL
+ *   SQL modes such as the default mode and NO_BACKSLASH_ESCAPES.
+ * - Ordinary strings quote with single quotes and double embedded quotes; a
+ *   NUL character fails closed because many database text protocols cannot
+ *   carry it inside a literal.
  * - Numbers stay unquoted. Core decimals are already exact decimal strings and
  *   stay strings, matching the CSV / JSON contract.
  * - Booleans use the SQL-standard `TRUE` / `FALSE` literals. The Host does not
  *   expose the database type, so this is the documented dialect limit; it is
  *   accepted by the verified PostgreSQL, MySQL and SQLite drivers.
  *
- * @param {string | number | boolean | null} value
+ * @param {string | number | boolean | null | import("../json-document.mjs").JsonDocumentValue} value
  * @returns {string}
  */
 export function sqlLiteral(value) {
   if (value === null) return "NULL";
+  if (isJsonDocumentValue(value)) return mysqlJsonLiteral(value);
   switch (typeof value) {
     case "boolean":
       return value ? "TRUE" : "FALSE";
@@ -139,6 +148,19 @@ export function sqlLiteral(value) {
  * @param {import("./export-dataset.mjs").ExportDataset} dataset
  * @param {{ header?: boolean }} [options]
  */
+function mysqlJsonLiteral(value) {
+  let serialized;
+  try {
+    serialized = serializeJsonDocumentValue(value);
+  } catch (error) {
+    throw new ExportError("export_serialization_failed", `SQL export cannot serialize an invalid JSON document: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const hex = [...new TextEncoder().encode(serialized)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `CAST(CONVERT(X'${hex}' USING utf8mb4) AS JSON)`;
+}
+
 export function exportInsertSql(dataset, options = {}) {
   validateExportDataset(dataset);
   const { header = true } = options;

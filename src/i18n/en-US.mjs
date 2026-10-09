@@ -142,6 +142,7 @@ export const EN_US_MESSAGES = Object.freeze({
 
   // Rule editor field labels, keyed by field key.
   "ruleField.value": "Value (JSON scalar)",
+  "ruleField.jsonDocumentValue": "JSON document value",
   "ruleField.start": "Start",
   "ruleField.step": "Step",
   "ruleField.min": "Min",
@@ -463,6 +464,11 @@ export const EN_US_DIAGNOSTICS = Object.freeze({
     title: "The text column maximum length is unknown",
     description: "DBX did not return length information for column {column}, so SchemaSeed cannot prove that generated or manual values fit the column. It refuses to guess a maximum.",
     action: "Specify the allowed maximum length yourself, or re-read metadata once DBX returns complete column facts.",
+  },
+  json_default_unsupported: {
+    title: "The JSON column default cannot be handled safely",
+    description: "Column {column} has a database default expression; SchemaSeed will not guess or silently ignore that expression.",
+    action: "Review the default expression and remove it or replace it with an explicitly supported generation rule before generating.",
   },
   decimal_precision_scale_unknown: {
     title: "The decimal precision or scale is unknown",

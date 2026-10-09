@@ -1,4 +1,5 @@
 import { ExportError, validateExportDataset } from "./export-dataset.mjs";
+import { isJsonDocumentValue, unwrapJsonDocumentValue } from "../json-document.mjs";
 
 /**
  * Serialize an existing ExportDataset as a deterministic JSON array.
@@ -12,7 +13,11 @@ export function exportJson(dataset, options = {}) {
   if (typeof pretty !== "boolean") throw new TypeError("JSON pretty option must be a boolean");
 
   try {
-    return JSON.stringify(dataset.rows, dataset.columns, pretty ? 2 : undefined);
+    const rows = dataset.rows.map((row) => Object.fromEntries(dataset.columns.map((column) => {
+      const value = row[column];
+      return [column, isJsonDocumentValue(value) ? unwrapJsonDocumentValue(value) : value];
+    })));
+    return JSON.stringify(rows, null, pretty ? 2 : undefined);
   } catch (error) {
     if (error instanceof ExportError) throw error;
     throw new ExportError("export_serialization_failed", `JSON serialization failed: ${error instanceof Error ? error.message : String(error)}`);

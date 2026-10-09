@@ -1,4 +1,5 @@
 import { formatDecimalUnits, formatTimestamp, parseTimestamp, resolveStringGenerationMaxLength } from "./generation-rules.mjs";
+import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 import { toHex } from "./sha256.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -11,6 +12,9 @@ const DEFAULT_TIMESTAMP_MAX = BigInt(Date.parse("2035-12-31T23:59:59.999Z")) * 1
 /** Build a finite, directly indexable domain or explain why it cannot be proved. */
 export function describeConstraintDomain(columnPlan, rowCount) {
   const { rule, schema } = columnPlan;
+  if (schema?.dataType?.state === "known" && interpretColumnType(schema)?.kind === "json") {
+    return { state: "cannot_prove", kind: rule.kind, reason: "JSON uniqueness is not supported because target database JSON equality and index semantics are not established" };
+  }
   const p = rule.parameters ?? {};
   const known = (kind, capacity, decode, extra = {}) => ({ state: "known", kind, capacity, decode, ...extra });
   const unsupported = (reason) => ({ state: "cannot_prove", kind: rule.kind, reason });

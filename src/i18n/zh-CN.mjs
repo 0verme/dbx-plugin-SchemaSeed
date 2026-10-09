@@ -137,6 +137,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
 
   // Rule editor field labels.
   "ruleField.value": "固定值（JSON 标量）",
+  "ruleField.jsonDocumentValue": "JSON 文档值",
   "ruleField.start": "起始值",
   "ruleField.step": "步长",
   "ruleField.min": "最小值",
@@ -453,6 +454,11 @@ export const ZH_CN_DIAGNOSTICS = Object.freeze({
     title: "无法确认文本字段的最大长度",
     description: "DBX 没有返回「{column}」字段的长度信息，SchemaSeed 无法确认生成值是否超出字段容量，因此不会猜测一个最大长度。",
     action: "请手动指定允许的最大长度，或在 DBX 返回完整字段元数据后重新读取。",
+  },
+  json_default_unsupported: {
+    title: "无法安全处理 JSON 字段默认值",
+    description: "「{column}」字段包含数据库默认表达式；SchemaSeed 不会猜测或静默忽略该表达式。",
+    action: "请核实该默认表达式并移除或改为显式受支持的生成规则后再生成。",
   },
   decimal_precision_scale_unknown: {
     title: "无法确认小数字段的精度或小数位",

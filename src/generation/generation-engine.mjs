@@ -4,6 +4,7 @@ import { allocateConstraintRows } from "./constraint-allocation.mjs";
 import { digestFor, randomBigIntBelow, randomBigIntBelowUniform, randomUnit } from "./generation-identity.mjs";
 import { validateDatasetConstraints } from "./manual-constraints.mjs";
 import { generatePersonSyntheticValue } from "./person-synthetic.mjs";
+import { createJsonDocumentValue } from "../json-document.mjs";
 import { MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "./row-count.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -107,6 +108,8 @@ function generateValue(rule, identity, locale, rowIndex) {
   switch (rule.kind) {
     case "constant":
       return parameters.value;
+    case "json_constant":
+      return createJsonDocumentValue(parameters.value);
     case "sequence": {
       if (parameters.numericKind === "decimal") {
         const value = BigInt(parameters.startUnits) + BigInt(parameters.stepUnits) * BigInt(rowIndex);
@@ -129,6 +132,8 @@ function generateValue(rule, identity, locale, rowIndex) {
       return randomString(parameters.length, identity, true);
     case "enum":
       return parameters.values[Number(randomBigIntBelowUniform(BigInt(parameters.values.length), [...identity, "enum-choice"]))];
+    case "json_enum":
+      return createJsonDocumentValue(parameters.values[Number(randomBigIntBelowUniform(BigInt(parameters.values.length), [...identity, "json-enum-choice"]))]);
     case "sample_enum":
       return chooseWeighted(parameters.candidates, identity, "sample-category", "value");
     case "sample_numeric":
@@ -162,6 +167,8 @@ function generateValue(rule, identity, locale, rowIndex) {
       const maxLength = resolveStringGenerationMaxLength(parameters.maxLength, parameters.schemaMaxLength);
       return randomString(Number(randomBigIntBelow(BigInt(maxLength), [...identity, "string-length"])) + 1, identity);
     }
+    case "json":
+      return createJsonDocumentValue(generateJsonValue(identity));
     case "boolean":
       return randomBigIntBelow(2n, [...identity, "boolean"]) === 1n;
     case "date": {
@@ -188,6 +195,33 @@ function generateValue(rule, identity, locale, rowIndex) {
     default:
       throw new Error(`No generator is available for rule ${rule.kind}`);
   }
+}
+
+function generateJsonValue(identity) {
+  const kind = Number(randomBigIntBelowUniform(6n, [...identity, "json-kind"]));
+  if (kind === 0) {
+    const length = Number(randomBigIntBelowUniform(4n, [...identity, "json-object-array-length"]));
+    return {
+      generated: true,
+      values: Array.from({ length }, (_, index) => generateJsonScalar([...identity, "json-object-value", String(index)])),
+    };
+  }
+  if (kind === 1) {
+    const length = Number(randomBigIntBelowUniform(4n, [...identity, "json-array-length"]));
+    return Array.from({ length }, (_, index) => generateJsonScalar([...identity, "json-array-value", String(index)]));
+  }
+  if (kind === 2) return `generated_${randomString(8, [...identity, "json-string"])}`;
+  if (kind === 3) return Number(randomBigIntBelowUniform(1_000_001n, [...identity, "json-number"]));
+  if (kind === 4) return randomBigIntBelowUniform(2n, [...identity, "json-boolean"]) === 1n;
+  return null;
+}
+
+function generateJsonScalar(identity) {
+  const kind = Number(randomBigIntBelowUniform(4n, [...identity, "json-scalar-kind"]));
+  if (kind === 0) return `generated_${randomString(6, [...identity, "json-scalar-string"])}`;
+  if (kind === 1) return Number(randomBigIntBelowUniform(1_000_001n, [...identity, "json-scalar-number"]));
+  if (kind === 2) return randomBigIntBelowUniform(2n, [...identity, "json-scalar-boolean"]) === 1n;
+  return null;
 }
 
 function generateSampleNumeric(parameters, identity) {
