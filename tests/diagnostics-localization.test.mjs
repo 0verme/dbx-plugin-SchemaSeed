@@ -231,6 +231,9 @@ describe("diagnostics localization: human copy", () => {
     assert.match(grouped[0].title, /2 个字段/u);
     assert.match(grouped[0].description, /数据库列声明精度/u);
     assert.equal(grouped.slice(1).every((entry) => entry.grouped === false && entry.count === 1), true);
+    const many = describeDiagnosticGroups(Array.from({ length: 12 }, (_value, index) => timestampDiagnostic({ column: `timestamp_${index}` })), zh)[0];
+    assert.equal(many.count, 12);
+    assert.equal(many.entries.length, 12, "expanded details retain every Core field diagnostic");
     assert.equal(describeDiagnosticGroups([
       timestampDiagnostic({ table: "", column: "a" }),
       timestampDiagnostic({ table: "", column: "b" }),

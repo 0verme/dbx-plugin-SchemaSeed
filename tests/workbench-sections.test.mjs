@@ -364,6 +364,8 @@ describe("Advanced settings Modal and Workbench markup contract", () => {
     assert.match(diagnosticsRender, /diagnosticImpactMessage\(diagnostic, viewModel, t\)/u);
     assert.match(diagnosticsRender, /diagnostics\.severityIndicator/u);
     assert.match(diagnosticsRender, /diagnosticColumnTechnicalRows\(findDiagnosticColumn/u);
+    assert.match(diagnosticsRender, /fields\.slice\(0, 5\)/u, "the collapsed field list remains bounded");
+    assert.match(diagnosticsRender, /fields\.length > visibleFields\.length/u, "additional fields remain countable");
     assert.match(diagnosticsRender, /tableContextLabel\(viewModel\.context\)/u);
     assert.match(diagnosticsRender, /createElement\("details"\)/u);
     assert.doesNotMatch(diagnosticsRender, /controller\.(dispatch|sample|generate)/u);
