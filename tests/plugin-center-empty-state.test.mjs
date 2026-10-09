@@ -111,9 +111,10 @@ describe("plugin-center missing table context", () => {
     assert.equal(root.nodes.get("#sswb-status").hidden, true);
 
     view = await controller.setContext(VALID_CONTEXT);
-    assert.notEqual(view.status, "empty");
+    assert.equal(view.status, "idle", "a valid TableContext completes metadata and validation without generating rows");
     assert.ok(view.plan, "a valid TableContext creates a GenerationPlan");
-    assert.ok(view.export.enabled, "the valid context completes normal generation");
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
     assert.equal(root.nodes.get("#sswb-empty-state").hidden, true);
     assert.equal(root.nodes.get("#sswb-workbench-content").hidden, false);
     assert.equal(root.nodes.get("#sswb-status").hidden, false);

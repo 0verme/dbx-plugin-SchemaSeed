@@ -40,7 +40,9 @@ function previewCore(calls = []) {
   return async (schema, options) => {
     calls.push({ schema, options: structuredClone(options) });
     const plan = buildGenerationPlan(schema, options);
-    const generated = generateRows(plan);
+    const generated = options.validateOnly
+      ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+      : generateRows(plan);
     return JSON.parse(JSON.stringify({ plan, generated }));
   };
 }
@@ -136,7 +138,7 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.empty.title", "preview.empty.helper", "preview.readonly", "status.idle", "status.loading.plan", "state.idle", "state.loading.plan", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "state.blocked.plan.canGenerate", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);
@@ -149,6 +151,7 @@ describe("i18n locale strategy", () => {
     assert.equal(zh("dataAccess.title"), "数据访问");
     assert.match(zh("dataAccess.description"), /DBX Host 授权/u);
     assert.match(zh("dataAccess.description"), /最多读取 100 行/u);
+    assert.match(zh("dataAccess.description"), /仅在点击“生成预览”后/u);
     assert.match(zh("dataAccess.description"), /字段规则推断/u);
     assert.match(zh("dataAccess.detailsDescription"), /候选字段/u);
     assert.match(zh("dataAccess.detailsDescription"), /每次最多 16 列/u);
@@ -158,6 +161,7 @@ describe("i18n locale strategy", () => {
     assert.doesNotMatch(zh("dataAccess.description"), /不会读取|不查看/u);
     assert.match(zh("diagnostic.safe_synthetic_mode.description"), /授权的只读采样/u);
     assert.doesNotMatch(zh("diagnostic.safe_synthetic_mode.description"), /不会读取任何真实数据行/u);
+    assert.match(en("dataAccess.description"), /only after you click Generate/u);
     assert.match(en("dataAccess.description"), /DBX Host authorization/u);
     assert.match(en("dataAccess.description"), /at most 100 rows/u);
     assert.match(en("dataAccess.detailsDescription"), /screened candidate fields/u);
@@ -249,6 +253,9 @@ describe("UI locale and synthetic data locale stay independent", () => {
       translator: createI18n("zh-CN"),
     });
     let view = await controller.setContext(BASE_CONTEXT);
+    assert.equal(view.status, "idle");
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
     assert.equal(view.controls.locale, "zh-CN");
     assert.equal(controller.translator.locale, "zh-CN");
     assert.match(view.columns[0].mappingStatus, /待确认/);
@@ -257,7 +264,8 @@ describe("UI locale and synthetic data locale stay independent", () => {
     assert.equal(view.controls.locale, "en", "the generation locale changed");
     assert.equal(controller.translator.locale, "zh-CN", "the interface language did not");
     assert.match(view.columns[0].mappingStatus, /待确认/, "view-model copy stays in the UI language");
-    assert.equal(view.plan.locale, "en", "Core received the generation locale");
+    assert.equal(view.plan.locale, "en", "Core received the generation locale for validation");
+    assert.deepEqual(view.preview.rows, [], "changing the generation locale does not create a preview");
   });
 
   it("changing the interface language does not touch the generation locale, plan or dataset", async () => {
@@ -268,7 +276,9 @@ describe("UI locale and synthetic data locale stay independent", () => {
       translator: createI18n("en-US"),
     });
     const store = createUiLocaleStore({ storage: memoryStorage(), navigatorLanguage: "en-US" });
-    let view = await controller.setContext(BASE_CONTEXT);
+    await controller.setContext(BASE_CONTEXT);
+    assert.equal(previewCalls.filter((call) => call.options.validateOnly !== true).length, 0);
+    let view = await controller.dispatch({ type: "generate" });
     const callsAfterGenerate = previewCalls.length;
     const generatedRows = structuredClone(view.preview.rows);
     assert.equal(view.controls.locale, "zh-CN", "generation locale keeps its own default");

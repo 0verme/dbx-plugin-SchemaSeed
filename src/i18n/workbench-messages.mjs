@@ -13,8 +13,10 @@
 /** @param {Record<string, any>} viewModel @param {import("./index.mjs").Translator} t */
 export function statusLabel(viewModel, t) {
   if (viewModel.status === "loading") {
-    return viewModel.stage === "metadata" ? t("status.loading.metadata") : t("status.loading.generation");
+    if (viewModel.stage === "metadata") return t("status.loading.metadata");
+    return viewModel.stage === "planning" ? t("status.loading.plan") : t("status.loading.generation");
   }
+  if (viewModel.status === "idle") return t("status.idle");
   if (viewModel.status === "dirty") return t("status.dirty");
   if (viewModel.status === "ready") return t("status.ready");
   if (viewModel.status === "warning") return t("status.warning");
@@ -25,14 +27,17 @@ export function statusLabel(viewModel, t) {
 
 /** @param {Record<string, any>} viewModel @param {import("./index.mjs").Translator} t */
 export function stateMessage(viewModel, t) {
+  if (viewModel.status === "idle") return t("state.idle");
   if (viewModel.status === "dirty") return t("state.dirty");
   if (viewModel.status === "loading") {
-    return viewModel.stage === "metadata" ? t("state.loading.metadata") : t("state.loading.generation");
+    if (viewModel.stage === "metadata") return t("state.loading.metadata");
+    return viewModel.stage === "planning" ? t("state.loading.plan") : t("state.loading.generation");
   }
   if (viewModel.status === "blocked" && viewModel.diagnostics.some((entry) => entry.code === "metadata_capability_unavailable")) {
     return t("state.blocked.metadataCapability");
   }
   if (viewModel.status === "blocked") {
+    if (viewModel.plan && viewModel.canGenerate) return t("state.blocked.plan.canGenerate");
     return viewModel.plan ? t("state.blocked.plan") : t("state.blocked.context");
   }
   if (viewModel.status === "error") return t("state.error");
@@ -76,13 +81,13 @@ export function diagnosticsEmptyMessage(viewModel, t) {
 
 /** @param {Record<string, any>} viewModel @param {import("./index.mjs").Translator} t */
 export function previewSummary(viewModel, t) {
-  if (viewModel.plan) {
+  if (viewModel.plan && viewModel.preview?.rows?.length > 0) {
     return t("preview.summary", {
-      rows: viewModel.plan.rowCount,
+      rows: viewModel.preview.rows.length,
       seed: viewModel.plan.seed,
     });
   }
-  return viewModel.context ? t("preview.caption.waitingPlan") : t("preview.caption.waitingContext");
+  return viewModel.context ? "" : t("preview.caption.waitingContext");
 }
 
 /**

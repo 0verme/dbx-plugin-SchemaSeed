@@ -61,7 +61,9 @@ function hostFor(columns, fieldCapabilities = null) {
 function previewCore() {
   return async (schema, options) => {
     const plan = buildGenerationPlan(schema, options);
-    const generated = generateRows(plan);
+    const generated = options.validateOnly
+      ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+      : generateRows(plan);
     return JSON.parse(JSON.stringify({ plan, generated }));
   };
 }
@@ -260,9 +262,12 @@ describe("Workbench state follows the capacity fix", () => {
     ]);
     for (const translator of [zh, en]) {
       const controller = new DbxGenerationWorkbenchController({ provider, preview: previewCore(), translator });
-      const view = await controller.setContext(BASE_CONTEXT);
+      let view = await controller.setContext(BASE_CONTEXT);
       assert.notEqual(view.status, "blocked");
       assert.notEqual(view.plan.status, "blocked");
+      assert.deepEqual(view.preview.rows, []);
+      assert.equal(view.export.enabled, false);
+      view = await controller.dispatch({ type: "generate" });
       assert.equal(view.preview.rows.length, 50);
       assert.equal(view.export.enabled, true);
       assert.equal(view.diagnostics.some((entry) => entry.code === "varchar_length_unknown"), false);

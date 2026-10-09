@@ -38,6 +38,8 @@ export class DbxGenerationWorkbenchController {
     this.sampleEvidenceCache = new Map();
     this.sampleEvidence = [];
     this.sampleUsed = false;
+    this.sampleEvidenceLoaded = false;
+    this.generationPromise = null;
     this.seedFactory = options.seedFactory ?? defaultSeed;
     // UI language is presentation-only state: it never influences planning,
     // generation, diagnostics or blocking decisions.
@@ -99,6 +101,7 @@ export class DbxGenerationWorkbenchController {
     this.temporalPrecisionMetadata = {};
     this.sampleEvidence = [];
     this.sampleUsed = false;
+    this.sampleEvidenceLoaded = false;
     this.plan = null;
     this.currentDataset = null;
     this.rules = {};
@@ -143,8 +146,9 @@ export class DbxGenerationWorkbenchController {
           await this.generateCurrent();
           break;
         case "update-controls":
-          this.updateControls(action.controls);
-          await this.generateCurrent();
+          if (this.updateControls(action.controls)) {
+            await this.validateCurrent({ stage: "controls-validation" });
+          }
           break;
         case "update-rule":
           await this.updateRule(action.column, action.rule);
@@ -162,7 +166,7 @@ export class DbxGenerationWorkbenchController {
           const seed = String(this.seedFactory());
           if (seed === this.controls.seed) throw new Error("New Seed must differ from the current seed");
           this.controls = { ...this.controls, seed };
-          await this.generateCurrent();
+          await this.validateCurrent({ stage: "controls-validation" });
           break;
         }
         case "retry":
@@ -190,46 +194,7 @@ export class DbxGenerationWorkbenchController {
     if (!isRecord(rule)) throw new TypeError("Generation rule must be a tagged object");
 
     this.rules = { ...this.rules, [columnName]: structuredClone(rule) };
-    const contextRevision = this.contextRevision;
-    const operation = ++this.operationRevision;
-    this.plan = null;
-    this.currentDataset = null;
-    this.diagnostics = [];
-    this.error = null;
-    this.actionError = null;
-    this.stage = "rule-validation";
-    this.status = "dirty";
-    this.emit();
-
-    try {
-      const response = await this.preview(this.schema, {
-        ...this.controls,
-        mode: "safe_synthetic",
-        rules: structuredClone(this.rules),
-        constraints: structuredClone(this.constraints),
-        sampleEvidence: structuredClone(this.sampleEvidence),
-        temporalPrecisionMetadata: structuredClone(this.temporalPrecisionMetadata),
-        validateOnly: true,
-        semanticOverrides: {},
-        semanticMappings: {},
-      });
-      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
-      if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
-        throw new Error("Generation Core runtime returned an invalid rule validation response");
-      }
-      this.plan = response.plan;
-      this.diagnostics = Array.isArray(response.plan.diagnostics)
-        ? response.plan.diagnostics
-        : Array.isArray(response.generated.diagnostics) ? response.generated.diagnostics : [];
-      this.status = response.plan.status === "blocked" || response.generated.status === "blocked" ? "blocked" : "dirty";
-      this.stage = "ready";
-      this.currentDataset = null;
-      this.emit();
-    } catch (error) {
-      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
-      this.fail(error, "generation");
-    }
-    return this.getViewModel();
+    return this.validateCurrent({ stage: "rule-validation" });
   }
 
   /** Add an editor draft; strict validation remains in the Core. @param {string} kind */
@@ -265,45 +230,7 @@ export class DbxGenerationWorkbenchController {
 
   async replaceConstraints(constraints) {
     this.constraints = structuredClone(constraints);
-    const contextRevision = this.contextRevision;
-    const operation = ++this.operationRevision;
-    this.plan = null;
-    this.currentDataset = null;
-    this.diagnostics = [];
-    this.error = null;
-    this.actionError = null;
-    this.stage = "constraint-validation";
-    this.status = "dirty";
-    this.emit();
-    try {
-      const response = await this.preview(this.schema, {
-        ...this.controls,
-        mode: "safe_synthetic",
-        rules: structuredClone(this.rules),
-        constraints: structuredClone(this.constraints),
-        sampleEvidence: structuredClone(this.sampleEvidence),
-        temporalPrecisionMetadata: structuredClone(this.temporalPrecisionMetadata),
-        validateOnly: true,
-        semanticOverrides: {},
-        semanticMappings: {},
-      });
-      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
-      if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
-        throw new Error("Generation Core runtime returned an invalid constraint validation response");
-      }
-      this.plan = response.plan;
-      this.diagnostics = Array.isArray(response.plan.diagnostics)
-        ? response.plan.diagnostics
-        : Array.isArray(response.generated.diagnostics) ? response.generated.diagnostics : [];
-      this.status = response.plan.status === "blocked" || response.generated.status === "blocked" ? "blocked" : "dirty";
-      this.stage = "ready";
-      this.currentDataset = null;
-      this.emit();
-    } catch (error) {
-      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
-      this.fail(error, "generation");
-    }
-    return this.getViewModel();
+    return this.validateCurrent({ stage: "constraint-validation" });
   }
 
   /** @param {unknown} input */
@@ -318,7 +245,9 @@ export class DbxGenerationWorkbenchController {
     }
     if (typeof seed !== "string") throw new TypeError("Seed must be text");
     if (locale !== "zh-CN" && locale !== "en") throw new RangeError("Locale must be zh-CN or en");
+    const changed = rowCount !== this.controls.rowCount || seed !== this.controls.seed || locale !== this.controls.locale;
     this.controls = { rowCount, seed, locale };
+    return changed;
   }
 
   /** @returns {ReturnType<DbxGenerationWorkbenchController["getViewModel"]>} */
@@ -328,6 +257,7 @@ export class DbxGenerationWorkbenchController {
       status: this.status,
       stage: this.stage,
       context: this.context ? { ...this.context } : null,
+      canGenerate: Boolean(this.context && this.schema),
       table: this.context ? {
         database: this.context.database ?? null,
         schema: this.context.schema ?? null,
@@ -368,12 +298,12 @@ export class DbxGenerationWorkbenchController {
         determinismProfile: plan.determinismProfile,
       } : null,
       ruleEditor: { issue: 32, scope: "current-table-session", state: this.status === "loading"
-        ? (this.stage === "metadata" ? "loading" : "generating")
+        ? (["metadata", "planning"].includes(this.stage) ? "loading" : "generating")
         : this.status === "dirty" ? (this.stage === "rule-validation" ? "validating" : "dirty")
           : this.status === "blocked" ? "blocked" : this.status === "warning" ? "warning"
             : this.status === "error" ? "error" : "ready" },
       constraintEditor: { scope: "current-table-session", state: this.status === "loading"
-        ? (this.stage === "metadata" ? "loading" : "generating")
+        ? (["metadata", "planning"].includes(this.stage) ? "loading" : "generating")
         : this.status === "dirty" ? (this.stage === "constraint-validation" ? "validating" : "dirty")
           : this.status === "blocked" ? "blocked" : this.status === "warning" ? "warning"
             : this.status === "error" ? "error" : "ready" },
@@ -426,13 +356,11 @@ export class DbxGenerationWorkbenchController {
       const schema = await this.provider.getTableMetadata({ tableContext: context });
       if (revision !== this.contextRevision) return this.getViewModel();
       this.schema = schema;
-      this.stage = "generation";
+      this.stage = "metadata";
       this.emit();
       await this.loadTemporalPrecisionMetadata(revision, context, schema);
       if (revision !== this.contextRevision) return this.getViewModel();
-      await this.loadSampleEvidence(revision, context, schema);
-      if (revision !== this.contextRevision) return this.getViewModel();
-      return await this.generateCurrent(revision);
+      return await this.validateCurrent({ contextRevision: revision, stage: "planning", initial: true });
     } catch (error) {
       if (revision !== this.contextRevision) return this.getViewModel();
       this.fail(error, "metadata");
@@ -490,8 +418,58 @@ export class DbxGenerationWorkbenchController {
     if (revision === this.contextRevision) {
       this.sampleEvidence = sampleResult.evidence;
       this.sampleUsed = sampleResult.sampleUsed;
+      this.sampleEvidenceLoaded = true;
     }
     return sampleResult.evidence;
+  }
+
+  generationOptions(validateOnly = false) {
+    return {
+      ...this.controls,
+      mode: "safe_synthetic",
+      rules: structuredClone(this.rules),
+      constraints: structuredClone(this.constraints),
+      sampleEvidence: structuredClone(this.sampleEvidence),
+      temporalPrecisionMetadata: structuredClone(this.temporalPrecisionMetadata),
+      ...(validateOnly ? { validateOnly: true } : {}),
+      semanticOverrides: {},
+      semanticMappings: {},
+    };
+  }
+
+  /** @param {{ contextRevision?: number, stage?: string, initial?: boolean }} [options] */
+  async validateCurrent({ contextRevision = this.contextRevision, stage = "planning", initial = false } = {}) {
+    if (!this.context || !this.schema || contextRevision !== this.contextRevision) return this.getViewModel();
+
+    const operation = ++this.operationRevision;
+    this.plan = null;
+    this.currentDataset = null;
+    this.diagnostics = [];
+    this.error = null;
+    this.actionError = null;
+    this.stage = stage;
+    this.status = initial ? "loading" : "dirty";
+    this.emit();
+
+    try {
+      const response = await this.preview(this.schema, this.generationOptions(true));
+      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
+      if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
+        throw new Error("Generation Core runtime returned an invalid plan validation response");
+      }
+      this.plan = response.plan;
+      this.diagnostics = Array.isArray(response.plan.diagnostics)
+        ? response.plan.diagnostics
+        : Array.isArray(response.generated.diagnostics) ? response.generated.diagnostics : [];
+      const blocked = response.plan.status === "blocked" || response.generated.status === "blocked";
+      this.status = blocked ? "blocked" : initial ? "idle" : "dirty";
+      this.stage = "ready";
+      this.emit();
+    } catch (error) {
+      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
+      this.fail(error, "generation");
+    }
+    return this.getViewModel();
   }
 
   /** @param {number} [contextRevision] */
@@ -502,27 +480,38 @@ export class DbxGenerationWorkbenchController {
       this.emit();
       return this.getViewModel();
     }
+    if (contextRevision !== this.contextRevision) return this.getViewModel();
+    if (this.status === "loading" && this.stage === "generation" && this.generationPromise) {
+      return this.generationPromise;
+    }
 
     const operation = ++this.operationRevision;
-    this.plan = null;
+    const context = this.context;
+    const schema = this.schema;
     this.currentDataset = null;
-    this.diagnostics = [];
     this.error = null;
     this.stage = "generation";
     this.status = "loading";
     this.emit();
 
+    const task = Promise.resolve().then(() => this.runGeneration(contextRevision, operation, context, schema));
+    this.generationPromise = task;
     try {
-      const response = await this.preview(this.schema, {
-        ...this.controls,
-        mode: "safe_synthetic",
-        rules: structuredClone(this.rules),
-        constraints: structuredClone(this.constraints),
-        sampleEvidence: structuredClone(this.sampleEvidence),
-        temporalPrecisionMetadata: structuredClone(this.temporalPrecisionMetadata),
-        semanticOverrides: {},
-        semanticMappings: {},
-      });
+      return await task;
+    } finally {
+      if (this.generationPromise === task) this.generationPromise = null;
+    }
+  }
+
+  /** @param {number} contextRevision @param {number} operation @param {object} context @param {object} schema */
+  async runGeneration(contextRevision, operation, context, schema) {
+    try {
+      if (!this.sampleEvidenceLoaded) {
+        await this.loadSampleEvidence(contextRevision, context, schema);
+      }
+      if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
+
+      const response = await this.preview(schema, this.generationOptions());
       if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
       if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
         throw new Error("Generation Core runtime returned an invalid preview response");
@@ -537,7 +526,7 @@ export class DbxGenerationWorkbenchController {
       } else {
         this.status = response.generated.status === "ready_with_warnings" || response.plan.status === "ready_with_warnings"
           ? "warning" : "ready";
-        this.currentDataset = createExportDataset(response.plan, response.generated, { table: this.context });
+        this.currentDataset = createExportDataset(response.plan, response.generated, { table: context });
       }
       this.stage = "ready";
       this.emit();
@@ -550,7 +539,7 @@ export class DbxGenerationWorkbenchController {
 
   /** @param {unknown} error @param {"metadata" | "generation"} stage */
   fail(error, stage) {
-    this.plan = null;
+    if (stage === "metadata") this.plan = null;
     this.currentDataset = null;
     this.schema = stage === "metadata" ? null : this.schema;
     this.stage = stage;
