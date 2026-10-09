@@ -1,4 +1,6 @@
 import { createGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-adapter.mjs";
+import { selectInitialContext } from "./context.mjs";
+import { renderWorkbenchContextVisibility } from "./visibility.mjs";
 import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
 import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
@@ -197,7 +199,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   root.addEventListener("change", onControlsChange);
   root.addEventListener("click", onClick);
   applyStaticMessages();
-  await controller.setContext(host.context ?? initialContext);
+  await controller.setContext(selectInitialContext(host, initialContext));
   render(controller.getViewModel());
 
   /**
@@ -366,10 +368,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   function render(viewModel) {
     const t = localeStore.getTranslator();
     const context = viewModel.context;
-    const missingTableContext = viewModel.status === "empty";
-    element("sswb-empty-state").hidden = !missingTableContext;
-    element("sswb-workbench-content").hidden = missingTableContext;
-    element("sswb-status").hidden = missingTableContext;
+    if (viewModel.status === "empty" && sqlDialog.isOpen) sqlDialog.close();
+    renderWorkbenchContextVisibility(root, viewModel.status);
     element("sswb-database").textContent = context?.database ?? "—";
     element("sswb-schema").textContent = context?.schema ?? "—";
     element("sswb-table").textContent = context?.table ?? "—";

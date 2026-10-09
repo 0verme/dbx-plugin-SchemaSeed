@@ -45,6 +45,7 @@ export class DbxGenerationWorkbenchController {
     this.controls = { ...DBX_WORKBENCH_DEFAULTS };
     this.context = null;
     this.contextKey = null;
+    this.invalidContext = false;
     this.contextRevision = 0;
     this.operationRevision = 0;
     this.listeners = new Set();
@@ -84,7 +85,8 @@ export class DbxGenerationWorkbenchController {
   /** @param {unknown} tableContext @param {{ force?: boolean }} [options] */
   async setContext(tableContext, options = {}) {
     const normalized = normalizeTableContext(tableContext);
-    const key = normalized.ok ? JSON.stringify(normalized.context) : `invalid:${normalized.reason}`;
+    const absentContext = isAbsentTableContext(tableContext);
+    const key = normalized.ok ? JSON.stringify(normalized.context) : absentContext ? "empty" : `invalid:${normalized.reason}`;
     if (!options.force && key === this.contextKey) return this.initialization ?? this.getViewModel();
 
     this.contextRevision += 1;
@@ -92,6 +94,7 @@ export class DbxGenerationWorkbenchController {
     const revision = this.contextRevision;
     this.contextKey = key;
     this.context = normalized.ok ? normalized.context : null;
+    this.invalidContext = !normalized.ok && !absentContext;
     this.schema = null;
     this.temporalPrecisionMetadata = {};
     this.sampleEvidence = [];
@@ -104,11 +107,10 @@ export class DbxGenerationWorkbenchController {
     this.error = null;
     this.actionError = null;
     this.stage = normalized.ok ? "metadata" : "context";
-    const missingContext = tableContext === null || tableContext === undefined;
-    this.status = normalized.ok ? "loading" : missingContext ? "empty" : "blocked";
+    this.status = normalized.ok ? "loading" : absentContext ? "empty" : "blocked";
 
     if (!normalized.ok) {
-      if (missingContext) {
+      if (absentContext) {
         this.emit();
         this.initialization = Promise.resolve(this.getViewModel());
         return this.initialization;
@@ -164,7 +166,10 @@ export class DbxGenerationWorkbenchController {
           break;
         }
         case "retry":
-          await this.setContext(this.context, { force: true });
+          // Invalid inputs are deliberately not retained; the Host's onContext
+          // notification is the authoritative path for a corrected context.
+          // Retrying without a new Host value must preserve the real diagnosis.
+          if (!this.invalidContext) await this.setContext(this.context, { force: true });
           break;
         default:
           throw new Error(`Unsupported Workbench action: ${String(action?.type)}`);
@@ -631,6 +636,13 @@ function sanitizeTemporalPrecisionMetadata(value, schema) {
     }]);
   }
   return Object.fromEntries(accepted);
+}
+
+function isAbsentTableContext(value) {
+  if (value === null || value === undefined) return true;
+  if (!isRecord(value) || Object.keys(value).length > 0) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function isRecord(value) {

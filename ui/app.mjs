@@ -1,5 +1,6 @@
 import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "./src/i18n/ui-locale.mjs";
 import { showFatalBootError } from "./src/bootstrap-error-state.mjs";
+import { selectInitialContext } from "./generation-workbench/context.mjs";
 
 let latestInit = null;
 
@@ -51,7 +52,7 @@ async function start() {
     const { mountGenerationWorkbench } = await import("./generation-workbench/app.mjs");
     elements.generationRoot.hidden = false;
     stage = "Generation workbench mount";
-    await mountGenerationWorkbench(elements.generationRoot, host, host.context ?? latestInit?.context);
+    await mountGenerationWorkbench(elements.generationRoot, host, selectInitialContext(host, latestInit?.context));
     elements.boot.hidden = true;
   } catch (error) {
     fail(stage, error);
