@@ -14,7 +14,7 @@ export function createGenerationWorkbenchController(host, translator) {
     sampleProbe: ({ context, schema }) => probeDbxDataSamples({
       capabilities: host.capabilities,
       queryData: typeof host.queryData === "function" ? (request) => host.queryData(request) : undefined,
-    }, context, schema),
+    }, context, schema, { includeStatus: true }),
     temporalMetadataResolver: ({ context, schema }) => resolveDbxTemporalMetadata({
       capabilities: host.capabilities,
       queryData: typeof host.queryData === "function" ? (request) => host.queryData(request) : undefined,

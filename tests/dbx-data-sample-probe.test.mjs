@@ -8,6 +8,7 @@ import { probeDbxDataSamples, buildSampleSelectQuery, DATA_SAMPLE_FIELD_MAX_LENG
 import { describeConstraintDomain } from "../src/generation/constraint-domain.mjs";
 import { generateRows } from "../src/generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
+import { executeGenerationPreview } from "../src/generation/generation-runtime.mjs";
 import { interpretColumnType } from "../src/schema/schema-interpreter.mjs";
 import { isSensitiveSampleColumn } from "../src/semantic/sample-evidence.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
@@ -603,6 +604,107 @@ test("permission denial, query errors, and timeout return metadata-only evidence
   assert.deepEqual(timedOut, { sampleUsed: false, evidence: [] });
 });
 
+test("field-level report separates an unqueried exact name from another sampled field", async () => {
+  const schema = schemaOf([
+    { name: "name", dataType: "varchar", nullable: false, length: 128 },
+    { name: "status", dataType: "varchar", nullable: false, length: 32 },
+  ]);
+  const requests = [];
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData(request) {
+      requests.push(request);
+      return {
+        columns: [{ name: "status" }],
+        rows: [["active"], ["active"], ["pending"], ["pending"]],
+      };
+    },
+  }, context, schema, { includeStatus: true });
+
+  assert.equal(requests.length, 1);
+  assert.doesNotMatch(requests[0].sql, /\bname\b/u, "the high-confidence exact alias is not read");
+  assert.equal(result.sampleStatus.state, "sampled");
+  assert.deepEqual(result.sampleStatus.fields.find((field) => field.column === "name"), {
+    column: "name", state: "skipped", reason: "high_confidence_semantic",
+  });
+  assert.deepEqual(result.sampleStatus.fields.find((field) => field.column === "status"), {
+    column: "status", state: "used", summaryKind: "enum_like", sampleCount: 4, distinctCount: 2,
+  });
+  assert.doesNotMatch(JSON.stringify(result.sampleStatus), /active|pending/u);
+});
+
+test("field-level report preserves safe name-pattern counts without auto-confirming Person", async () => {
+  const schema = schemaOf([{ name: "display_name", dataType: "varchar", nullable: false, length: 128 }]);
+  const rows = [["张三"], ["李四"], ["王小红"], ["赵六"]];
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData() { return { columns: [{ name: "display_name" }], rows }; },
+  }, context, schema, { includeStatus: true });
+
+  assert.equal(result.sampleStatus.state, "sampled");
+  assert.deepEqual(result.sampleStatus.fields[0], {
+    column: "display_name", state: "used", summaryKind: "chinese_name_pattern", sampleCount: 4, matchedCount: 4,
+  });
+  assert.deepEqual(result.evidence, [{ column: "display_name", kind: "chinese_name_pattern", sampleCount: 4, matchedCount: 4 }]);
+  assert.doesNotMatch(JSON.stringify(result), /张三|李四|王小红|赵六/u);
+  const plan = buildGenerationPlan(schema, { rowCount: 2, seed: "name-pattern-is-not-semantic", sampleEvidence: result.evidence });
+  assert.equal(plan.columns[0].rule.kind, "varchar");
+  assert.equal(plan.columns[0].semanticMapping.selected, false);
+  assert.equal(plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), true);
+});
+
+test("field-level report explains inconclusive and all-NULL samples without overstating evidence", async () => {
+  const schema = schemaOf([{ name: "display_name", dataType: "varchar", nullable: true, length: 128 }]);
+  const inconclusive = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData() { return { columns: [{ name: "display_name" }], rows: [["张三"], ["李四"], ["guest"]] }; },
+  }, context, schema, { includeStatus: true });
+  assert.equal(inconclusive.sampleUsed, true);
+  assert.equal(inconclusive.sampleStatus.state, "sampled");
+  assert.deepEqual(inconclusive.sampleStatus.fields[0], {
+    column: "display_name", state: "insufficient", summaryKind: "chinese_name_pattern", sampleCount: 3, matchedCount: 2,
+  });
+  assert.deepEqual(inconclusive.evidence, []);
+
+  const allNull = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData() { return { columns: [{ name: "display_name" }], rows: [[null], [null], [null]] }; },
+  }, context, schema, { includeStatus: true });
+  assert.equal(allNull.sampleUsed, false);
+  assert.equal(allNull.sampleStatus.state, "empty");
+  assert.deepEqual(allNull.sampleStatus.fields[0], {
+    column: "display_name", state: "no_data", summaryKind: "pattern", sampleCount: 0, matchedCount: 0,
+  });
+});
+
+test("detailed sampling status distinguishes capability, authorization denial, and query failure", async () => {
+  const schema = schemaOf([{ name: "display_name", dataType: "varchar", nullable: false, length: 128 }]);
+  let calls = 0;
+  const noCapability = await probeDbxDataSamples({
+    capabilities: { dataApi: false },
+    async queryData() { calls += 1; return { columns: [], rows: [] }; },
+  }, context, schema, { includeStatus: true });
+  assert.equal(noCapability.sampleStatus.state, "unavailable");
+  assert.equal(noCapability.sampleStatus.fields[0].state, "unavailable");
+  assert.equal(calls, 0, "no Host query is issued without the advertised capability");
+
+  const denied = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData() { throw new Error("PLUGIN_DATA_ACCESS_NOT_GRANTED: private sample detail"); },
+  }, context, schema, { includeStatus: true });
+  assert.equal(denied.sampleStatus.state, "permission_denied");
+  assert.equal(denied.sampleStatus.fields[0].state, "permission_denied");
+  assert.doesNotMatch(JSON.stringify(denied), /PLUGIN_DATA_ACCESS_NOT_GRANTED|private sample detail/u);
+
+  const failed = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData() { throw new Error("query failed with private details"); },
+  }, context, schema, { includeStatus: true });
+  assert.equal(failed.sampleStatus.state, "failed");
+  assert.equal(failed.sampleStatus.fields[0].state, "failed");
+  assert.doesNotMatch(JSON.stringify(failed), /private details/u);
+});
+
 test("query builder combines direct and truncated projections while keeping LIMIT 100", () => {
   const query = buildSampleSelectQuery(context, [
     { name: "bounded_field", kind: "enum", sampling: "direct" },
@@ -651,7 +753,7 @@ test("sample values longer than 1024 characters cannot enter evidence", async ()
   assert.doesNotMatch(JSON.stringify(evidence), /private-a|private-b/);
 });
 
-test("sample summaries raise display_name confidence but never copy source values into synthetic rows", () => {
+test("name-shaped samples do not confirm Person semantics or copy source values into synthetic rows", () => {
   const schema = schemaOf([
     { name: "display_name", dataType: "varchar", nullable: false, length: 128 },
     { name: "status", dataType: "varchar", nullable: false, length: 32 },
@@ -670,10 +772,11 @@ test("sample summaries raise display_name confidence but never copy source value
   const plan = buildGenerationPlan(schema, { rowCount: 20, seed: "synthetic-only", sampleEvidence });
   const generated = generateRows(plan);
   const displayName = plan.columns.find((column) => column.schema.name === "display_name");
-  assert.equal(displayName.inference.confidence, "high");
-  assert.equal(displayName.semanticMapping.selected, true);
-  assert.equal(displayName.rule.kind, "semantic:name");
-  assert.equal(plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required" && entry.column === "display_name"), false);
+  assert.equal(displayName.inference.confidence, "medium");
+  assert.equal(displayName.inference.evidence.some((entry) => entry.kind === "sample_name_pattern"), true);
+  assert.equal(displayName.semanticMapping.selected, false);
+  assert.equal(displayName.rule.kind, "varchar");
+  assert.equal(plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required" && entry.column === "display_name"), true);
   assert.ok(generated.rows.every((row) => !privateNames.includes(row.display_name)));
   assert.ok(generated.rows.every((row) => !privateStates.includes(row.status)));
   assert.ok(generated.rows.every((row) => !privateRoles.includes(row.role)));
@@ -712,6 +815,8 @@ test("controller reports metadata-only when there are no probe candidates", asyn
   const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
   assert.equal(calls, 0);
   assert.equal(view.sampleUsed, false);
+  assert.equal(view.sampleStatus.state, "not_attempted");
+  assert.deepEqual(view.sampleStatus.fields, [{ column: "id", state: "skipped", reason: "not_selected" }]);
 });
 
 test("controller applies safe category profiles and shows their effective strategy", async () => {
@@ -723,7 +828,7 @@ test("controller applies safe category profiles and shows their effective strate
     sampleProbe: ({ context: sampleContext, schema: sampleSchema }) => probeDbxDataSamples({
       capabilities: { dataApi: true },
       queryData: async () => ({ columns: [{ name: "category" }], rows: values.map((value) => [value]) }),
-    }, sampleContext, sampleSchema),
+    }, sampleContext, sampleSchema, { includeStatus: true }),
     async preview(tableSchema, options) {
       const plan = buildGenerationPlan(tableSchema, options);
       return { plan, generated: generateRows(plan) };
@@ -732,11 +837,67 @@ test("controller applies safe category profiles and shows their effective strate
   const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
 
   assert.equal(view.sampleUsed, true);
+  assert.equal(view.sampleStatus.state, "sampled");
+  assert.deepEqual(view.sampleStatus.fields[0], {
+    column: "category", state: "used", summaryKind: "enum_like", sampleCount: 8, distinctCount: 6,
+  });
   assert.equal(controller.sampleEvidence[0].kind, "enum_like");
   assert.equal(view.columns.find((column) => column.column === "category").rule.kind, "sample_enum");
   const category = view.columns.find((column) => column.column === "category");
   assert.equal(category.selectedMapping, "枚举采样");
   assert.equal(category.mappingStatusToken, "sampleStrategy");
+});
+
+test("controller carries field reports and replaces them per table while reusing only the same table cache", async () => {
+  const schemas = {
+    alpha: schemaOf([
+      { name: "display_name", dataType: "varchar", nullable: false, length: 128 },
+      { name: "status", dataType: "varchar", nullable: false, length: 32 },
+    ], "dbx:alpha"),
+    beta: schemaOf([{ name: "project_label", dataType: "varchar", nullable: true, length: 128 }], "dbx:beta"),
+  };
+  const sampleCalls = [];
+  const controller = new DbxGenerationWorkbenchController({
+    provider: { async getTableMetadata({ tableContext }) { return schemas[tableContext.table]; } },
+    async sampleProbe({ context: sampleContext, schema }) {
+      sampleCalls.push(sampleContext.table);
+      const rows = sampleContext.table === "alpha"
+        ? patternRows().map(([name, status]) => [name, status])
+        : [["first"], ["second"], ["third"], ["fourth"]];
+      const columns = sampleContext.table === "alpha"
+        ? [{ name: "display_name" }, { name: "status" }]
+        : [{ name: "project_label" }];
+      return probeDbxDataSamples({
+        capabilities: { dataApi: true },
+        async queryData() { return { columns, rows }; },
+      }, sampleContext, schema, { includeStatus: true });
+    },
+    async preview(tableSchema, options) {
+      return executeGenerationPreview(tableSchema, options);
+    },
+  });
+
+  let view = await controller.setContext({ connectionId: "connection-A", table: "alpha" });
+  assert.equal(view.sampleStatus.state, "sampled");
+  assert.deepEqual(view.sampleStatus.fields.map((field) => field.column), ["display_name", "status"]);
+  assert.equal(view.sampleStatus.fields[0].summaryKind, "chinese_name_pattern");
+  const displayName = view.columns.find((column) => column.column === "display_name");
+  assert.equal(displayName.confidenceKey, "medium");
+  assert.equal(displayName.rule.kind, "varchar");
+  assert.equal(displayName.mappingStatusToken, "needsConfirmation");
+  const confirmation = view.diagnostics.find((diagnostic) => diagnostic.code === "semantic_confirmation_required" && diagnostic.column === "display_name");
+  assert.match(confirmation.reason, /format alone cannot distinguish a person's name from a nickname/u);
+  assert.doesNotMatch(JSON.stringify(view), /张三|李四|王小红|赵六|钱七/u);
+
+  view = await controller.setContext({ connectionId: "connection-A", table: "beta" });
+  assert.equal(view.sampleStatus.state, "sampled");
+  assert.deepEqual(view.sampleStatus.fields.map((field) => field.column), ["project_label"]);
+  assert.equal(view.sampleStatus.fields[0].state, "insufficient");
+  assert.doesNotMatch(JSON.stringify(view.sampleStatus), /display_name|chinese_name_pattern/u);
+
+  view = await controller.setContext({ connectionId: "connection-A", table: "alpha" });
+  assert.equal(view.sampleStatus.fields[0].column, "display_name");
+  assert.deepEqual(sampleCalls, ["alpha", "beta"], "the report cache is scoped to the current table context");
 });
 
 test("temporal sample ranges and NULL rates drive one consistent Preview/CSV/JSON/INSERT snapshot", async () => {
@@ -842,7 +1003,7 @@ test("Workbench session probes a table once, caches summaries only, and never re
   let view = await controller.setContext({ ...context, table: "alpha" });
   assert.equal(sampleCalls.length, 1);
   assert.equal(view.sampleUsed, true);
-  assert.equal(view.columns.find((column) => column.column === "display_name").confidenceKey, "high");
+  assert.equal(view.columns.find((column) => column.column === "display_name").confidenceKey, "medium");
   assert.equal(Object.hasOwn(previewCalls[0].sampleEvidence[0], "values"), false);
   assert.doesNotMatch(JSON.stringify(previewCalls[0].sampleEvidence), /张三|李四|王小红/);
 

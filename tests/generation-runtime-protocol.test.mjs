@@ -76,8 +76,11 @@ test("runtime transports bounded sample profiles and rejects copied row values",
     options: { ...options, sampleEvidence: [{ column: "display_name", kind: "chinese_name_pattern", sampleCount: 5, matchedCount: 5 }] },
   }));
   assert.equal(withEvidence.error, undefined);
-  assert.equal(withEvidence.result.plan.columns[0].semanticMapping.confidence, "high");
-  assert.equal(withEvidence.result.plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
+  assert.equal(withEvidence.result.plan.columns[0].semanticMapping.confidence, "medium");
+  assert.equal(withEvidence.result.plan.columns[0].semanticMapping.selected, false);
+  assert.equal(withEvidence.result.plan.columns[0].rule.kind, "varchar");
+  assert.equal(withEvidence.result.plan.columns[0].inference.evidence.some((entry) => entry.kind === "sample_name_pattern"), true);
+  assert.equal(withEvidence.result.plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), true);
 
   const negativeEvidence = handleRuntimeRpcRequest(request({
     schema: { ...schema, columns: [{ name: "file_name", dataType: "varchar", nullable: false, length: 128 }] },

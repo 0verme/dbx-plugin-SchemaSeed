@@ -396,9 +396,11 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     element("sswb-rule-state").textContent = ruleEditorStateMessage(viewModel, t);
     element("sswb-constraint-state").textContent = constraintEditorStateMessage(viewModel, t);
     renderSectionSummaries(viewModel, t);
-    element("sswb-sample-hint").textContent = t(viewModel.sampleUsed === true
-      ? "columns.sampleHint.used" : "columns.sampleHint.metadataOnly");
-    renderColumns(viewModel.columns, viewModel.status, t);
+    const sampleState = viewModel.sampleStatus?.state
+      ?? (viewModel.sampleUsed === true ? "sampled" : "not_attempted");
+    const sampleHintKey = `columns.sampleHint.${sampleState}`;
+    element("sswb-sample-hint").textContent = t(t.has(sampleHintKey) ? sampleHintKey : "columns.sampleHint.unknown");
+    renderColumns(viewModel.columns, viewModel.sampleStatus, viewModel.status, t);
     renderConstraints(viewModel, t);
     renderDiagnostics(viewModel, t);
     renderPreview(viewModel, t);
@@ -445,7 +447,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     else node.dataset.severity = summary.severity;
   }
 
-  function renderColumns(columns, status, t) {
+  function renderColumns(columns, sampleStatus, status, t) {
     const body = element("sswb-columns");
     body.replaceChildren();
     if (columns.length === 0) {
@@ -504,6 +506,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
         details.append(summary, list);
         detailsCell.append(details);
       } else if (column.ruleDiagnostics.length === 0) detailsCell.append(document.createTextNode(t("columns.none")));
+      const fieldStatus = sampleStatus?.fields?.find((entry) => entry.column === column.column);
+      const needsSemanticConfirmation = column.ruleDiagnostics.some((entry) => entry.code === "semantic_confirmation_required");
+      if (fieldStatus && (fieldStatus.state !== "skipped" || needsSemanticConfirmation)) {
+        const sampleNote = document.createElement("small");
+        sampleNote.className = "sswb-sample-status";
+        sampleNote.textContent = sampleFieldStatusText(fieldStatus, t);
+        detailsCell.append(sampleNote);
+      }
       row.append(detailsCell);
       body.append(row);
     }
@@ -679,6 +689,29 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       item.append(details);
     }
     return item;
+  }
+
+  function sampleFieldStatusText(status, t) {
+    if (!status || typeof status.state !== "string") return t("columns.sampleFieldStatus.unknown");
+    const params = {
+      sampleCount: Number.isSafeInteger(status.sampleCount) ? status.sampleCount : 0,
+      matchedCount: Number.isSafeInteger(status.matchedCount) ? status.matchedCount : 0,
+    };
+    if (status.state === "skipped") {
+      return t(status.reason === "high_confidence_semantic"
+        ? "columns.sampleFieldStatus.skippedSemantic" : "columns.sampleFieldStatus.skipped");
+    }
+    if (status.state === "used" && status.summaryKind === "chinese_name_pattern") {
+      return t("columns.sampleFieldStatus.namePatternUsed", params);
+    }
+    if (status.state === "used" && status.summaryKind === "chinese_name_pattern_rejected") {
+      return t("columns.sampleFieldStatus.namePatternRejected", params);
+    }
+    if (status.state === "insufficient" && status.summaryKind === "chinese_name_pattern") {
+      return t("columns.sampleFieldStatus.namePatternInsufficient", params);
+    }
+    const key = `columns.sampleFieldStatus.${status.state}`;
+    return t(t.has(key) ? key : "columns.sampleFieldStatus.unknown", params);
   }
 
   function openSqlPreview(trigger) {

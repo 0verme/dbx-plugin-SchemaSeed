@@ -136,7 +136,7 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.sampled", "columns.sampleHint.not_attempted"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);

@@ -145,19 +145,22 @@ describe("diagnostics localization: human copy", () => {
 
   it("explains semantic_confirmation_required in zh-CN with the detected semantic and next step", () => {
     const described = describeDiagnostic(SEMANTIC_CONFIRMATION, zh);
-    assert.equal(described.headline, "需要确认：字段语义存在歧义");
+    assert.equal(described.headline, "需要确认：字段语义需要人工确认");
     assert.match(described.description, /file_name/);
     assert.match(described.description, /姓名/, "the semantic type comes from the Core rule identity");
-    assert.match(described.description, /仍使用普通文本生成策略/);
-    assert.match(described.action, /手动确认/);
+    assert.match(described.description, /业务用途/u);
+    assert.match(described.description, /依据猜测选择专用生成策略/u);
+    assert.match(described.action, /依据业务定义/);
     assert.doesNotMatch(described.description, /Person generation/);
   });
 
   it("explains semantic_confirmation_required in en-US", () => {
     const described = describeDiagnostic(SEMANTIC_CONFIRMATION, en);
-    assert.equal(described.headline, "Needs confirmation: This column semantic is ambiguous");
-    assert.match(described.description, /file_name looks like it holds Name/);
-    assert.match(described.action, /confirm the semantic manually/);
+    assert.equal(described.headline, "Needs confirmation: This column meaning needs confirmation");
+    assert.match(described.description, /name of file_name suggests Name/);
+    assert.match(described.description, /business meaning/);
+    assert.match(described.description, /based on a guess/);
+    assert.match(described.action, /based on the business definition/);
   });
 
   it("falls back safely for an unknown diagnostic code", () => {

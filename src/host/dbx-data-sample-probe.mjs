@@ -25,8 +25,6 @@ export const DATA_SAMPLE_MAX_COLUMNS = 16;
 export const DATA_SAMPLE_TIMEOUT_MS = 3_000;
 export const DATA_SAMPLE_FIELD_MAX_LENGTH = 1_024;
 const DATA_SAMPLE_UI_DEADLINE_MS = DATA_SAMPLE_TIMEOUT_MS + 500;
-const METADATA_ONLY_SAMPLE_RESULT = Object.freeze({ sampleUsed: false, evidence: Object.freeze([]) });
-
 const PORTABLE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 const RESERVED_TABLE_IDENTIFIERS = new Set([
   "all", "alter", "and", "as", "by", "case", "check", "column", "constraint", "create",
@@ -99,15 +97,23 @@ export function getSampleProbeCandidates(schema) {
  * @param {{ capabilities?: unknown, queryData?: (request: object) => Promise<unknown> }} host
  * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
  * @param {import("../schema/schema-model.mjs").TableSchema} schema
- * @param {{ timeoutMs?: number }} [options]
- * @returns {Promise<{ sampleUsed: boolean, evidence: Array<Record<string, unknown>> }>}
+ * @param {{ timeoutMs?: number, includeStatus?: boolean }} [options]
+ * @returns {Promise<{ sampleUsed: boolean, evidence: Array<Record<string, unknown>>, sampleStatus?: { state: string, fields: Array<Record<string, unknown>> } }>}
  */
 export async function probeDbxDataSamples(host, context, schema, options = {}) {
-  if (host?.capabilities?.dataApi !== true || typeof host?.queryData !== "function") return METADATA_ONLY_SAMPLE_RESULT;
+  const includeStatus = options.includeStatus === true;
   const candidates = getSampleProbeCandidates(schema);
-  if (candidates.length === 0) return METADATA_ONLY_SAMPLE_RESULT;
+  if (candidates.length === 0) {
+    return sampleResultWithStatus({ sampleUsed: false, evidence: [] }, schema, candidates, "not_attempted", new Map(), includeStatus);
+  }
+  if (host?.capabilities?.dataApi !== true || typeof host?.queryData !== "function") {
+    return sampleResultWithStatus({ sampleUsed: false, evidence: [] }, schema, candidates, "unavailable", new Map(), includeStatus);
+  }
   const query = buildSampleSelectQuery(context, candidates);
-  if (!query) return METADATA_ONLY_SAMPLE_RESULT;
+  if (!query) {
+    const skipped = new Map(candidates.map((candidate) => [candidate.name, { state: "skipped", reason: "unsafe_context" }]));
+    return sampleResultWithStatus({ sampleUsed: false, evidence: [] }, schema, candidates, "not_attempted", skipped, includeStatus);
+  }
 
   const requestedTimeout = Number.isSafeInteger(options.timeoutMs) && options.timeoutMs > 0
     ? Math.min(options.timeoutMs, DATA_SAMPLE_TIMEOUT_MS)
@@ -126,11 +132,60 @@ export async function probeDbxDataSamples(host, context, schema, options = {}) {
       Promise.resolve().then(() => host.queryData(request)),
       Math.min(DATA_SAMPLE_UI_DEADLINE_MS, requestedTimeout + 500),
     );
-    return summarizeSampleResult(result, query.columns, candidates);
-  } catch {
-    // Do not expose query errors: DBX owns consent and the Workbench remains usable.
-    return METADATA_ONLY_SAMPLE_RESULT;
+    const summary = summarizeSampleResult(result, query.columns, candidates);
+    if (!summary) {
+      const failed = new Map(candidates.map((candidate) => [candidate.name, { state: "failed" }]));
+      return sampleResultWithStatus({ sampleUsed: false, evidence: [] }, schema, candidates, "failed", failed, includeStatus);
+    }
+    const outcomes = [...summary.fieldStatuses.values()];
+    const state = summary.sampleUsed ? "sampled"
+      : outcomes.some((field) => field.state === "failed") ? "failed"
+        : outcomes.some((field) => field.state === "insufficient") ? "insufficient" : "empty";
+    return sampleResultWithStatus(summary, schema, candidates, state, summary.fieldStatuses, includeStatus);
+  } catch (error) {
+    // Classify only DBX's documented authorization sentinel; never expose the Host error text.
+    const state = isDataAccessDenied(error) ? "permission_denied" : "failed";
+    const failed = new Map(candidates.map((candidate) => [candidate.name, { state }]));
+    return sampleResultWithStatus({ sampleUsed: false, evidence: [] }, schema, candidates, state, failed, includeStatus);
   }
+}
+
+/** @param {{ sampleUsed?: boolean, evidence?: Array<Record<string, unknown>> }} result @param {import("../schema/schema-model.mjs").TableSchema} schema @param {Array<{ name: string }>} candidates @param {string} state @param {Map<string, Record<string, unknown>>} outcomes @param {boolean} includeStatus */
+function sampleResultWithStatus(result, schema, candidates, state, outcomes, includeStatus) {
+  const normalized = {
+    sampleUsed: result.sampleUsed === true,
+    evidence: Array.isArray(result.evidence) ? result.evidence : [],
+  };
+  if (includeStatus) {
+    const candidateNames = new Set(candidates.map((candidate) => candidate.name));
+    const fields = (Array.isArray(schema?.columns) ? schema.columns : []).map((column) => {
+      const outcome = outcomes.get(column.name);
+      if (outcome) return { column: column.name, ...outcome };
+      if (!candidateNames.has(column.name)) {
+        return { column: column.name, state: "skipped", reason: sampleSkipReason(column) };
+      }
+      if (["unavailable", "permission_denied", "failed"].includes(state)) {
+        return { column: column.name, state };
+      }
+      return { column: column.name, state: "no_data" };
+    });
+    normalized.sampleStatus = { state, fields };
+  }
+  return normalized;
+}
+
+/** @param {import("../schema/schema-model.mjs").ColumnSchema} column */
+function sampleSkipReason(column) {
+  const inference = inferSemanticType(column);
+  return inference.status === "candidate" && inference.confidence === "high"
+    && ["name", "email", "mobile"].includes(inference.semanticType)
+    ? "high_confidence_semantic" : "not_selected";
+}
+
+/** @param {unknown} error */
+function isDataAccessDenied(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("PLUGIN_DATA_ACCESS_NOT_GRANTED");
 }
 
 /**
@@ -159,7 +214,7 @@ export function buildSampleSelectQuery(context, candidates) {
 
 /** @param {unknown} result @param {string[]} selectedColumns @param {Array<{ name: string, kind: "name" | "email" | "mobile" | "text" | "filename" | "numeric" | "temporal", numericKind?: "integer" | "decimal", temporalKind?: "date" | "timestamp", timezoneAware?: boolean, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }>} candidates */
 function summarizeSampleResult(result, selectedColumns, candidates) {
-  if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return METADATA_ONLY_SAMPLE_RESULT;
+  if (!isRecord(result) || !Array.isArray(result.columns) || !Array.isArray(result.rows)) return null;
   const rows = result.rows.slice(0, DATA_SAMPLE_ROW_LIMIT).filter(Array.isArray);
   const columnIndexes = new Map();
   for (const [index, column] of result.columns.slice(0, selectedColumns.length).entries()) {
@@ -167,11 +222,15 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
   }
 
   const evidence = [];
+  const fieldStatuses = new Map();
   let sampleUsed = false;
   for (const candidate of candidates) {
     if (!selectedColumns.includes(candidate.name)) continue;
     const index = columnIndexes.get(candidate.name);
-    if (!Number.isSafeInteger(index)) continue;
+    if (!Number.isSafeInteger(index)) {
+      fieldStatuses.set(candidate.name, { state: "failed" });
+      continue;
+    }
     const rawValues = rows.map((row) => row[index]);
     if (candidate.kind === "temporal") {
       const profile = candidate.privacy === "restricted"
@@ -180,15 +239,27 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
       if (profile) {
         sampleUsed = true;
         evidence.push(profile);
+        fieldStatuses.set(candidate.name, { state: "used", summaryKind: profile.kind, sampleCount: profile.sampleCount });
+      } else {
+        fieldStatuses.set(candidate.name, {
+          state: rawValues.some((value) => value !== null && value !== undefined) ? "insufficient" : "no_data",
+          sampleCount: rawValues.filter((value) => value !== undefined).length,
+        });
       }
       continue;
     }
     if (candidate.kind === "numeric") {
       const present = rawValues.filter((value) => value !== null && value !== undefined && value !== "");
       const values = present.map((value) => parseNumericValue(value, candidate.numericKind));
-      if (values.some((value) => value === null)) continue;
+      if (values.some((value) => value === null)) {
+        fieldStatuses.set(candidate.name, { state: present.length > 0 ? "insufficient" : "no_data", sampleCount: present.length });
+        continue;
+      }
       if (values.length > 0) sampleUsed = true;
-      if (values.length < NUMERIC_PATTERN_MIN_SAMPLES || looksLikeOrderedUniqueNumeric(values)) continue;
+      if (values.length < NUMERIC_PATTERN_MIN_SAMPLES || looksLikeOrderedUniqueNumeric(values)) {
+        fieldStatuses.set(candidate.name, { state: values.length > 0 ? "insufficient" : "no_data", sampleCount: values.length });
+        continue;
+      }
       const ordered = [...values].sort(compareNumericValues);
       evidence.push({
         column: candidate.name,
@@ -198,6 +269,7 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
         max: ordered.at(-1),
         zeroCount: values.filter((value) => compareNumericValues(value, 0) === 0).length,
       });
+      fieldStatuses.set(candidate.name, { state: "used", summaryKind: "numeric_range", sampleCount: values.length });
       continue;
     }
 
@@ -212,19 +284,41 @@ function summarizeSampleResult(result, selectedColumns, candidates) {
         const patternKind = candidate.kind === "name" ? "chinese_name_pattern" : `${candidate.kind}_pattern`;
         const kind = matchedRatio >= NAME_PATTERN_MIN_RATIO ? patternKind
           : matchedRatio <= PATTERN_NEGATIVE_MAX_RATIO ? `${patternKind}_rejected` : null;
-        if (kind) evidence.push({ column: candidate.name, kind, sampleCount: values.length, matchedCount });
+        if (kind) {
+          evidence.push({ column: candidate.name, kind, sampleCount: values.length, matchedCount });
+          fieldStatuses.set(candidate.name, { state: "used", summaryKind: kind, sampleCount: values.length, matchedCount });
+        } else {
+          fieldStatuses.set(candidate.name, { state: "insufficient", summaryKind: patternKind, sampleCount: values.length, matchedCount });
+        }
+      } else {
+        fieldStatuses.set(candidate.name, { state: values.length > 0 ? "insufficient" : "no_data", summaryKind: "pattern", sampleCount: values.length, matchedCount });
       }
       continue;
     }
     if (candidate.kind === "filename") {
       const profile = summarizeFilenameProfile(candidate.name, values);
-      if (profile) evidence.push(profile);
+      if (profile) {
+        evidence.push(profile);
+        fieldStatuses.set(candidate.name, { state: "used", summaryKind: profile.kind, sampleCount: profile.sampleCount, matchedCount: profile.matchedCount });
+      } else {
+        fieldStatuses.set(candidate.name, { state: values.length > 0 ? "insufficient" : "no_data", summaryKind: "filename_pattern", sampleCount: values.length });
+      }
       continue;
     }
     const profile = summarizeCategoricalProfile(candidate.name, values);
-    if (profile) evidence.push(profile);
+    if (profile) {
+      evidence.push(profile);
+      fieldStatuses.set(candidate.name, { state: "used", summaryKind: profile.kind, sampleCount: profile.sampleCount, distinctCount: profile.distinctCount });
+    } else {
+      fieldStatuses.set(candidate.name, {
+        state: values.length > 0 ? "insufficient" : "no_data",
+        summaryKind: "enum_like",
+        sampleCount: values.length,
+        distinctCount: new Set(values.map((value) => value.toLocaleLowerCase("en-US"))).size,
+      });
+    }
   }
-  return { sampleUsed, evidence };
+  return { sampleUsed, evidence, fieldStatuses };
 }
 
 function summarizeTemporalShapeProfile(candidate, rawValues) {

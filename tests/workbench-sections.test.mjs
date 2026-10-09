@@ -262,14 +262,19 @@ describe("Workbench markup disclosure contract", () => {
     const source = await readFile(UI_SOURCE, "utf8");
     const markup = markupOf(source);
     assert.match(markup, /<span id="sswb-sample-hint" class="sswb-section-hint"><\/span>/);
-    assert.match(source, /viewModel\.sampleUsed === true[\s\S]*"columns\.sampleHint\.used"[\s\S]*"columns\.sampleHint\.metadataOnly"/);
+    assert.match(source, /viewModel\.sampleStatus\?\.state[\s\S]*columns\.sampleHint\./);
+    assert.match(source, /fieldStatus\.state !== "skipped" \|\| needsSemanticConfirmation/);
+    assert.match(source, /summaryKind === "chinese_name_pattern"[\s\S]*namePatternInsufficient/);
+    assert.match(source, /semantic_confirmation_required[\s\S]*sampleFieldStatusText/);
 
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    assert.equal(zh("columns.sampleHint.used"), "已结合表结构与少量数据样本优化字段识别");
-    assert.equal(zh("columns.sampleHint.metadataOnly"), "根据表结构识别字段类型与语义");
-    assert.equal(en("columns.sampleHint.used"), "Field recognition was refined using schema metadata and a small data sample.");
-    assert.equal(en("columns.sampleHint.metadataOnly"), "Field recognition is based on schema metadata.");
+    assert.match(zh("columns.sampleHint.sampled"), /部分字段已分析/u);
+    assert.match(zh("columns.sampleHint.permission_denied"), /未授权/u);
+    assert.match(en("columns.sampleHint.sampled"), /some fields/u);
+    assert.match(en("columns.sampleHint.permission_denied"), /did not authorize/u);
+    assert.match(zh("columns.sampleFieldStatus.namePatternUsed", { matchedCount: 4, sampleCount: 4 }), /格式无法区分实名、昵称/u);
+    assert.match(en("columns.sampleFieldStatus.namePatternUsed", { matchedCount: 4, sampleCount: 4 }), /cannot distinguish a real name, nickname/u);
 
     const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
     assert.match(stylesheet, /\.sswb-section-hint/);
