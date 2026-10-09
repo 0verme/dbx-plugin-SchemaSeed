@@ -251,16 +251,14 @@ describe("INSERT SQL export reuses the current preview snapshot", () => {
       assert.ok(sql.content.includes(sqlLiteral(row.customer_id)), `SQL contains preview customer_id ${row.customer_id}`);
     }
 
-    const regenerated = await controller.dispatch({ type: "regenerate-same-seed" });
+    const regenerated = await controller.dispatch({ type: "generate" });
     assert.equal(controller.prepareExport("sql").content, sql.content, "same seed keeps the same SQL");
     assert.deepEqual(regenerated.preview.rows, view.preview.rows);
 
-    const stale = await controller.dispatch({ type: "new-seed" });
-    assert.deepEqual(stale.preview.rows, []);
-    assert.equal(stale.export.enabled, false);
-    assert.throws(() => controller.prepareExport("sql"), (error) => error.code === "export_no_dataset");
-    await controller.dispatch({ type: "generate" });
-    assert.notEqual(controller.prepareExport("sql").content, sql.content, "a new seed changes the SQL like CSV / JSON after explicit generation");
+    const changedSeed = await controller.dispatch({ type: "generate-new-data" });
+    assert.notEqual(changedSeed.controls.seed, view.controls.seed);
+    assert.equal(changedSeed.export.enabled, true);
+    assert.notEqual(controller.prepareExport("sql").content, sql.content, "a new seed changes the SQL like CSV / JSON in the same action");
   });
 
   it("keeps SQL export available for a warning preview and blocked for a blocked plan", async () => {

@@ -104,17 +104,15 @@ test("DBX Workbench keeps the 50-row default and all 1000 rows in preview and ex
   assert.equal((sql.content.match(/INSERT INTO/g) ?? []).length, 1_000);
   assert.match(sql.content, /-- Rows: 1000/u);
 
-  const sameSeed = await controller.dispatch({ type: "regenerate-same-seed" });
+  const sameSeed = await controller.dispatch({ type: "generate" });
   assert.deepEqual(sameSeed.preview.rows, view.preview.rows);
   nextSeed = "new-capacity-seed";
-  const changedSeed = await controller.dispatch({ type: "new-seed" });
+  const changedSeed = await controller.dispatch({ type: "generate-new-data" });
   assert.equal(changedSeed.controls.seed, "new-capacity-seed");
-  assert.deepEqual(changedSeed.preview.rows, []);
-  assert.equal(changedSeed.export.enabled, false);
-  view = await controller.dispatch({ type: "generate" });
-  assert.notDeepEqual(view.preview.rows, sameSeed.preview.rows);
-  assert.equal(view.preview.rows.length, 1_000);
-  assert.deepEqual(JSON.parse(controller.prepareExport("json").content), view.preview.rows);
+  assert.notDeepEqual(changedSeed.preview.rows, sameSeed.preview.rows);
+  assert.equal(changedSeed.preview.rows.length, 1_000);
+  assert.equal(changedSeed.export.enabled, true);
+  assert.deepEqual(JSON.parse(controller.prepareExport("json").content), changedSeed.preview.rows);
 });
 
 test("invalid Workbench input keeps the previous row count and reports explicit validation", async () => {

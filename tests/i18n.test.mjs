@@ -138,11 +138,14 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.empty.title", "preview.empty.helper", "preview.readonly", "status.idle", "status.loading.plan", "state.idle", "state.loading.plan", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "state.blocked.plan.canGenerate", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.sampled", "columns.sampleHint.not_attempted"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.generateNewData", "actions.previewSql", "diagnostics.title", "preview.title", "preview.empty.title", "preview.empty.helper", "preview.readonly", "status.idle", "status.loading.plan", "state.idle", "state.loading.plan", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "state.blocked.plan.canGenerate", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.sampled", "columns.sampleHint.not_attempted"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);
     }
+    assert.equal(zh("actions.generateNewData"), "换一批数据");
+    assert.equal(en("actions.generate"), "Generate Preview");
+    assert.equal(en("actions.generateNewData"), "Generate New Data");
   });
 
   it("localizes the DBX data-access privacy disclosure without claiming sensitive values are never read", async () => {
@@ -151,7 +154,7 @@ describe("i18n locale strategy", () => {
     assert.equal(zh("dataAccess.title"), "数据访问");
     assert.match(zh("dataAccess.description"), /DBX Host 授权/u);
     assert.match(zh("dataAccess.description"), /最多读取 100 行/u);
-    assert.match(zh("dataAccess.description"), /仅在点击“生成预览”后/u);
+    assert.match(zh("dataAccess.description"), /仅在点击“生成预览”或“换一批数据”后/u);
     assert.match(zh("dataAccess.description"), /字段规则推断/u);
     assert.match(zh("dataAccess.detailsDescription"), /候选字段/u);
     assert.match(zh("dataAccess.detailsDescription"), /每次最多 16 列/u);
@@ -161,7 +164,7 @@ describe("i18n locale strategy", () => {
     assert.doesNotMatch(zh("dataAccess.description"), /不会读取|不查看/u);
     assert.match(zh("diagnostic.safe_synthetic_mode.description"), /授权的只读采样/u);
     assert.doesNotMatch(zh("diagnostic.safe_synthetic_mode.description"), /不会读取任何真实数据行/u);
-    assert.match(en("dataAccess.description"), /only after you click Generate/u);
+    assert.match(en("dataAccess.description"), /only after you click Generate Preview or Generate New Data/u);
     assert.match(en("dataAccess.description"), /DBX Host authorization/u);
     assert.match(en("dataAccess.description"), /at most 100 rows/u);
     assert.match(en("dataAccess.detailsDescription"), /screened candidate fields/u);
