@@ -81,10 +81,17 @@ export function diagnosticsEmptyMessage(viewModel, t) {
 
 /** @param {Record<string, any>} viewModel @param {import("./index.mjs").Translator} t */
 export function previewSummary(viewModel, t) {
-  if (viewModel.plan && viewModel.preview?.rows?.length > 0) {
+  if (viewModel.lastSuccessfulParametersCurrent && viewModel.lastSuccessfulParameters && viewModel.preview?.rows?.length > 0) {
     return t("preview.summary", {
       rows: viewModel.preview.rows.length,
-      seed: viewModel.plan.seed,
+      seed: viewModel.lastSuccessfulParameters.seed,
+    });
+  }
+  if (viewModel.lastSuccessfulParameters && !viewModel.lastSuccessfulParametersCurrent) {
+    return t("preview.summary.stale", {
+      rows: viewModel.lastSuccessfulParameters.rowCount,
+      seed: viewModel.lastSuccessfulParameters.seed,
+      locale: viewModel.lastSuccessfulParameters.locale,
     });
   }
   return viewModel.context ? "" : t("preview.caption.waitingContext");

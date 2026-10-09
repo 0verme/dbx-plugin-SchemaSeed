@@ -27,11 +27,6 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "empty.path": "数据库连接 → 数据表 → 右键 →",
   "empty.menuAction": "生成测试数据",
   "empty.helper": "SchemaSeed 会自动读取所选表的结构，无需手动填写数据库或表名。",
-  "dataAccess.title": "数据访问",
-  "dataAccess.description": "仅在点击“生成预览”或“换一批数据”后请求真实数据采样；需经 DBX Host 授权，最多读取 100 行，仅用于字段规则推断。",
-  "dataAccess.detailsSummary": "了解详情",
-  "dataAccess.detailsDescription": "DBX Host 按插件和连接管理授权。只读采样仅针对通过隐私筛选的候选字段（每次最多 16 列）；当表结构信息不足时，还可能读取目标 MySQL 表的时间精度元数据。原始样本只在本次内存处理中使用，不会持久化，也不会出现在预览、日志或错误信息中；系统仅保留安全的字段特征、分布或码值用于推断。拒绝授权、能力不可用或查询失败时不会采样。",
-
   // Dataset controls.
   "controls.rows": "生成行数（1–1000）",
   "controls.seed": "随机种子",
@@ -42,13 +37,17 @@ export const ZH_CN_MESSAGES = Object.freeze({
   // Primary actions.
   "actions.generate": "生成预览",
   "actions.generateNewData": "换一批数据",
+  "actions.regeneratePreview": "重新生成预览",
+  "actions.generatingPreview": "正在生成预览…",
+  "actions.retryGeneration": "重试生成",
+  "actions.retry": "重试",
   "actions.previewSql": "预览 INSERT SQL",
 
   // Column / strategy table.
   "columns.title": "字段与生成策略",
   "columns.summary": "{count} 个字段",
   "columns.summaryPending": "{count} 个字段 · {pending} 个待确认",
-  "columns.sampleHint.pending": "点击“生成预览”或“换一批数据”后才会显示采样状态；打开表时不会读取真实样本。",
+  "columns.sampleHint.pending": "主动生成预览时才会请求真实样本，且需经 DBX Host 授权，最多读取 100 行；打开表时不会读取。",
   "columns.sampleHint.not_attempted": "未进行真实数据采样；当前识别依据表结构与字段名。",
   "columns.sampleHint.unavailable": "DBX 当前未提供数据读取能力；未查询真实数据。",
   "columns.sampleHint.permission_denied": "DBX 未授权本次数据读取；未使用真实样本。",
@@ -308,8 +307,9 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "preview.caption.waitingContext": "等待有效的 DBX 表上下文",
   "preview.caption.waitingPlan": "等待生成设置准备就绪",
   "preview.summary": "{rows} 行 · 种子 {seed}",
+  "preview.summary.stale": "上次预览参数：{rows} 行 · 种子 {seed} · 数据语言 {locale}（当前设置已变更）",
   "preview.empty.title": "尚未生成预览数据",
-  "preview.empty.helper": "调整生成配置后，点击「生成预览」查看测试数据。",
+  "preview.empty.helper": "调整生成配置后，点击上方主按钮生成预览。",
   "preview.pagination.ariaLabel": "预览分页",
   "preview.pagination.previous": "上一页",
   "preview.pagination.next": "下一页",
@@ -347,8 +347,8 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "state.loading.plan": "正在根据表结构准备生成配置…",
   "state.loading.generation": "正在生成测试数据预览…",
   "state.blocked.metadataCapability": "当前 DBX runtime 未提供 Schema Metadata 能力，因此无法为这张表生成数据。",
-  "state.blocked.plan": "当前方案存在阻塞问题，预览和导出不可用。点击“生成预览”或“换一批数据”可重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据。请先处理下方诊断项。",
-  "state.blocked.plan.canGenerate": "当前方案存在阻塞问题。点击“生成预览”或“换一批数据”可重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据或开放导出。请先处理下方诊断项。",
+  "state.blocked.plan": "当前方案存在阻塞问题，预览和导出不可用。可使用上方主按钮重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据。请先处理下方诊断项。",
+  "state.blocked.plan.canGenerate": "当前方案存在阻塞问题。可使用上方主按钮重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据或开放导出。请先处理下方诊断项。",
   "state.blocked.context": "表上下文无效或表结构不可用；请从 DBX 侧边栏的表右键菜单重新打开本工作台。",
   "state.error": "Host API 或 Generation Runtime 请求失败。",
   "state.warning": "预览已生成，但 Core 诊断中包含警告或不支持的事实。",
@@ -379,9 +379,6 @@ export const ZH_CN_MESSAGES = Object.freeze({
   // Errors surfaced by Workbench actions.
   "error.actionFailed": "操作未生效：{message}",
   "error.invalidRowCount": "生成行数必须是 1 到 1000 之间的整数。",
-
-  // Safety notice.
-  "safety.notice": "预览仅展示合成测试数据，不直接展示或复用真实个人信息。",
 
   // Locale switcher option labels (each language names itself).
   "uiLocale.zh-CN": "简体中文",
