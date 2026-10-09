@@ -227,15 +227,20 @@ describe("production Workbench export save adapter", () => {
 });
 
 describe("production Workbench save path regression", () => {
-  it("previews only the current prepared SQL export in a collapsed read-only disclosure", async () => {
+  it("previews the current SQL in one accessible Modal and exports the same prepared descriptor", async () => {
     const source = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
     assert.match(source, /id="sswb-preview-sql"[^>]*data-sswb-preview-sql[^>]*disabled/u);
-    assert.match(source, /<details id="sswb-sql-details"[^>]*hidden>/u, "SQL disclosure starts hidden and collapsed");
-    assert.match(source, /<textarea id="sswb-sql-content" readonly/u, "SQL is presented in a read-only control");
+    assert.match(source, /<div id="sswb-sql-modal" class="sswb-modal" hidden>/u, "the Modal starts hidden");
+    assert.match(source, /role="dialog" aria-modal="true"/u, "the SQL preview is an accessible modal dialog");
+    assert.match(source, /<pre id="sswb-sql-code-scroll"[^>]*tabindex="0"/u, "SQL is shown in a focusable read-only code region");
     assert.match(source, /controller\.prepareExport\("sql"\)/u, "preview uses the existing SQL export path");
-    assert.match(source, /sqlPreviewContent = descriptor\.content/u, "the descriptor content is displayed without reserialization");
+    assert.match(source, /else sqlPreviewDescriptor = descriptor/u, "the descriptor content is presented without reserialization");
+    assert.match(source, /copyTextToClipboard\(sqlPreviewDescriptor\.content\)/u, "copy uses the complete current preview text");
+    assert.match(source, /saveExport\("sql", sqlPreviewDescriptor\)/u, "Modal export reuses the exact prepared descriptor");
+    assert.match(source, /if \(!sqlDialog\.open\(trigger\)\) return/u, "repeated clicks do not create or reopen duplicate dialogs");
     assert.match(source, /button\.disabled = !viewModel\.export\.enabled/u, "preview is disabled without a current exportable dataset");
-    assert.match(source, /if \(!viewModel\.export\.enabled\) \{[\s\S]*?sqlPreviewContent = null;[\s\S]*?details\.open = false;[\s\S]*?content\.value = "";/u, "invalidating the dataset clears and collapses old SQL");
+    assert.match(source, /if \(!viewModel\.export\.enabled\) \{[\s\S]*?sqlPreviewDescriptor = null;[\s\S]*?if \(sqlDialog\.isOpen\) sqlDialog\.close\(\);/u, "invalidating the dataset closes and clears the stale preview");
+    assert.doesNotMatch(source, /sswb-sql-details|sswb-sql-content|sswb-sql-preview-error/u, "the bottom disclosure and textarea are removed");
     assert.doesNotMatch(source, /exportInsertSql|sql-exporter\.mjs/u, "the browser UI does not add a second SQL serializer");
   });
 

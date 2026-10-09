@@ -216,11 +216,13 @@ describe("Workbench markup disclosure contract", () => {
     }
   });
 
-  it("renders advanced sections and the SQL preview as collapsed details while keeping data Preview visible", async () => {
+  it("keeps advanced sections as disclosures and renders SQL preview in a separate Modal", async () => {
     const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
-    assert.equal((markup.match(/<details\b/g) ?? []).length, 4, "three advanced sections and the optional SQL preview are disclosures");
-    assert.match(markup, /<details id="sswb-sql-details"[^>]*hidden>/, "SQL preview starts hidden");
-    assert.doesNotMatch(markup, /<details id="sswb-sql-details"[^>]*\bopen\b/, "SQL preview starts collapsed");
+    assert.equal((markup.match(/<details\b/g) ?? []).length, 3, "only columns, constraints and diagnostics remain disclosures");
+    assert.match(markup, /<div id="sswb-sql-modal" class="sswb-modal" hidden>/, "the SQL Modal starts hidden");
+    assert.match(markup, /role="dialog" aria-modal="true" aria-labelledby="sswb-sql-modal-title"/, "the Modal is announced as a modal dialog");
+    assert.match(markup, /<pre id="sswb-sql-code-scroll"[^>]*tabindex="0"[^>]*><code id="sswb-sql-code"><\/code><\/pre>/, "SQL is rendered in a focusable, read-only code region");
+    assert.doesNotMatch(markup, /sswb-sql-details|sswb-sql-content|sswb-sql-preview-error/, "the former bottom disclosure and textarea are removed");
     for (const [section, detailsId, titleId] of [
       ["columns", "sswb-columns-details", "sswb-columns-title"],
       ["constraints", "sswb-constraints-details", "sswb-constraints-title"],
