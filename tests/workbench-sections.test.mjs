@@ -290,7 +290,7 @@ describe("Workbench markup disclosure contract", () => {
     assert.match(markup, /<div id="sswb-preview-empty" class="sswb-preview-empty" hidden>[\s\S]*data-i18n="preview\.empty\.title"[\s\S]*data-i18n="preview\.empty\.helper"[\s\S]*<\/div>/u);
     assert.match(source, /const showEmptyState = Boolean\(viewModel\.context && hasPreparedPlan\s+&& \["idle", "dirty", "error"\]\.includes\(viewModel\.status\)\)/u);
     assert.match(source, /control\.disabled = viewModel\.status === "loading" \|\| !viewModel\.canGenerate/u);
-    assert.match(source, /control\.disabled = viewModel\.status === "loading" \|\| !viewModel\.context/u);
+    assert.doesNotMatch(source, /data-sswb-action="new-seed"/u);
     assert.equal(createI18n("zh-CN")("preview.empty.title"), "尚未生成预览数据");
     assert.equal(createI18n("en-US")("preview.empty.title"), "Preview not generated yet");
     assert.match(createI18n("zh-CN")("preview.empty.helper"), /点击「生成预览」查看测试数据/u);
@@ -305,10 +305,13 @@ describe("Workbench markup disclosure contract", () => {
     for (const id of ["sswb-database", "sswb-schema", "sswb-table", "sswb-rows", "sswb-seed", "sswb-locale"]) {
       assert.match(contextPanel, new RegExp(`id="${id}"`), `${id} remains available in the context/control panel`);
     }
-    for (const action of ["generate", "regenerate-same-seed", "new-seed"]) {
+    for (const action of ["generate", "generate-new-data"]) {
       assert.match(contextPanel, new RegExp(`data-sswb-action="${action}"`), `${action} remains available`);
     }
     assert.match(contextPanel, /class="sswb-button sswb-primary"[^>]*data-sswb-action="generate"/u, "Generate remains the primary action");
+    assert.match(contextPanel, /id="sswb-seed"[^>]*type="text"/u, "the editable random Seed remains available");
+    assert.equal((contextPanel.match(/<button[^>]*data-sswb-action=/gu) ?? []).length, 2, "the preview action area contains exactly two buttons");
+    assert.doesNotMatch(contextPanel, /regenerate-same-seed|new-seed|actions\.regenerateSameSeed|actions\.newSeed/u);
     assert.match(contextPanel, /class="sswb-data-access" role="note"/u, "the data access and safety explanation stays visible");
 
     const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");

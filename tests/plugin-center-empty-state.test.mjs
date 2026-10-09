@@ -73,7 +73,7 @@ describe("plugin-center missing table context", () => {
     for (const action of [
       { type: "generate" },
       { type: "update-controls", controls: { rowCount: 5, seed: "demo", locale: "zh-CN" } },
-      { type: "new-seed" },
+      { type: "generate-new-data" },
       { type: "retry" },
     ]) {
       view = await controller.dispatch(action);
