@@ -29,6 +29,11 @@ export const EN_US_MESSAGES = Object.freeze({
   "context.database": "Database",
   "context.schema": "Schema",
   "context.table": "Table",
+  "empty.title": "Select a table to get started",
+  "empty.description": "No database table context is available. Find the target table in the DBX sidebar database tree and open its context menu.",
+  "empty.path": "Database connection → table → right-click →",
+  "empty.menuAction": "Generate test data",
+  "empty.helper": "SchemaSeed reads the selected table structure automatically; you do not need to enter a database or table name.",
   "dataAccess.title": "Data access",
   "dataAccess.description": "Only after DBX Host obtains your consent for this plugin and connection may SchemaSeed sample up to 8 rows from candidate columns through the read-only Host Data API. Sensitive raw values are processed briefly in memory only to derive safe features, then discarded; they are never displayed or persisted.",
 

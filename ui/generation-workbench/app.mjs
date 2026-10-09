@@ -27,6 +27,16 @@ const WORKBENCH_MARKUP = `
       <span id="sswb-status" class="sswb-status" role="status" aria-live="polite"></span>
     </header>
     <main class="sswb-main">
+      <section id="sswb-empty-state" class="sswb-empty-state" aria-labelledby="sswb-empty-title" hidden>
+        <div class="sswb-empty-card">
+          <svg class="sswb-empty-icon" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><ellipse cx="24" cy="10" rx="15" ry="6"></ellipse><path d="M9 10v28c0 3.3 6.7 6 15 6s15-2.7 15-6V10"></path><path d="M9 19c0 3.3 6.7 6 15 6s15-2.7 15-6M9 28c0 3.3 6.7 6 15 6s15-2.7 15-6"></path></svg>
+          <h2 id="sswb-empty-title" data-i18n="empty.title"></h2>
+          <p class="sswb-empty-description" data-i18n="empty.description"></p>
+          <p class="sswb-empty-path"><span data-i18n="empty.path"></span> <strong data-i18n="empty.menuAction"></strong></p>
+          <p class="sswb-empty-helper" data-i18n="empty.helper"></p>
+        </div>
+      </section>
+      <div id="sswb-workbench-content" class="sswb-workbench-content">
       <section class="sswb-panel" aria-labelledby="sswb-context-title">
         <div class="sswb-heading"><div><h2 id="sswb-context-title" data-i18n="context.title"></h2><p class="sswb-caption" data-i18n="context.caption"></p></div><span class="sswb-context-tag">DBX HOST</span></div>
         <div class="sswb-context-grid">
@@ -103,6 +113,7 @@ const WORKBENCH_MARKUP = `
         </details>
       </section>
       <footer data-i18n="footer.statement"></footer>
+      </div>
     </main>
   </div>`;
 
@@ -301,6 +312,10 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   function render(viewModel) {
     const t = localeStore.getTranslator();
     const context = viewModel.context;
+    const missingTableContext = viewModel.status === "empty";
+    element("sswb-empty-state").hidden = !missingTableContext;
+    element("sswb-workbench-content").hidden = missingTableContext;
+    element("sswb-status").hidden = missingTableContext;
     element("sswb-database").textContent = context?.database ?? "—";
     element("sswb-schema").textContent = context?.schema ?? "—";
     element("sswb-table").textContent = context?.table ?? "—";

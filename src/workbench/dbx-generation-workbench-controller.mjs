@@ -98,9 +98,15 @@ export class DbxGenerationWorkbenchController {
     this.error = null;
     this.actionError = null;
     this.stage = normalized.ok ? "metadata" : "context";
-    this.status = normalized.ok ? "loading" : "blocked";
+    const missingContext = tableContext === null || tableContext === undefined;
+    this.status = normalized.ok ? "loading" : missingContext ? "empty" : "blocked";
 
     if (!normalized.ok) {
+      if (missingContext) {
+        this.emit();
+        this.initialization = Promise.resolve(this.getViewModel());
+        return this.initialization;
+      }
       this.diagnostics = [makeDiagnostic({
         severity: "error",
         code: "table_context_invalid",
@@ -451,7 +457,7 @@ export class DbxGenerationWorkbenchController {
   /** @param {number} [contextRevision] */
   async generateCurrent(contextRevision = this.contextRevision) {
     if (!this.context || !this.schema) {
-      this.status = "blocked";
+      if (!(this.status === "empty" && !this.context)) this.status = "blocked";
       this.stage = "context";
       this.emit();
       return this.getViewModel();
