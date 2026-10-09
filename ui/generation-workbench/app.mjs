@@ -24,7 +24,14 @@ import {
   statusLabel,
 } from "../src/i18n/workbench-messages.mjs";
 import { diagnosticSummaryCounts } from "../src/workbench/workbench-sections.mjs";
-import { createSettingsDraft, settingsDraftChanged } from "../src/workbench/settings-draft.mjs";
+import {
+  createSettingsDraft,
+  resetSettingsDraft,
+  resettableSettingsCounts,
+  restoreSettingsDraft,
+  settingsDraftChanged,
+  settingsSchemaFingerprint,
+} from "../src/workbench/settings-draft.mjs";
 import { saveExportWithHost } from "./export-save.mjs";
 import { paginatePreviewRows } from "../src/workbench/preview-pagination.mjs";
 import { validateGenerationRule } from "../src/generation/generation-rules.mjs";
@@ -132,11 +139,16 @@ const WORKBENCH_MARKUP = `
           <div id="sswb-diagnostics" class="sswb-diagnostics"></div>
         </section>
       </div>
-      <div id="sswb-advanced-confirm" class="sswb-advanced-confirm" role="alertdialog" aria-labelledby="sswb-advanced-confirm-title" hidden>
-        <div><strong id="sswb-advanced-confirm-title" data-i18n="advanced.confirm.title"></strong><p data-i18n="advanced.confirm.message"></p></div>
-        <div><button class="sswb-button" type="button" data-advanced-discard data-i18n="advanced.confirm.discard"></button><button class="sswb-button" type="button" data-advanced-continue data-i18n="advanced.confirm.continue"></button></div>
+      <div id="sswb-advanced-confirm" class="sswb-advanced-confirm" role="alertdialog" aria-modal="true" aria-labelledby="sswb-advanced-confirm-title" hidden>
+        <div><strong id="sswb-advanced-confirm-title"></strong><div id="sswb-advanced-confirm-message"></div><div id="sswb-advanced-confirm-impact"></div></div>
+        <div><button class="sswb-button" type="button" data-advanced-discard></button><button class="sswb-button" type="button" data-advanced-continue></button></div>
       </div>
       <footer class="sswb-advanced-dialog-footer">
+        <div class="sswb-advanced-restore-actions">
+          <button class="sswb-button" type="button" data-advanced-reset data-i18n="advanced.restore.button" aria-describedby="sswb-advanced-restore-status"></button>
+          <button class="sswb-button" type="button" data-advanced-undo data-i18n="advanced.restore.undo" aria-describedby="sswb-advanced-restore-status" hidden></button>
+          <span id="sswb-advanced-restore-status" role="status" aria-live="polite" tabindex="-1"></span>
+        </div>
         <p id="sswb-advanced-status" role="status" aria-live="polite"></p>
         <div><button class="sswb-button" type="button" data-advanced-cancel data-i18n="advanced.cancel"></button><button class="sswb-button sswb-primary" type="button" data-advanced-save data-i18n="advanced.save"></button></div>
       </footer>
@@ -194,8 +206,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   let settingsDraft = null;
   let activeAdvancedTab = "columns";
   let advancedSaving = false;
+  let advancedValidating = false;
   let advancedValidationDiagnostics = null;
   let advancedSaveErrorKey = null;
+  let advancedConfirmation = null;
+  let restoreUndo = null;
+  let restoreUndoUnavailable = false;
+  let advancedRestoreStatusKey = null;
+  let draftValidationToken = 0;
   const sqlDialog = createModalDialogController({
     overlay: element("sswb-sql-modal"),
     dialog: element("sswb-sql-modal").querySelector(".sswb-sql-dialog"),
@@ -222,8 +240,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       enumEditorStates.clear();
       enumDraftGateActive = false;
       advancedSaving = false;
+      advancedValidating = false;
       advancedValidationDiagnostics = null;
       advancedSaveErrorKey = null;
+      advancedConfirmation = null;
+      restoreUndo = null;
+      restoreUndoUnavailable = false;
+      advancedRestoreStatusKey = null;
+      draftValidationToken += 1;
       element("sswb-advanced-confirm").hidden = true;
       if (hadPendingEnumDraft) render(controller.getViewModel());
     },
@@ -428,6 +452,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (target.matches("[data-enum-tag-input]")) {
       const column = viewColumn(target.dataset.ruleColumn, controller);
       if (!column) return;
+      markAdvancedDraftEdited();
       const state = enumEditorState(column);
       state.tagDraft = target.value;
       const values = enumValuesFor(column, state);
@@ -456,6 +481,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (!target.matches("[data-enum-json]")) return;
     const column = viewColumn(target.dataset.ruleColumn, controller);
     if (!column) return;
+    markAdvancedDraftEdited();
     const state = enumEditorState(column);
     state.jsonDraft = target.value;
     const parsed = parseCandidateJson(target.value, column.schemaFamily);
@@ -489,7 +515,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     }
 
     settingsDraft.rules[column.column] = { kind: "enum", values: structuredClone(validation.values ?? values) };
-    clearAdvancedValidation();
+    markAdvancedDraftEdited();
     state.draftValues = null;
     state.jsonDraft = null;
     if (options.clearTagDraft) state.tagDraft = "";
@@ -585,6 +611,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const state = enumEditorState(column);
     const parsed = parseCandidatePaste(pasteText, column.schemaFamily);
     if (parsed.kind === "empty") return;
+    markAdvancedDraftEdited();
     if (parsed.kind === "error") {
       state.tagDraft = pasteText;
       state.errorKey = parsed.reason === "json-array" || parsed.reason === "invalid-json"
@@ -653,7 +680,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       if (column && choice && settingsDraft) {
         enumEditorStates.delete(column.column);
         settingsDraft.rules[column.column] = structuredClone(choice.draft);
-        clearAdvancedValidation();
+        markAdvancedDraftEdited();
         renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
       }
       return;
@@ -664,7 +691,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       const rule = structuredClone(settingsDraft.rules[column.column] ?? editableRule(column.generationRule));
       rule[target.dataset.ruleField] = readRuleField(target);
       settingsDraft.rules[column.column] = rule;
-      clearAdvancedValidation();
+      markAdvancedDraftEdited();
       renderAdvancedStatus(controller.getViewModel(), localeStore.getTranslator());
       return;
     }
@@ -687,7 +714,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
         try { updated.columns = JSON.parse(target.value); } catch { updated.columns = target.value; }
       }
       settingsDraft.constraints = settingsDraft.constraints.map((entry) => entry.id === updated.id ? updated : entry);
-      clearAdvancedValidation();
+      markAdvancedDraftEdited();
       renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
       return;
     }
@@ -717,7 +744,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       advancedDialog.requestClose("backdrop");
       return;
     }
-    const target = event.target.closest("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice], [data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete], [data-preview-page], [data-advanced-open], [data-advanced-diagnostics], [data-advanced-close], [data-advanced-cancel], [data-advanced-save], [data-advanced-discard], [data-advanced-continue], [data-advanced-tab]");
+    const target = event.target.closest("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice], [data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete], [data-preview-page], [data-advanced-open], [data-advanced-diagnostics], [data-advanced-close], [data-advanced-cancel], [data-advanced-save], [data-advanced-reset], [data-advanced-undo], [data-advanced-discard], [data-advanced-continue], [data-advanced-tab]");
     if (!target) return;
     if (target.matches("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice]")) {
       void onEnumEditorClick(target);
@@ -747,13 +774,28 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       void saveAdvancedSettings();
       return;
     }
+    if (target.matches("[data-advanced-reset]")) {
+      showAdvancedConfirmation("restore");
+      return;
+    }
+    if (target.matches("[data-advanced-undo]")) {
+      undoTableDefaults();
+      return;
+    }
     if (target.matches("[data-advanced-discard]")) {
-      advancedDialog.close();
+      if (advancedConfirmation?.kind === "restore") {
+        closeAdvancedConfirmation("[data-advanced-reset]");
+      } else {
+        advancedDialog.close();
+      }
       return;
     }
     if (target.matches("[data-advanced-continue]")) {
-      element("sswb-advanced-confirm").hidden = true;
-      element("sswb-advanced-modal").querySelector("[data-advanced-close]").focus();
+      if (advancedConfirmation?.kind === "restore") {
+        restoreTableDefaults();
+      } else {
+        closeAdvancedConfirmation("[data-advanced-close]");
+      }
       return;
     }
     if (target.dataset.previewPage) {
@@ -792,7 +834,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (target.matches("[data-constraint-delete]")) {
       if (!settingsDraft) return;
       settingsDraft.constraints = settingsDraft.constraints.filter((entry) => entry.id !== target.dataset.constraintId);
-      clearAdvancedValidation();
+      markAdvancedDraftEdited();
       renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
       return;
     }
@@ -886,11 +928,23 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   function openAdvancedSettings(trigger, tab) {
     const viewModel = controller.getViewModel();
     if (!viewModel.context || !controller.schema) return;
-    settingsDraft = createSettingsDraft(controller.rules, controller.constraints, tableContextKey(viewModel.context));
+    settingsDraft = createSettingsDraft(
+      controller.rules,
+      controller.constraints,
+      tableContextKey(viewModel.context),
+      settingsSchemaFingerprint(controller.schema),
+      controller.settingsRevision,
+    );
     activeAdvancedTab = tab;
     advancedSaving = false;
+    advancedValidating = false;
     advancedValidationDiagnostics = null;
     advancedSaveErrorKey = null;
+    advancedConfirmation = null;
+    restoreUndo = null;
+    restoreUndoUnavailable = false;
+    advancedRestoreStatusKey = null;
+    draftValidationToken += 1;
     element("sswb-column-search-input").value = "";
     setAdvancedTab(tab);
     if (advancedDialog.open(trigger)) renderAdvancedSettings(viewModel, localeStore.getTranslator());
@@ -898,16 +952,117 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
 
   function requestAdvancedClose() {
     if (advancedSaving) return false;
+    if (advancedConfirmation) {
+      const focusSelector = advancedConfirmation.kind === "restore" ? "[data-advanced-reset]" : "[data-advanced-close]";
+      closeAdvancedConfirmation(focusSelector);
+      return false;
+    }
     if (enumEditorDirty() || (settingsDraft && settingsDraftChanged(settingsDraft))) {
-      element("sswb-advanced-confirm").hidden = false;
-      element("sswb-advanced-modal").querySelector("[data-advanced-discard]").focus();
+      showAdvancedConfirmation("discard");
       return false;
     }
     return true;
   }
 
+  function showAdvancedConfirmation(kind) {
+    if (kind === "restore") {
+      const counts = resettableSettingsCounts(settingsDraft, controller.schema?.columns);
+      if (counts.total === 0) {
+        advancedRestoreStatusKey = "advanced.restore.alreadyDefault";
+        renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
+        return;
+      }
+      advancedConfirmation = { kind, counts };
+    } else {
+      advancedConfirmation = { kind };
+    }
+    renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
+    element("sswb-advanced-modal").querySelector("[data-advanced-discard]").focus();
+  }
+
+  function closeAdvancedConfirmation(focusSelector = null) {
+    advancedConfirmation = null;
+    renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
+    if (focusSelector) element("sswb-advanced-modal").querySelector(focusSelector)?.focus();
+  }
+
+  function restoreTableDefaults() {
+    if (!settingsDraft || !controller.schema) return;
+    const reset = resetSettingsDraft(settingsDraft, controller.schema.columns);
+    if (!reset.changed) {
+      advancedConfirmation = null;
+      advancedRestoreStatusKey = "advanced.restore.alreadyDefault";
+      render(controller.getViewModel());
+      element("sswb-advanced-modal").querySelector("[data-advanced-close]").focus();
+      return;
+    }
+    const snapshot = { ...reset.snapshot, enumEditorStates: structuredClone(enumEditorStates) };
+    enumEditorStates.clear();
+    restoreUndo = { snapshot, restored: { rules: {}, constraints: [] } };
+    restoreUndoUnavailable = false;
+    advancedRestoreStatusKey = "advanced.restore.restored";
+    advancedConfirmation = null;
+    clearAdvancedValidation();
+    render(controller.getViewModel());
+    element("sswb-advanced-restore-status").focus();
+    void validateRestoredDraft();
+  }
+
+  function undoTableDefaults() {
+    if (!settingsDraft || !restoreUndo) return;
+    if (!sameSettingsConfiguration(settingsDraft, restoreUndo.restored) || enumEditorStates.size > 0) {
+      invalidateRestoreUndo();
+      render(controller.getViewModel());
+      return;
+    }
+    const { snapshot } = restoreUndo;
+    restoreSettingsDraft(settingsDraft, snapshot);
+    enumEditorStates.clear();
+    for (const [column, state] of structuredClone(snapshot.enumEditorStates)) enumEditorStates.set(column, state);
+    restoreUndo = null;
+    restoreUndoUnavailable = false;
+    advancedRestoreStatusKey = null;
+    clearAdvancedValidation();
+    render(controller.getViewModel());
+  }
+
+  function invalidateRestoreUndo() {
+    if (!restoreUndo) return;
+    restoreUndo = null;
+    restoreUndoUnavailable = true;
+    advancedRestoreStatusKey = "advanced.restore.undoUnavailable";
+  }
+
+  async function validateRestoredDraft() {
+    if (!settingsDraft || !restoreUndo) return;
+    const submittedDraft = settingsDraft;
+    const requestToken = ++draftValidationToken;
+    advancedValidating = true;
+    render(controller.getViewModel());
+    try {
+      const result = await controller.validateSettingsDraft({
+        contextKey: submittedDraft.contextKey,
+        schemaKey: submittedDraft.schemaKey,
+        settingsRevision: submittedDraft.settingsRevision,
+        rules: structuredClone(submittedDraft.rules),
+        constraints: structuredClone(submittedDraft.constraints),
+      });
+      if (!advancedDialog.isOpen || settingsDraft !== submittedDraft || requestToken !== draftValidationToken) return;
+      advancedValidating = false;
+      advancedValidationDiagnostics = result.diagnostics;
+      advancedSaveErrorKey = null;
+      renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
+    } catch (error) {
+      if (!advancedDialog.isOpen || settingsDraft !== submittedDraft || requestToken !== draftValidationToken) return;
+      advancedValidating = false;
+      advancedValidationDiagnostics = null;
+      advancedSaveErrorKey = advancedSettingsErrorKey(error);
+      renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
+    }
+  }
+
   async function saveAdvancedSettings() {
-    if (!settingsDraft || advancedSaving || enumEditorDirty()) return;
+    if (!settingsDraft || advancedSaving || advancedValidating || advancedConfirmation || enumEditorDirty()) return;
     const submittedDraft = settingsDraft;
     advancedSaving = true;
     advancedValidationDiagnostics = null;
@@ -918,6 +1073,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const result = await controller.dispatch({
       type: "save-settings",
       contextKey: submittedDraft.contextKey,
+      schemaKey: submittedDraft.schemaKey,
+      settingsRevision: submittedDraft.settingsRevision,
       rules: structuredClone(submittedDraft.rules),
       constraints: structuredClone(submittedDraft.constraints),
     });
@@ -929,11 +1086,20 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       return;
     }
     advancedValidationDiagnostics = saveResult?.diagnostics ?? [];
-    advancedSaveErrorKey = result.actionError ? "advanced.draft.saveFailed" : "advanced.draft.validationFailed";
+    advancedSaveErrorKey = result.actionError ? advancedSettingsErrorKey(new Error(result.actionError)) : "advanced.draft.validationFailed";
     renderAdvancedSettings(result, localeStore.getTranslator());
   }
 
+  function advancedSettingsErrorKey(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/schema changed|table schema changed/iu.test(message)) return "advanced.draft.schemaChanged";
+    if (/settings changed|generation settings changed/iu.test(message)) return "advanced.draft.concurrentChange";
+    return "advanced.draft.saveFailed";
+  }
+
   function clearAdvancedValidation() {
+    draftValidationToken += 1;
+    advancedValidating = false;
     advancedValidationDiagnostics = null;
     advancedSaveErrorKey = null;
   }
@@ -971,10 +1137,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     renderColumns(settingsViewModel, t);
     renderConstraints(settingsViewModel, t);
     renderDiagnostics(settingsViewModel, t);
+    renderAdvancedConfirmation(t);
+    renderAdvancedRestoreControls(viewModel, t);
     element("sswb-rule-state").textContent = changed ? t("advanced.draft.changed") : ruleEditorStateMessage(viewModel, t);
     element("sswb-constraint-state").textContent = changed ? t("advanced.draft.changed") : constraintEditorStateMessage(viewModel, t);
-    const editingDisabled = !controller.schema || advancedSaving || viewModel.status === "loading";
-    for (const control of modal.querySelectorAll("[data-rule-selector], [data-rule-field], [data-constraint-kind], [data-constraint-column], [data-constraint-columns], [data-constraint-add], [data-constraint-delete], [data-enum-tag-input], [data-enum-json], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-mode], [data-enum-paste-choice], #sswb-column-search-input")) {
+    const editingDisabled = !controller.schema || advancedSaving || advancedValidating || Boolean(advancedConfirmation) || viewModel.status === "loading";
+    for (const control of modal.querySelectorAll("[data-rule-selector], [data-rule-field], [data-constraint-kind], [data-constraint-column], [data-constraint-columns], [data-constraint-add], [data-constraint-delete], [data-enum-tag-input], [data-enum-json], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-mode], [data-enum-paste-choice], [data-advanced-tab], #sswb-column-search-input")) {
       control.disabled = editingDisabled;
     }
     renderAdvancedStatus(viewModel, t);
@@ -985,13 +1153,76 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const changed = (settingsDraft && settingsDraftChanged(settingsDraft)) || enumEditorDirty();
     const status = element("sswb-advanced-status");
     status.textContent = advancedSaving ? t("advanced.draft.saving")
-      : advancedSaveErrorKey ? t(advancedSaveErrorKey)
-        : changed ? t("advanced.draft.changed") : "";
+      : advancedValidating ? t("advanced.restore.validating")
+        : advancedSaveErrorKey ? t(advancedSaveErrorKey)
+          : changed ? t("advanced.draft.changed") : "";
     if (advancedSaveErrorKey) status.dataset.state = "error";
     else delete status.dataset.state;
     const unavailable = !controller.schema || !viewModel.context;
-    element("sswb-advanced-modal").querySelector("[data-advanced-save]").disabled = advancedSaving || unavailable || enumEditorDirty() || viewModel.status === "loading";
+    element("sswb-advanced-modal").querySelector("[data-advanced-save]").disabled = advancedSaving || advancedValidating || Boolean(advancedConfirmation) || unavailable || enumEditorDirty() || viewModel.status === "loading";
     element("sswb-advanced-modal").querySelector("[data-advanced-cancel]").disabled = advancedSaving;
+    renderAdvancedRestoreControls(viewModel, t);
+  }
+
+  function renderAdvancedConfirmation(t) {
+    const container = element("sswb-advanced-confirm");
+    container.hidden = !advancedConfirmation;
+    if (!advancedConfirmation) return;
+    const isRestore = advancedConfirmation.kind === "restore";
+    const title = element("sswb-advanced-confirm-title");
+    const message = element("sswb-advanced-confirm-message");
+    const impact = element("sswb-advanced-confirm-impact");
+    title.textContent = t(isRestore ? "advanced.restore.confirmTitle" : "advanced.confirm.title");
+    message.replaceChildren();
+    const messageKeys = isRestore
+      ? ["advanced.restore.message", "advanced.restore.otherTables", "advanced.restore.saveOnly"]
+      : ["advanced.confirm.message"];
+    for (const key of messageKeys) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = t(key);
+      message.append(paragraph);
+    }
+    impact.replaceChildren();
+    if (isRestore) {
+      const { fields, constraints } = advancedConfirmation.counts;
+      if (fields > 0) {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = t("advanced.restore.fieldCount", { count: fields });
+        impact.append(paragraph);
+      }
+      if (constraints > 0) {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = t("advanced.restore.constraintCount", { count: constraints });
+        impact.append(paragraph);
+      }
+    }
+    const cancel = container.querySelector("[data-advanced-discard]");
+    const confirm = container.querySelector("[data-advanced-continue]");
+    cancel.textContent = t(isRestore ? "advanced.restore.cancel" : "advanced.confirm.discard");
+    confirm.textContent = t(isRestore ? "advanced.restore.confirm" : "advanced.confirm.continue");
+  }
+
+  function renderAdvancedRestoreControls(viewModel, t) {
+    if (!settingsDraft) return;
+    const counts = resettableSettingsCounts(settingsDraft, controller.schema?.columns);
+    const reset = element("sswb-advanced-modal").querySelector("[data-advanced-reset]");
+    const undo = element("sswb-advanced-modal").querySelector("[data-advanced-undo]");
+    const status = element("sswb-advanced-restore-status");
+    const unavailable = !controller.schema || !viewModel.context;
+    reset.disabled = unavailable || counts.total === 0 || advancedSaving || advancedValidating
+      || Boolean(advancedConfirmation) || viewModel.status === "loading";
+    undo.hidden = !restoreUndo && !restoreUndoUnavailable;
+    undo.disabled = !restoreUndo || !sameSettingsConfiguration(settingsDraft, restoreUndo.restored)
+      || advancedSaving || advancedValidating || Boolean(advancedConfirmation);
+    const statusKey = advancedRestoreStatusKey
+      ?? (counts.total === 0 ? "advanced.restore.alreadyDefault" : null);
+    status.textContent = statusKey ? t(statusKey) : "";
+  }
+
+  function markAdvancedDraftEdited() {
+    invalidateRestoreUndo();
+    if (advancedRestoreStatusKey === "advanced.restore.alreadyDefault") advancedRestoreStatusKey = null;
+    clearAdvancedValidation();
   }
 
   function addDraftConstraint(viewModel) {
@@ -1000,7 +1231,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     while (settingsDraft.constraints.some((entry) => entry.id === `manual-${suffix}`)) suffix += 1;
     const firstColumn = viewModel.columns[0]?.column ?? "";
     settingsDraft.constraints.push({ id: `manual-${suffix}`, kind: "unique", column: firstColumn });
-    clearAdvancedValidation();
+    markAdvancedDraftEdited();
     renderAdvancedSettings(viewModel, localeStore.getTranslator());
   }
 

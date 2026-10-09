@@ -77,7 +77,9 @@ export function createModalDialogController({ overlay, dialog, background, initi
     }
     if (event.key !== "Tab") return;
 
-    const focusable = [...dialog.querySelectorAll(FOCUSABLE_SELECTOR)].filter((element) =>
+    const activeAlertDialog = dialog.querySelector?.('[role="alertdialog"]:not([hidden])');
+    const focusScope = activeAlertDialog ?? dialog;
+    const focusable = [...focusScope.querySelectorAll(FOCUSABLE_SELECTOR)].filter((element) =>
       !element.disabled && !element.hidden && element.getAttribute("aria-hidden") !== "true"
       && element.getAttribute("tabindex") !== "-1"
       && !element.closest?.("[hidden]") && !element.closest?.('[aria-hidden="true"]'));

@@ -8,6 +8,7 @@ import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { DbxHostSchemaMetadataError, DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import { DbxGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-controller.mjs";
+import { settingsSchemaFingerprint } from "../src/workbench/settings-draft.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASE_CONTEXT = Object.freeze({ connectionId: "connection-A", database: "sales", schema: "public", table: "customer" });
@@ -670,6 +671,146 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.preview.rows.length, 50);
     assert.deepEqual(view.preview.rows.map((row) => row.customer_id), Array.from({ length: 50 }, (_value, index) => 40 + index * 2));
     assert.equal(generationCalls(calls).length, originalGenerationCount + 1, "only the explicit Generate action invokes the Generator");
+  });
+
+  it("commits an explicit default restore and stales the old preview only after successful Save", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    await controller.setContext(BASE_CONTEXT);
+    await controller.dispatch({ type: "update-rule", column: "customer_id", rule: { kind: "sequence", start: 40, step: 2 } });
+    await controller.dispatch({ type: "add-constraint", kind: "unique" });
+    let view = await controller.dispatch({ type: "generate" });
+    const originalRows = structuredClone(view.preview.rows);
+    const generationCount = generationCalls(calls).length;
+
+    view = await controller.dispatch({
+      type: "save-settings",
+      contextKey: JSON.stringify(view.context),
+      schemaKey: settingsSchemaFingerprint(controller.schema),
+      settingsRevision: controller.settingsRevision,
+      rules: {},
+      constraints: [],
+    });
+
+    assert.equal(view.settingsSaveResult.ok, true);
+    assert.equal(view.settingsSaveResult.changed, true);
+    assert.deepEqual(controller.rules, {}, "the explicit per-table override is actually removed");
+    assert.deepEqual(controller.constraints, [], "manual generation constraints are actually removed");
+    assert.equal(view.status, "dirty");
+    assert.equal(view.lastSuccessfulParametersCurrent, false);
+    assert.deepEqual(view.preview.rows, originalRows, "the immutable old preview remains visible only for reference");
+    assert.equal(view.export.enabled, false);
+    assert.equal(generationCalls(calls).length, generationCount, "Save validates but never generates replacement rows");
+    assert.equal(calls.at(-1).options.validateOnly, true);
+  });
+
+  it("validates a restored draft through Core without committing or invalidating the current dataset", async () => {
+    const calls = [];
+    let sampleCalls = 0;
+    const controller = createController({
+      preview: previewCore(calls),
+      sampleProbe: async () => { sampleCalls += 1; return { sampleUsed: false, evidence: [] }; },
+    });
+    await controller.setContext(BASE_CONTEXT);
+    await controller.dispatch({ type: "update-rule", column: "customer_id", rule: { kind: "sequence", start: 40, step: 2 } });
+    await controller.dispatch({ type: "add-constraint", kind: "unique" });
+    let view = await controller.dispatch({ type: "generate" });
+    const dataset = controller.currentDataset;
+    const rows = structuredClone(view.preview.rows);
+    const committedRules = structuredClone(controller.rules);
+    const committedConstraints = structuredClone(controller.constraints);
+    const revision = controller.settingsRevision;
+    const generationCount = generationCalls(calls).length;
+
+    const result = await controller.validateSettingsDraft({
+      contextKey: JSON.stringify(view.context),
+      schemaKey: settingsSchemaFingerprint(controller.schema),
+      settingsRevision: revision,
+      rules: {},
+      constraints: [],
+    });
+    view = controller.getViewModel();
+
+    assert.equal(result.valid, true);
+    assert.ok(result.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"));
+    assert.deepEqual(controller.rules, committedRules);
+    assert.deepEqual(controller.constraints, committedConstraints);
+    assert.equal(controller.currentDataset, dataset);
+    assert.deepEqual(view.preview.rows, rows);
+    assert.equal(view.export.enabled, true);
+    assert.equal(controller.settingsRevision, revision);
+    assert.equal(sampleCalls, 1, "draft Core validation reuses evidence and never queries DBX");
+    assert.equal(generationCalls(calls).length, generationCount, "validateOnly never generates rows");
+    assert.equal(calls.at(-1).options.validateOnly, true);
+    assert.deepEqual(calls.at(-1).options.rules, {});
+    assert.deepEqual(calls.at(-1).options.constraints, []);
+  });
+
+  it("does not invalidate a preview for an explicitly selected Auto rule equivalent to Core defaults", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "generate" });
+    const dataset = controller.currentDataset;
+    const rowSnapshot = structuredClone(view.preview.rows);
+    const revision = controller.settingsRevision;
+    const callCount = calls.length;
+
+    view = await controller.dispatch({
+      type: "save-settings",
+      contextKey: JSON.stringify(view.context),
+      schemaKey: settingsSchemaFingerprint(controller.schema),
+      settingsRevision: revision,
+      rules: { customer_id: { kind: "auto" } },
+      constraints: [],
+    });
+
+    assert.equal(view.settingsSaveResult.ok, true);
+    assert.equal(view.settingsSaveResult.changed, false);
+    assert.equal(controller.settingsRevision, revision);
+    assert.deepEqual(controller.rules, {});
+    assert.equal(controller.currentDataset, dataset);
+    assert.deepEqual(view.preview.rows, rowSnapshot);
+    assert.equal(view.export.enabled, true);
+    assert.equal(calls.length, callCount, "equivalent defaults skip even validation work");
+  });
+
+  it("rejects a stale advanced-settings draft after schema or committed settings revisions change", async () => {
+    const controller = createController();
+    let view = await controller.setContext(BASE_CONTEXT);
+    const contextKey = JSON.stringify(view.context);
+    const schemaKey = settingsSchemaFingerprint(controller.schema);
+    const revision = controller.settingsRevision;
+
+    const changedSchema = normalizeTableSchema({
+      tableIdentity: controller.schema.tableIdentity,
+      columns: [
+        { name: "customer_id", dataType: "integer", nullable: false },
+        { name: "display_name", dataType: "varchar", nullable: false, length: 25 },
+      ],
+    }).schema;
+    controller.schema = changedSchema;
+    view = await controller.dispatch({
+      type: "save-settings", contextKey, schemaKey, settingsRevision: revision,
+      rules: { customer_id: { kind: "sequence", start: 3, step: 2 } }, constraints: [],
+    });
+    assert.match(view.actionError, /schema changed/u);
+    assert.deepEqual(controller.rules, {});
+
+    await controller.setContext(BASE_CONTEXT, { force: true });
+    const currentView = controller.getViewModel();
+    const staleRevision = controller.settingsRevision;
+    await controller.dispatch({ type: "update-rule", column: "customer_id", rule: { kind: "sequence", start: 5, step: 2 } });
+    view = await controller.dispatch({
+      type: "save-settings",
+      contextKey: JSON.stringify(currentView.context),
+      schemaKey: settingsSchemaFingerprint(controller.schema),
+      settingsRevision: staleRevision,
+      rules: {},
+      constraints: [],
+    });
+    assert.match(view.actionError, /settings changed/u);
+    assert.deepEqual(controller.rules.customer_id, { kind: "sequence", start: 5, step: 2 });
   });
 
   it("ignores an in-flight old-settings generation that completes after settings are saved", async () => {

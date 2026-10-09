@@ -29,6 +29,10 @@ class FakeElement {
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
+  querySelector(selector) {
+    if (selector === '[role="alertdialog"]:not([hidden])') return this.activeAlertDialog ?? null;
+    return null;
+  }
   querySelectorAll() { return this.focusableElements ?? []; }
   closest(selector) {
     if (selector === "[hidden]" && this.hiddenByAncestor) return {};
@@ -144,6 +148,27 @@ describe("SQL preview Modal keyboard and focus behavior", () => {
     canClose = true;
     assert.equal(fixture.controller.requestClose("discard-confirmed"), true);
     assert.equal(fixture.controller.isOpen, false);
+  });
+
+  it("traps focus inside an active confirmation alertdialog until it closes", () => {
+    const fixture = modalFixture();
+    fixture.controller.open(fixture.trigger);
+    const alertDialog = new FakeElement(fixture.document, "confirmation alertdialog");
+    const cancel = new FakeElement(fixture.document, "confirmation cancel");
+    const confirm = new FakeElement(fixture.document, "confirmation accept");
+    alertDialog.focusableElements = [cancel, confirm];
+    fixture.dialog.activeAlertDialog = alertDialog;
+    fixture.document.activeElement = confirm;
+
+    let prevented = false;
+    fixture.document.dispatch("keydown", { key: "Tab", preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.equal(fixture.document.activeElement, cancel, "Tab wraps inside the visible confirmation");
+
+    prevented = false;
+    fixture.document.dispatch("keydown", { key: "Tab", shiftKey: true, preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.equal(fixture.document.activeElement, confirm, "Shift+Tab also stays inside the confirmation");
   });
 
   it("closes on Escape and wraps Tab focus in both directions", () => {

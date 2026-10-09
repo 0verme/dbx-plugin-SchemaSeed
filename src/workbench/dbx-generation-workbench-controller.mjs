@@ -9,7 +9,7 @@ import { getSampleProbeCandidates } from "../host/dbx-data-sample-probe.mjs";
 import { sanitizeSampleEvidence } from "../semantic/sample-evidence.mjs";
 import { DEFAULT_GENERATION_ROW_COUNT, MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "../generation/row-count.mjs";
 import { previewPrimaryAction } from "./preview-action-state.mjs";
-import { sameSettingsConfiguration } from "./settings-draft.mjs";
+import { sameSettingsConfiguration, settingsSchemaFingerprint } from "./settings-draft.mjs";
 
 export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: DEFAULT_GENERATION_ROW_COUNT, seed: "demo", locale: "zh-CN" });
 export const DBX_WORKBENCH_MAX_ROWS = MAX_GENERATION_ROW_COUNT;
@@ -53,6 +53,7 @@ export class DbxGenerationWorkbenchController {
     this.invalidContext = false;
     this.contextRevision = 0;
     this.operationRevision = 0;
+    this.settingsRevision = 0;
     this.listeners = new Set();
     this.status = "loading";
     this.stage = "context";
@@ -98,6 +99,7 @@ export class DbxGenerationWorkbenchController {
 
     this.contextRevision += 1;
     this.operationRevision += 1;
+    this.settingsRevision += 1;
     this.generationPromise = null;
     const revision = this.contextRevision;
     this.contextKey = key;
@@ -204,11 +206,17 @@ export class DbxGenerationWorkbenchController {
    * Validate and atomically commit the modal's rule/constraint draft. Validation
    * uses the same Core plan path in validation-only mode; it never invokes data
    * generation. Failed validation leaves effective config and Preview untouched.
-   * @param {{ type: string, rules: unknown, constraints: unknown, contextKey: string }} action
+   * @param {{ type: string, rules: unknown, constraints: unknown, contextKey: string, schemaKey?: string, settingsRevision?: number }} action
    */
   async saveSettings(action) {
     if (!this.context || !this.schema) throw new Error("Load a DBX table before saving advanced settings");
     if (action.contextKey !== JSON.stringify(this.context)) throw new Error("The table changed while advanced settings were open");
+    if (action.schemaKey !== undefined && action.schemaKey !== settingsSchemaFingerprint(this.schema)) {
+      throw new Error("The table schema changed while advanced settings were open; reopen advanced settings");
+    }
+    if (action.settingsRevision !== undefined && action.settingsRevision !== this.settingsRevision) {
+      throw new Error("Generation settings changed while advanced settings were open; reopen advanced settings");
+    }
     if (!isRecord(action.rules) || !Array.isArray(action.constraints)) throw new TypeError("Advanced settings must contain rules and constraints");
 
     const candidate = { rules: structuredClone(action.rules), constraints: structuredClone(action.constraints) };
@@ -225,6 +233,7 @@ export class DbxGenerationWorkbenchController {
 
     const contextRevision = this.contextRevision;
     const operationRevision = this.operationRevision;
+    const settingsRevision = this.settingsRevision;
     const schema = this.schema;
     const response = await this.preview(schema, {
       ...this.generationOptions(true),
@@ -232,7 +241,9 @@ export class DbxGenerationWorkbenchController {
       constraints: candidate.constraints,
     });
     if (contextRevision !== this.contextRevision || operationRevision !== this.operationRevision
-      || JSON.stringify(this.context) !== action.contextKey) {
+      || settingsRevision !== this.settingsRevision
+      || JSON.stringify(this.context) !== action.contextKey
+      || (action.schemaKey !== undefined && action.schemaKey !== settingsSchemaFingerprint(this.schema))) {
       throw new Error("The table or settings changed before advanced settings could be saved");
     }
     if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
@@ -247,10 +258,10 @@ export class DbxGenerationWorkbenchController {
       this.emit();
       return;
     }
-
     // Invalidate any in-flight generation that started against the previous
     // effective settings so its late response cannot make the stale snapshot current.
     this.operationRevision += 1;
+    this.settingsRevision += 1;
     this.rules = candidate.rules;
     this.constraints = candidate.constraints;
     this.plan = response.plan;
@@ -265,6 +276,47 @@ export class DbxGenerationWorkbenchController {
     this.emit();
   }
 
+  /** Validate an editor draft through Core without changing effective settings or preview state. */
+  async validateSettingsDraft(action) {
+    if (!this.context || !this.schema) throw new Error("Load a DBX table before validating advanced settings");
+    if (action?.contextKey !== JSON.stringify(this.context)) throw new Error("The table changed while advanced settings were open");
+    if (action?.schemaKey !== undefined && action.schemaKey !== settingsSchemaFingerprint(this.schema)) {
+      throw new Error("The table schema changed while advanced settings were open; reopen advanced settings");
+    }
+    if (action?.settingsRevision !== undefined && action.settingsRevision !== this.settingsRevision) {
+      throw new Error("Generation settings changed while advanced settings were open; reopen advanced settings");
+    }
+    if (!isRecord(action.rules) || !Array.isArray(action.constraints)) {
+      throw new TypeError("Advanced settings must contain rules and constraints");
+    }
+
+    const contextRevision = this.contextRevision;
+    const operationRevision = this.operationRevision;
+    const settingsRevision = this.settingsRevision;
+    const schema = this.schema;
+    const response = await this.preview(schema, {
+      ...this.generationOptions(true),
+      rules: structuredClone(action.rules),
+      constraints: structuredClone(action.constraints),
+    });
+    if (contextRevision !== this.contextRevision || operationRevision !== this.operationRevision
+      || settingsRevision !== this.settingsRevision || this.schema !== schema
+      || JSON.stringify(this.context) !== action.contextKey
+      || (action.schemaKey !== undefined && action.schemaKey !== settingsSchemaFingerprint(this.schema))) {
+      throw new Error("The table or settings changed before advanced settings could be validated");
+    }
+    if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
+      throw new Error("Generation Core runtime returned an invalid settings validation response");
+    }
+    const diagnostics = Array.isArray(response.plan.diagnostics)
+      ? response.plan.diagnostics.map((entry) => ({ ...entry }))
+      : Array.isArray(response.generated.diagnostics) ? response.generated.diagnostics.map((entry) => ({ ...entry })) : [];
+    return {
+      valid: response.plan.status !== "blocked" && response.generated.status !== "blocked",
+      diagnostics,
+    };
+  }
+
   /** @param {string} columnName @param {unknown} rule */
   async updateRule(columnName, rule) {
     if (!this.context || !this.schema) throw new Error("Load a DBX table before editing generation rules");
@@ -274,6 +326,7 @@ export class DbxGenerationWorkbenchController {
     if (!isRecord(rule)) throw new TypeError("Generation rule must be a tagged object");
 
     this.rules = { ...this.rules, [columnName]: structuredClone(rule) };
+    this.settingsRevision += 1;
     return this.validateCurrent({ stage: "rule-validation" });
   }
 
@@ -310,6 +363,7 @@ export class DbxGenerationWorkbenchController {
 
   async replaceConstraints(constraints) {
     this.constraints = structuredClone(constraints);
+    this.settingsRevision += 1;
     return this.validateCurrent({ stage: "constraint-validation" });
   }
 
