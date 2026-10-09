@@ -78,6 +78,7 @@ export function interpretColumnType(column) {
       capacity: classifyStringCapacity(column, stringType[1], stringType[2] === undefined ? null : Number(stringType[2])),
     };
   }
+  if (base === "json") return { kind: "json", parameters: {} };
   if (/^(boolean|bool)$/.test(base)) return { kind: "boolean", parameters: {} };
   if (/^date$/.test(base)) return { kind: "date", parameters: {} };
   const timestampType = base.match(/^(timestamp|datetime|timestamptz)(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?(?:\s+(with|without) time zone)?$/);

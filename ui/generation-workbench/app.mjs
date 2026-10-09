@@ -1,4 +1,5 @@
 import { createGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-adapter.mjs";
+import { isJsonDocumentValue, serializeJsonDocumentValue } from "../src/json-document.mjs";
 import { selectInitialContext } from "./context.mjs";
 import { renderWorkbenchContextVisibility } from "./visibility.mjs";
 import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
@@ -868,7 +869,9 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       for (const column of viewModel.preview.columns) {
         const cell = document.createElement("td");
         const value = previewRow[column];
-        cell.textContent = value === null ? t("preview.null") : typeof value === "string" ? value : JSON.stringify(value);
+        cell.textContent = value === null ? t("preview.null")
+          : isJsonDocumentValue(value) ? serializeJsonDocumentValue(value)
+            : typeof value === "string" ? value : JSON.stringify(value);
         if (value === null) cell.className = "sswb-null";
         row.append(cell);
       }

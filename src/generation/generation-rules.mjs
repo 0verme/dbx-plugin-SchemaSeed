@@ -3,6 +3,7 @@ import { makeDiagnostic } from "../diagnostics.mjs";
 import { formatDate, formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import { interpretColumnType, interpretStringCapacity, resolveTemporalPrecision } from "../schema/schema-interpreter.mjs";
 import { checkSemanticCompatibility, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
+import { normalizeJsonValue } from "../json-document.mjs";
 
 export { formatDate, formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 
@@ -95,7 +96,7 @@ export function getCompatibleGenerationRules(column) {
   const capacity = family === "varchar" ? type.capacity : null;
   const usableCapacity = capacity !== null && capacity !== undefined
     && capacity.model !== "unknown" && capacity.model !== "invalid";
-  const supported = new Set(["integer", "decimal", "varchar", "boolean", "date", "timestamp"]);
+  const supported = new Set(["integer", "decimal", "varchar", "json", "boolean", "date", "timestamp"]);
   if (family === "varchar" && !varcharBound(column).ok) return rules;
   if (family === "decimal" && !decimalShape(column).ok) return rules;
   if (family === "timestamp" && !timestampPrecision(column).ok) return rules;
@@ -144,7 +145,8 @@ export function createGenerationRuleDraft(column, kind) {
         : family === "decimal" ? formatDecimalUnits(0n, safeDraftDecimalScale(column))
           : family === "boolean" ? false
             : family === "date" ? "2000-01-01"
-              : family === "timestamp" ? timestampDraft : "";
+              : family === "timestamp" ? timestampDraft
+                : family === "json" ? { generated: true } : "";
       return { kind, value };
     }
     case "sequence": {
@@ -193,9 +195,13 @@ export function createGenerationRuleDraft(column, kind) {
 /** Describe editor controls from the Core model; the UI only renders these fields. @param {import("../schema/schema-model.mjs").ColumnSchema} column @param {Record<string, unknown>} rule */
 export function getGenerationRuleEditorFields(column, rule) {
   const fields = [];
-  const add = (key, label, editor, value) => fields.push({ key, label, editor, value });
+  const add = (key, label, editor, value, labelKey = undefined) => fields.push({ key, label, editor, value, ...(labelKey ? { labelKey } : {}) });
   switch (rule?.kind) {
-    case "constant": add("value", "Value (JSON scalar)", "json", rule.value); break;
+    case "constant": {
+      const isJson = interpretColumnType(column)?.kind === "json";
+      add("value", isJson ? "JSON value" : "Value (JSON scalar)", "json", rule.value, isJson ? "ruleField.jsonDocumentValue" : undefined);
+      break;
+    }
     case "sequence":
       add("start", "Start", interpretColumnType(column)?.kind === "decimal" ? "decimal" : "integer", rule.start);
       add("step", "Step", interpretColumnType(column)?.kind === "decimal" ? "decimal" : "integer", rule.step);
@@ -482,9 +488,9 @@ export function validateGenerationRule(column, rawRule, options = {}) {
   }
 
   if (normalized.kind === "null_ratio") {
-    if ((!family || !new Set(["integer", "decimal", "varchar", "boolean", "date", "timestamp"]).has(family))
+    if ((!family || !new Set(["integer", "decimal", "varchar", "json", "boolean", "date", "timestamp"]).has(family))
       && !isUuidType(column)) {
-      return incompatible("a supported scalar schema");
+      return incompatible("a supported schema type");
     }
     if (typeof normalized.ratio !== "number" || !Number.isFinite(normalized.ratio)
       || normalized.ratio < 0 || normalized.ratio > 1) {
@@ -536,6 +542,13 @@ function validateScalarValue(column, value, temporalPrecision) {
       const bound = 10n ** BigInt(shape.precision) - 1n;
       if (units < -bound || units > bound) return failScalar("generation_rule_incompatible", `Decimal value exceeds decimal(${shape.precision},${shape.scale}) precision`);
       return { ok: true, value: formatDecimalUnits(units, shape.scale) };
+    }
+    case "json": {
+      try {
+        return { ok: true, value: normalizeJsonValue(value) };
+      } catch (error) {
+        return failScalar("generation_rule_incompatible", error instanceof Error ? error.message : String(error));
+      }
     }
     case "varchar": {
       if (typeof value !== "string") return failScalar("generation_rule_incompatible", "String value must be text; implicit coercion is not allowed");

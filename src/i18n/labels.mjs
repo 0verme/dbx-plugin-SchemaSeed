@@ -74,11 +74,12 @@ export function ruleKindLabel(kind, t, coreLabel = null) {
 /**
  * Rule editor field labels depend on the rule kind for a few keys (`start` /
  * `end` mean a date for `date_range` and a timestamp for `timestamp_range`).
- * @param {{ key: string, label?: string }} field
+ * @param {{ key: string, label?: string, labelKey?: string }} field
  * @param {string} ruleKind
  * @param {import("./index.mjs").Translator} t
  */
 export function ruleFieldLabel(field, ruleKind, t) {
+  if (field.labelKey && t.has(field.labelKey)) return t(field.labelKey);
   for (const key of [`ruleField.${ruleKind}.${field.key}`, `ruleField.${field.key}`]) {
     if (t.has(key)) return t(key);
   }
