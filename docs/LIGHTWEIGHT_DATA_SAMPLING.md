@@ -19,11 +19,11 @@ Sample evidence 不能替代或覆盖 schema facts：data type、varchar length�
 
 ## Temporal Metadata Resolver（非样本探测）
 
-时间精度补全与业务样本分析是两条独立职责路径。WorkBench 仅在结构化 precision 与明确声明精度都未知时，才可通过公开 `queryData()` 尝试补齐系统 Metadata：先用有界 `SELECT 1` 读取 Host 返回的公开 `dbType`；只有确认 `mysql` 且 TableContext 提供未歧义的 database/table/column scope，才发出针对 `information_schema.COLUMNS` 的 MySQL 查询。系统查询只返回列名、DATA_TYPE、COLUMN_TYPE 与 DATETIME_PRECISION，不读取业务字段值。
+时间精度补全与业务样本分析是两条独立职责路径。Workbench 仅在结构化 precision 与明确声明精度都未知时，才可通过公开 `queryData()` 尝试补齐系统 Metadata：先用有界 `SELECT 1` 读取 Host 返回的公开 `dbType`；确认 `mysql` 时，只有 database/table/column scope 安全且无歧义才查 `information_schema.COLUMNS`；确认 `postgres` / `postgresql` 时，要求明确的 database/schema/table/column scope 才查 PostgreSQL `information_schema.columns`。MySQL 结果须匹配目标列的 DATA_TYPE/COLUMN_TYPE；PostgreSQL 结果须匹配 timestamp 时区类别；两者仅将合法 `DATETIME_PRECISION` / `datetime_precision` 摘要传入 Plan，不读取业务字段值。
 
-公开 request shape 不包含 SQL bind 参数，因此 resolver fail-closed：仅接受 `[A-Za-z0-9_]` 范围内且长度不超过 256 的 scope/name 值；任何不安全名称或不匹配的 schema/database scope 都跳过系统查询。最多执行一次 dialect discovery 和一次 metadata SELECT；后者 `LIMIT 8`、Host `maxRows: 8`，两个请求的 `timeoutMs` 均不超过 3000 ms。只支持已由 Host 结果确认的 MySQL，不对未知、PostgreSQL、SQLite 或其他 dialect 发送 MySQL SQL。Workbench session 对最近使用的最多 32 个 table/schema key 以 LRU 缓存压缩后的精度/provenance，不保留原始 query rows。
+公开 request shape 不包含 SQL bind 参数，因此 resolver fail-closed：仅接受 `[A-Za-z0-9_]` 范围内且长度不超过 256 的 scope/name 值；MySQL 的显式 schema（若提供）必须与 database 一致；PostgreSQL 必须提供独立、明确的 schema。任何不安全名称或不完整 scope 都跳过 metadata 查询。最多执行一次 dialect discovery 和一次 metadata SELECT；后者 `LIMIT 8`、Host `maxRows: 8`，两个请求的 `timeoutMs` 均不超过 3000 ms。只支持 Host query result 已明确报告的 MySQL / PostgreSQL；SQLite、未知和其他 dialect 不会收到跨方言 catalog SQL。Workbench session 对最近使用的最多 32 个 table/schema key 以 LRU 缓存压缩后的精度/provenance，不保留原始 query rows。
 
-这条路径仍由 DBX 的 `host.data:read` permission、`capabilities.dataApi` 与每插件/连接 consent 控制；权限拒绝、无 capability、dialect 不匹配、system catalog 不可见、异常结果或超时都安全回退。没有绑定参数契约或严格 scope 时不尝试构造查询。该系统 Metadata 是授权读取的数据库声明事实，不是业务样本推断。
+这条路径仍由 DBX 的 `host.data:read` permission、`capabilities.dataApi` 与每插件/连接 consent 控制；权限拒绝、无 capability、dialect 不匹配、system catalog 不可见、异常结果或超时都安全回退。没有绑定参数契约或严格 scope 时不尝试构造查询。该系统 Metadata 是经授权读取的数据库声明事实，不是业务样本推断；自动化 Fixture 证明消费与 fallback 契约，不替代真实 DBX Host Runtime 验收。
 
 ## 候选字段与查询上限
 
