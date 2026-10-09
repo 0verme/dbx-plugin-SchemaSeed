@@ -1,6 +1,6 @@
 # Issue #82 — 时间字段精度元数据缺失修复
 
-状态：**IMPLEMENTED / RUNTIME_PENDING**。本记录区分自动化证据与真实 DBX Runtime 证据；没有取得 `bilibili.coupon_claims.checked_at` 的真实 Host 原始响应，不将其认定为唯一根因。
+状态：**IMPLEMENTED / WINDOWS_RUNTIME_CONFIRMED (user-confirmed) / MAC_RUNTIME_PENDING**。本记录区分自动化证据与真实 DBX Runtime 证据；没有取得 `bilibili.coupon_claims.checked_at` 的真实 Host 原始响应，不将其认定为唯一根因。
 
 ## 已证实的代码缺口
 
@@ -37,6 +37,8 @@ Fake Host 测试只证明插件消费契约和本地 fallback，不代表真实 
 
 ## Windows DBX Runtime 验收清单
 
+> 用户已确认 Issue #82 对应修复的 Windows DBX 手工验收通过。未提供逐项结果记录，因此以下原验收点不逐项标记为 PASS；该确认不代表 macOS 或本次其他 PR 的 Runtime 验收完成。
+
 - [ ] 安装该 Draft PR 构建的 frontend-only `.dbxp`，确认 DBX Host API 1.4 和 `host.data:read` permission。
 - [ ] 使用真实 MySQL TableContext 检查 `getTableMetadata()` 原始 `columns[].dataType` / `precision`；原始响应经授权后脱敏记录，不附带凭据或样本业务值。
 - [ ] 对 precision 缺失且声明无括号的目标 temporal 列，确认 Host consent 生效、公开 result `dbType=mysql` 后仅执行目标 `information_schema.COLUMNS` query；UI Plan source 应为 `system_metadata`，否则维持 Unknown/fallback。
@@ -46,5 +48,6 @@ Fake Host 测试只证明插件消费契约和本地 fallback，不代表真实 
 
 ## 未解决事项
 
-- 待 Windows DBX Host/MySQL 真机确认真实 `dbType`、`information_schema` 可见性、permission-denial/timeout 表现和真实目标列 precision。
+- 用户已确认 Windows DBX 手工验收通过；但该次真实 Host/MySQL 原始响应及逐项观测未存入仓库，故本记录不补写未经记录的 `dbType`、catalog 可见性、权限拒绝/超时或目标列 precision 细节。
+- macOS DBX Runtime 验收尚未确认完成。
 - 在取得合法脱敏的原始响应前，不断言 Issue 报告列的唯一根因，也不判断 DBX Host 是否返回错误 Metadata。
