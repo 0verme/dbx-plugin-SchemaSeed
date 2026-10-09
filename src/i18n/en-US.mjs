@@ -33,7 +33,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "empty.menuAction": "Generate test data",
   "empty.helper": "SchemaSeed reads the selected table structure automatically; you do not need to enter a database or table name.",
   "dataAccess.title": "Data access",
-  "dataAccess.description": "Real-data sampling requires DBX Host authorization, reads at most 100 rows from privacy-screened fields, and helps infer field rules.",
+  "dataAccess.description": "Real-data sampling is requested only after you click Generate; it requires DBX Host authorization, reads at most 100 rows from privacy-screened fields, and helps infer field rules.",
   "dataAccess.detailsSummary": "Learn more",
   "dataAccess.detailsDescription": "DBX Host manages authorization for each plugin and connection. Read-only sampling uses up to 16 privacy-screened candidate fields. When schema facts are insufficient, SchemaSeed may also read the target MySQL table's timestamp precision metadata. Raw samples exist only in memory for this inference and are never persisted or shown in previews, logs, or error messages; only safe field features, distributions, or code values are retained for inference. Sampling does not run when authorization is denied, the capability is unavailable, or a query fails.",
 
@@ -294,6 +294,8 @@ export const EN_US_MESSAGES = Object.freeze({
   "preview.caption.waitingContext": "Waiting for a valid DBX TableContext",
   "preview.caption.waitingPlan": "Waiting for generation settings",
   "preview.summary": "{rows} rows · seed {seed}",
+  "preview.empty.title": "Preview not generated yet",
+  "preview.empty.helper": "Adjust the generation settings, then click Generate to see test data.",
   "preview.pagination.ariaLabel": "Preview pagination",
   "preview.pagination.previous": "Previous",
   "preview.pagination.next": "Next",
@@ -314,8 +316,10 @@ export const EN_US_MESSAGES = Object.freeze({
 
   // Workbench status line.
   "status.loading.metadata": "Loading metadata",
+  "status.loading.plan": "Preparing generation settings",
   "status.loading.generation": "Generating",
-  "status.dirty": "Rules changed · Generate required",
+  "status.idle": "Waiting for preview",
+  "status.dirty": "Settings changed · Generate required",
   "status.ready": "Ready",
   "status.warning": "Warning · preview ready",
   "status.blocked": "Blocked",
@@ -323,11 +327,14 @@ export const EN_US_MESSAGES = Object.freeze({
   "status.empty": "Empty",
 
   // Preview / export state line.
-  "state.dirty": "Rules changed, so the previous Preview and Export are stale; generate the dataset again.",
+  "state.idle": "Adjust the generation settings, then click Generate to see test data.",
+  "state.dirty": "Generation settings changed, so the current Preview and Export are invalidated; click Generate to create data for the current settings.",
   "state.loading.metadata": "Reading the current table metadata through the DBX Host API…",
+  "state.loading.plan": "Preparing generation settings from the table schema…",
   "state.loading.generation": "Generating the synthetic data preview…",
   "state.blocked.metadataCapability": "This DBX runtime does not expose the Schema Metadata capability, so this table cannot be generated.",
-  "state.blocked.plan": "The current generation settings have blocking issues, so no data can be generated or exported. Resolve the issues shown below first.",
+  "state.blocked.plan": "The current plan has blocking issues, so Preview and Export are unavailable. Click Generate to revalidate (using authorized samples first when applicable); no data will be generated if the plan remains blocked. Resolve the issues below first.",
+  "state.blocked.plan.canGenerate": "The current plan has blocking issues. Click Generate to revalidate (using authorized samples first when applicable); no data will be generated or exported if the plan remains blocked. Resolve the issues below first.",
   "state.blocked.context": "The TableContext is invalid or its metadata is unavailable; reopen this Workbench from the DBX sidebar table context menu.",
   "state.error": "The Host API or Generation Runtime request failed.",
   "state.warning": "Preview is ready, but Core diagnostics contain warning / unsupported facts.",

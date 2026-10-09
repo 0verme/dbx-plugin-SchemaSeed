@@ -23,7 +23,9 @@ function previewCore(calls = []) {
   return async (schema, options) => {
     calls.push({ schema, options: structuredClone(options) });
     const plan = buildGenerationPlan(schema, options);
-    const generated = generateRows(plan);
+    const generated = options.validateOnly
+      ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+      : generateRows(plan);
     return JSON.parse(JSON.stringify({ plan, generated }));
   };
 }
@@ -46,7 +48,8 @@ async function generatedController(options = {}) {
     provider: productionProvider(options.columns),
     preview: previewCore(previewCalls),
   });
-  const view = await controller.setContext(BASE_CONTEXT);
+  await controller.setContext(BASE_CONTEXT);
+  const view = await controller.dispatch({ type: "generate" });
   return { controller, view, previewCalls };
 }
 

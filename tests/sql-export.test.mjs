@@ -51,7 +51,9 @@ function previewCore(calls = []) {
   return async (schema, options) => {
     calls.push({ schema, options: structuredClone(options) });
     const plan = buildGenerationPlan(schema, options);
-    const generated = generateRows(plan);
+    const generated = options.validateOnly
+      ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+      : generateRows(plan);
     return JSON.parse(JSON.stringify({ plan, generated }));
   };
 }
@@ -221,7 +223,10 @@ describe("INSERT SQL export reuses the current preview snapshot", () => {
   it("exports SQL, CSV and JSON from the same frozen dataset without regenerating", async () => {
     const previewCalls = [];
     const controller = controllerWith([{ name: "customer_id", dataType: "integer", nullable: false }], previewCalls);
-    const view = await controller.setContext({ connectionId: "connection-A", database: "app", schema: "public", table: "customer" });
+    await controller.setContext({ connectionId: "connection-A", database: "app", schema: "public", table: "customer" });
+    assert.equal(controller.getViewModel().status, "idle");
+    assert.throws(() => controller.prepareExport("sql"), (error) => error.code === "export_no_dataset");
+    const view = await controller.dispatch({ type: "generate" });
     assert.equal(view.status, "ready");
 
     const callsBeforeExport = previewCalls.length;
@@ -250,8 +255,12 @@ describe("INSERT SQL export reuses the current preview snapshot", () => {
     assert.equal(controller.prepareExport("sql").content, sql.content, "same seed keeps the same SQL");
     assert.deepEqual(regenerated.preview.rows, view.preview.rows);
 
-    await controller.dispatch({ type: "new-seed" });
-    assert.notEqual(controller.prepareExport("sql").content, sql.content, "a new seed changes the SQL like CSV / JSON");
+    const stale = await controller.dispatch({ type: "new-seed" });
+    assert.deepEqual(stale.preview.rows, []);
+    assert.equal(stale.export.enabled, false);
+    assert.throws(() => controller.prepareExport("sql"), (error) => error.code === "export_no_dataset");
+    await controller.dispatch({ type: "generate" });
+    assert.notEqual(controller.prepareExport("sql").content, sql.content, "a new seed changes the SQL like CSV / JSON after explicit generation");
   });
 
   it("keeps SQL export available for a warning preview and blocked for a blocked plan", async () => {
@@ -259,7 +268,9 @@ describe("INSERT SQL export reuses the current preview snapshot", () => {
       { name: "customer_id", dataType: "integer", nullable: false },
       { name: "display_name", dataType: "varchar", nullable: false, length: 24 },
     ]);
-    const warningView = await warningController.setContext({ connectionId: "connection-A", table: "customer" });
+    await warningController.setContext({ connectionId: "connection-A", table: "customer" });
+    assert.equal(warningController.getViewModel().status, "idle");
+    const warningView = await warningController.dispatch({ type: "generate" });
     assert.equal(warningView.status, "warning", "an inferred semantic candidate stays a non-blocking warning");
     assert.equal(warningView.export.enabled, true);
     assert.doesNotThrow(() => warningController.prepareExport("sql"));

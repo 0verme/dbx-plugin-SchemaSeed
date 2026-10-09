@@ -133,6 +133,9 @@
 .sswb-export-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
 .sswb-export-row > div { display: flex; flex-wrap: wrap; gap: 7px; }
 .sswb-export-row > span { color: var(--sswb-muted); font-size: 11px; }
+.sswb-preview-empty { padding: 16px; border: 1px solid #e2e7ec; color: var(--sswb-muted); font-size: 13px; }
+.sswb-preview-empty p { margin: 4px 0 0; }
+.sswb-preview-empty[hidden], .sswb-preview-scroll[hidden] { display: none; }
 .sswb-preview-scroll { max-height: min(55vh, 620px); border: 1px solid #e2e7ec; }
 .sswb-preview-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; color: var(--sswb-muted); font-size: 11px; }
 .sswb-preview-pagination[hidden] { display: none; }

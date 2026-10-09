@@ -28,7 +28,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "empty.menuAction": "生成测试数据",
   "empty.helper": "SchemaSeed 会自动读取所选表的结构，无需手动填写数据库或表名。",
   "dataAccess.title": "数据访问",
-  "dataAccess.description": "真实采样需经 DBX Host 授权，最多读取 100 行，仅用于字段规则推断。",
+  "dataAccess.description": "仅在点击“生成预览”后请求真实数据采样；需经 DBX Host 授权，最多读取 100 行，仅用于字段规则推断。",
   "dataAccess.detailsSummary": "了解详情",
   "dataAccess.detailsDescription": "DBX Host 按插件和连接管理授权。只读采样仅针对通过隐私筛选的候选字段（每次最多 16 列）；当表结构信息不足时，还可能读取目标 MySQL 表的时间精度元数据。原始样本只在本次内存处理中使用，不会持久化，也不会出现在预览、日志或错误信息中；系统仅保留安全的字段特征、分布或码值用于推断。拒绝授权、能力不可用或查询失败时不会采样。",
 
@@ -288,6 +288,8 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "preview.caption.waitingContext": "等待有效的 DBX 表上下文",
   "preview.caption.waitingPlan": "等待生成设置准备就绪",
   "preview.summary": "{rows} 行 · 种子 {seed}",
+  "preview.empty.title": "尚未生成预览数据",
+  "preview.empty.helper": "调整生成配置后，点击「生成预览」查看测试数据。",
   "preview.pagination.ariaLabel": "预览分页",
   "preview.pagination.previous": "上一页",
   "preview.pagination.next": "下一页",
@@ -308,8 +310,10 @@ export const ZH_CN_MESSAGES = Object.freeze({
 
   // Workbench status line.
   "status.loading.metadata": "正在读取表结构",
+  "status.loading.plan": "正在准备生成配置",
   "status.loading.generation": "正在生成",
-  "status.dirty": "规则已变更 · 需重新生成",
+  "status.idle": "等待生成预览",
+  "status.dirty": "配置已变更 · 需生成预览",
   "status.ready": "就绪",
   "status.warning": "警告 · 预览可用",
   "status.blocked": "无法生成",
@@ -317,11 +321,14 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "status.empty": "暂无数据",
 
   // Preview / export state line.
-  "state.dirty": "规则已更新，旧的预览与导出已失效；请重新生成当前规则的数据。",
+  "state.idle": "调整生成配置后，点击「生成预览」查看测试数据。",
+  "state.dirty": "生成配置已更新，当前预览与导出已失效；请点击「生成预览」生成当前配置的数据。",
   "state.loading.metadata": "正在通过 DBX Host API 读取当前表结构…",
+  "state.loading.plan": "正在根据表结构准备生成配置…",
   "state.loading.generation": "正在生成测试数据预览…",
   "state.blocked.metadataCapability": "当前 DBX runtime 未提供 Schema Metadata 能力，因此无法为这张表生成数据。",
-  "state.blocked.plan": "当前存在阻塞问题，暂时无法生成或导出测试数据。请先处理上方“问题诊断”中的阻塞项。",
+  "state.blocked.plan": "当前方案存在阻塞问题，预览和导出不可用。点击“生成预览”可重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据。请先处理下方诊断项。",
+  "state.blocked.plan.canGenerate": "当前方案存在阻塞问题。点击“生成预览”可重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据或开放导出。请先处理下方诊断项。",
   "state.blocked.context": "表上下文无效或表结构不可用；请从 DBX 侧边栏的表右键菜单重新打开本工作台。",
   "state.error": "Host API 或 Generation Runtime 请求失败。",
   "state.warning": "预览已生成，但 Core 诊断中包含警告或不支持的事实。",

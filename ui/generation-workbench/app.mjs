@@ -72,7 +72,8 @@ const WORKBENCH_MARKUP = `
         <p id="sswb-state-message" class="sswb-state-message" role="status"></p>
         <p id="sswb-safe-notice" class="sswb-safe-notice"></p>
         <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button><button id="sswb-preview-sql" class="sswb-button" type="button" data-sswb-preview-sql data-i18n="actions.previewSql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
-        <div class="sswb-scroll sswb-preview-scroll"><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
+        <div id="sswb-preview-empty" class="sswb-preview-empty" hidden><strong data-i18n="preview.empty.title"></strong><p data-i18n="preview.empty.helper"></p></div>
+        <div id="sswb-preview-scroll" class="sswb-scroll sswb-preview-scroll" hidden><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
         <nav id="sswb-preview-pagination" class="sswb-preview-pagination" aria-label="Preview pagination" hidden>
           <button id="sswb-preview-previous" class="sswb-button" type="button" data-preview-page="previous" data-i18n="preview.pagination.previous"></button>
           <span id="sswb-preview-page-info" aria-live="polite"></span>
@@ -377,6 +378,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     element("sswb-status").dataset.status = viewModel.status;
     element("sswb-state-message").textContent = stateMessage(viewModel, t);
     element("sswb-state-message").dataset.status = viewModel.status;
+    element("sswb-state-message").hidden = Boolean(viewModel.context && viewModel.plan
+      && ["idle", "dirty"].includes(viewModel.status));
     element("sswb-action-error").textContent = viewModel.actionError ? actionErrorMessage(viewModel.actionError, t) : "";
     element("sswb-action-error").hidden = !viewModel.actionError;
     const noticeKey = viewModel.safeSyntheticNoticeKey ?? "safety.notice";
@@ -390,8 +393,11 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     for (const control of root.querySelector(".sswb").querySelectorAll("button, input, select, textarea")) {
       if (control.id !== "sswb-ui-locale") control.disabled = viewModel.status === "loading";
     }
-    for (const control of root.querySelectorAll('[data-sswb-action="generate"], [data-sswb-action="regenerate-same-seed"], [data-sswb-action="new-seed"]')) {
-      control.disabled = viewModel.status === "loading" || viewModel.status === "blocked";
+    for (const control of root.querySelectorAll('[data-sswb-action="generate"], [data-sswb-action="regenerate-same-seed"]')) {
+      control.disabled = viewModel.status === "loading" || !viewModel.canGenerate;
+    }
+    for (const control of root.querySelectorAll('[data-sswb-action="new-seed"]')) {
+      control.disabled = viewModel.status === "loading" || !viewModel.context;
     }
     element("sswb-rule-state").textContent = ruleEditorStateMessage(viewModel, t);
     element("sswb-constraint-state").textContent = constraintEditorStateMessage(viewModel, t);
@@ -793,6 +799,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   function renderPreview(viewModel, t) {
     const header = element("sswb-preview-head");
     const body = element("sswb-preview-body");
+    const hasRows = viewModel.preview.rows.length > 0;
+    const hasPreparedPlan = Boolean(viewModel.plan);
+    const showEmptyState = Boolean(viewModel.context && hasPreparedPlan
+      && ["idle", "dirty", "error"].includes(viewModel.status));
+    element("sswb-preview-empty").hidden = !showEmptyState;
+    element("sswb-preview-scroll").hidden = !hasRows;
     header.replaceChildren();
     body.replaceChildren();
     element("sswb-preview-summary").textContent = previewSummary(viewModel, t);
