@@ -37,6 +37,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
 
   // Primary actions.
   "actions.generate": "生成预览",
+  "actions.previewSql": "预览 INSERT SQL",
   "actions.regenerateSameSeed": "使用相同种子重新生成",
   "actions.newSeed": "更换种子",
 
@@ -286,6 +287,8 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "preview.summary": "{rows} 行 · 随机种子 {seed} · 数据语言 {locale} · {profile}",
   "preview.readonly": "只读",
   "preview.null": "NULL",
+  "preview.sqlTitle": "INSERT SQL 预览",
+  "preview.sqlError": "无法生成 INSERT SQL 预览。请确认当前数据集有效后重试。",
 
   // Workbench status line.
   "status.loading.metadata": "正在读取表结构",

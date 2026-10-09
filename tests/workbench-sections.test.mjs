@@ -216,9 +216,11 @@ describe("Workbench markup disclosure contract", () => {
     }
   });
 
-  it("renders the three advanced sections as collapsed details and keeps Preview always visible", async () => {
+  it("renders advanced sections and the SQL preview as collapsed details while keeping data Preview visible", async () => {
     const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
-    assert.equal((markup.match(/<details\b/g) ?? []).length, 3, "only the advanced sections are disclosures");
+    assert.equal((markup.match(/<details\b/g) ?? []).length, 4, "three advanced sections and the optional SQL preview are disclosures");
+    assert.match(markup, /<details id="sswb-sql-details"[^>]*hidden>/, "SQL preview starts hidden");
+    assert.doesNotMatch(markup, /<details id="sswb-sql-details"[^>]*\bopen\b/, "SQL preview starts collapsed");
     for (const [section, detailsId, titleId] of [
       ["columns", "sswb-columns-details", "sswb-columns-title"],
       ["constraints", "sswb-constraints-details", "sswb-constraints-title"],

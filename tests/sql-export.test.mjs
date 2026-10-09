@@ -302,9 +302,12 @@ describe("INSERT SQL export i18n coverage", () => {
     assert.equal(zh("export.sql"), "导出 INSERT SQL");
     assert.equal(en("export.sql"), "Export INSERT SQL");
     assert.notEqual(zh("export.sql"), en("export.sql"));
+    assert.equal(zh("actions.previewSql"), "预览 INSERT SQL");
+    assert.equal(en("actions.previewSql"), "Preview INSERT SQL");
+    assert.notEqual(zh("preview.sqlError"), en("preview.sqlError"));
 
     for (const locale of [zh, en]) {
-      for (const key of ["export.sql", "export.error.export_no_table_reference", "export.error.export_serialization_failed"]) {
+      for (const key of ["export.sql", "actions.previewSql", "preview.sqlTitle", "preview.sqlError", "export.error.export_no_table_reference", "export.error.export_serialization_failed"]) {
         assert.equal(locale.has(key), true, `${locale.locale} localizes ${key}`);
       }
     }
