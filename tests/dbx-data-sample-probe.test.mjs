@@ -27,6 +27,14 @@ function schemaOf(columns, tableIdentity = "dbx:p_admin_user") {
   return normalizeTableSchema({ tableIdentity, columns }).schema;
 }
 
+function previewResult(schema, options) {
+  const plan = buildGenerationPlan(schema, options);
+  const generated = options.validateOnly
+    ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+    : generateRows(plan);
+  return { plan, generated };
+}
+
 function sampleTableSchema() {
   return schemaOf([
     { name: "display_name", dataType: "varchar", nullable: false, length: 128 },
@@ -808,12 +816,15 @@ test("controller reports metadata-only when there are no probe candidates", asyn
     provider: { async getTableMetadata() { return schema; } },
     async sampleProbe() { calls += 1; return { sampleUsed: true, evidence: [] }; },
     async preview(tableSchema, options) {
-      const plan = buildGenerationPlan(tableSchema, options);
-      return { plan, generated: generateRows(plan) };
+      return previewResult(tableSchema, options);
     },
   });
-  const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  let view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  assert.equal(view.status, "idle");
+  assert.equal(view.preview.rows.length, 0, "opening a table does not generate a preview");
   assert.equal(calls, 0);
+  view = await controller.dispatch({ type: "generate" });
+  assert.equal(calls, 0, "there are no probe candidates to sample");
   assert.equal(view.sampleUsed, false);
   assert.equal(view.sampleStatus.state, "not_attempted");
   assert.deepEqual(view.sampleStatus.fields, [{ column: "id", state: "skipped", reason: "not_selected" }]);
@@ -830,11 +841,11 @@ test("controller applies safe category profiles and shows their effective strate
       queryData: async () => ({ columns: [{ name: "category" }], rows: values.map((value) => [value]) }),
     }, sampleContext, sampleSchema, { includeStatus: true }),
     async preview(tableSchema, options) {
-      const plan = buildGenerationPlan(tableSchema, options);
-      return { plan, generated: generateRows(plan) };
+      return previewResult(tableSchema, options);
     },
   });
-  const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  const view = await controller.dispatch({ type: "generate" });
 
   assert.equal(view.sampleUsed, true);
   assert.equal(view.sampleStatus.state, "sampled");
@@ -878,6 +889,11 @@ test("controller carries field reports and replaces them per table while reusing
   });
 
   let view = await controller.setContext({ connectionId: "connection-A", table: "alpha" });
+  assert.equal(view.status, "idle");
+  assert.equal(view.sampleStatus.state, "pending");
+  assert.deepEqual(sampleCalls, [], "table open does not read sample rows");
+  view = await controller.dispatch({ type: "generate" });
+  assert.deepEqual(sampleCalls, ["alpha"]);
   assert.equal(view.sampleStatus.state, "sampled");
   assert.deepEqual(view.sampleStatus.fields.map((field) => field.column), ["display_name", "status"]);
   assert.equal(view.sampleStatus.fields[0].summaryKind, "chinese_name_pattern");
@@ -890,12 +906,19 @@ test("controller carries field reports and replaces them per table while reusing
   assert.doesNotMatch(JSON.stringify(view), /张三|李四|王小红|赵六|钱七/u);
 
   view = await controller.setContext({ connectionId: "connection-A", table: "beta" });
+  assert.equal(view.status, "idle");
+  assert.equal(view.sampleStatus.state, "pending");
+  assert.deepEqual(sampleCalls, ["alpha"], "switching tables does not sample automatically");
+  view = await controller.dispatch({ type: "generate" });
+  assert.deepEqual(sampleCalls, ["alpha", "beta"]);
   assert.equal(view.sampleStatus.state, "sampled");
   assert.deepEqual(view.sampleStatus.fields.map((field) => field.column), ["project_label"]);
   assert.equal(view.sampleStatus.fields[0].state, "insufficient");
   assert.doesNotMatch(JSON.stringify(view.sampleStatus), /display_name|chinese_name_pattern/u);
 
   view = await controller.setContext({ connectionId: "connection-A", table: "alpha" });
+  assert.equal(view.sampleStatus.state, "pending");
+  view = await controller.dispatch({ type: "generate" });
   assert.equal(view.sampleStatus.fields[0].column, "display_name");
   assert.deepEqual(sampleCalls, ["alpha", "beta"], "the report cache is scoped to the current table context");
 });
@@ -928,12 +951,15 @@ test("temporal sample ranges and NULL rates drive one consistent Preview/CSV/JSO
     translator: createI18n("en"),
     sampleProbe: ({ context: sampleContext, schema: sampleSchema }) => probeDbxDataSamples(host, sampleContext, sampleSchema),
     async preview(tableSchema, options) {
-      const plan = buildGenerationPlan(tableSchema, options);
-      return { plan, generated: generateRows(plan) };
+      return previewResult(tableSchema, options);
     },
   });
   let view = await controller.setContext({ ...context, table: "audit_events" });
+  assert.deepEqual(view.preview.rows, []);
+  assert.equal(controller.sampleEvidence.length, 0, "opening a table does not read sample rows");
   view = await controller.dispatch({ type: "update-controls", controls: { rowCount: 80, seed: "temporal-profile", locale: "en" } });
+  assert.deepEqual(view.preview.rows, []);
+  view = await controller.dispatch({ type: "generate" });
 
   assert.equal(view.sampleUsed, true);
   assert.equal(view.export.enabled, true);
@@ -995,24 +1021,34 @@ test("Workbench session probes a table once, caches summaries only, and never re
     },
     async preview(schema, options) {
       previewCalls.push(structuredClone(options));
-      const plan = buildGenerationPlan(schema, options);
-      return { plan, generated: generateRows(plan) };
+      return previewResult(schema, options);
     },
   });
 
   let view = await controller.setContext({ ...context, table: "alpha" });
-  assert.equal(sampleCalls.length, 1);
+  assert.equal(sampleCalls.length, 0, "table open does not read real sample rows");
+  assert.equal(view.sampleUsed, false);
+  assert.deepEqual(view.preview.rows, []);
+  view = await controller.dispatch({ type: "generate" });
+  assert.deepEqual(sampleCalls, ["alpha"]);
   assert.equal(view.sampleUsed, true);
   assert.equal(view.columns.find((column) => column.column === "display_name").confidenceKey, "medium");
-  assert.equal(Object.hasOwn(previewCalls[0].sampleEvidence[0], "values"), false);
-  assert.doesNotMatch(JSON.stringify(previewCalls[0].sampleEvidence), /张三|李四|王小红/);
+  const generatedOptions = previewCalls.find((options) => options.validateOnly !== true);
+  assert.equal(Object.hasOwn(generatedOptions.sampleEvidence[0], "values"), false);
+  assert.doesNotMatch(JSON.stringify(generatedOptions.sampleEvidence), /张三|李四|王小红/);
 
   view = await controller.dispatch({ type: "update-controls", controls: { rowCount: 5, seed: "new-seed", locale: "zh-CN" } });
   assert.equal(sampleCalls.length, 1);
+  assert.deepEqual(view.preview.rows, [], "configuration edits invalidate the old dataset without resampling");
   await controller.setContext({ ...context, table: "alpha" });
   assert.equal(sampleCalls.length, 1);
   await controller.setContext({ ...context, table: "beta" });
+  assert.equal(sampleCalls.length, 1, "table switches do not sample automatically");
+  await controller.dispatch({ type: "generate" });
+  assert.deepEqual(sampleCalls, ["alpha", "beta"]);
   await controller.setContext({ ...context, table: "alpha" });
+  assert.deepEqual(controller.getViewModel().preview.rows, []);
+  await controller.dispatch({ type: "generate" });
   assert.deepEqual(sampleCalls, ["alpha", "beta"], "returning to a table reuses the in-session sample evidence");
   assert.ok(previewCalls.every((options) => !JSON.stringify(options.sampleEvidence).includes("张三")));
 });
@@ -1035,16 +1071,18 @@ test("raw sample values never reach the Core preview, synthetic rows, or export"
     },
     async preview(tableSchema, options) {
       previewCalls.push(structuredClone(options));
-      const plan = buildGenerationPlan(tableSchema, options);
-      return { plan, generated: generateRows(plan) };
+      return previewResult(tableSchema, options);
     },
   });
-  const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  assert.equal(controller.getViewModel().export.enabled, false);
+  const view = await controller.dispatch({ type: "generate" });
   const privateValues = /张三|李四|王小红|赵六|钱七|ACTIVE|DISABLED|LOCKED|ADMIN|EDITOR|VIEWER/;
+  const generatedOptions = previewCalls.find((options) => options.validateOnly !== true);
 
   assert.equal(view.export.enabled, true);
-  assert.equal(Object.hasOwn(previewCalls[0].sampleEvidence[0], "values"), false);
-  assert.doesNotMatch(JSON.stringify(previewCalls[0].sampleEvidence), privateValues);
+  assert.equal(Object.hasOwn(generatedOptions.sampleEvidence[0], "values"), false);
+  assert.doesNotMatch(JSON.stringify(generatedOptions.sampleEvidence), privateValues);
   assert.doesNotMatch(JSON.stringify(view.preview.rows), privateValues);
   assert.doesNotMatch(controller.prepareExport("json").content, privateValues);
 });
@@ -1060,11 +1098,12 @@ test("sample probe failure falls back to a usable metadata-only Workbench previe
       throw new Error("PLUGIN_DATA_ACCESS_NOT_GRANTED: private sample details");
     },
     async preview(tableSchema, options) {
-      const plan = buildGenerationPlan(tableSchema, options);
-      return { plan, generated: generateRows(plan) };
+      return previewResult(tableSchema, options);
     },
   });
-  const view = await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  await controller.setContext({ connectionId: "connection-A", table: "audit_results" });
+  assert.equal(calls, 0, "sample read is deferred until explicit generation");
+  const view = await controller.dispatch({ type: "generate" });
   assert.equal(calls, 1);
   assert.equal(view.sampleUsed, false);
   assert.ok(view.preview.rows.length > 0);

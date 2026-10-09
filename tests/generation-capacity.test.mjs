@@ -81,12 +81,16 @@ test("DBX Workbench keeps the 50-row default and all 1000 rows in preview and ex
   const context = { connectionId: "test-connection", database: "test_db", schema: "public", table: "capacity_test" };
   let view = await controller.setContext(context);
   assert.equal(view.controls.rowCount, DEFAULT_GENERATION_ROW_COUNT);
-  assert.equal(view.preview.rows.length, DEFAULT_GENERATION_ROW_COUNT);
+  assert.deepEqual(view.preview.rows, []);
+  assert.equal(view.export.enabled, false);
 
   await controller.dispatch({ type: "update-rule", column: "id", rule: rules.id });
   await controller.dispatch({ type: "update-rule", column: "label", rule: rules.label });
   view = await controller.dispatch({ type: "update-controls", controls: { rowCount: 1_000, seed: "capacity-seed", locale: "en" } });
   assert.equal(view.plan.rowCount, 1_000);
+  assert.deepEqual(view.preview.rows, [], "the maximum row-count change does not auto-generate");
+  assert.equal(view.export.enabled, false);
+  view = await controller.dispatch({ type: "generate" });
   assert.equal(view.preview.rows.length, 1_000);
   assert.equal(new Set(view.preview.rows.map(({ id }) => id)).size, 1_000);
 
@@ -104,9 +108,13 @@ test("DBX Workbench keeps the 50-row default and all 1000 rows in preview and ex
   assert.deepEqual(sameSeed.preview.rows, view.preview.rows);
   nextSeed = "new-capacity-seed";
   const changedSeed = await controller.dispatch({ type: "new-seed" });
-  assert.notDeepEqual(changedSeed.preview.rows, sameSeed.preview.rows);
-  assert.equal(changedSeed.preview.rows.length, 1_000);
-  assert.deepEqual(JSON.parse(controller.prepareExport("json").content), changedSeed.preview.rows);
+  assert.equal(changedSeed.controls.seed, "new-capacity-seed");
+  assert.deepEqual(changedSeed.preview.rows, []);
+  assert.equal(changedSeed.export.enabled, false);
+  view = await controller.dispatch({ type: "generate" });
+  assert.notDeepEqual(view.preview.rows, sameSeed.preview.rows);
+  assert.equal(view.preview.rows.length, 1_000);
+  assert.deepEqual(JSON.parse(controller.prepareExport("json").content), view.preview.rows);
 });
 
 test("invalid Workbench input keeps the previous row count and reports explicit validation", async () => {
@@ -115,9 +123,13 @@ test("invalid Workbench input keeps the previous row count and reports explicit 
     preview: executeGenerationPreview,
   });
   await controller.setContext({ connectionId: "test-connection", table: "capacity_test" });
+  const generated = await controller.dispatch({ type: "generate" });
+  assert.equal(generated.preview.rows.length, DEFAULT_GENERATION_ROW_COUNT);
   for (const rowCount of [0, -1, 1.5, 1_001]) {
     const view = await controller.dispatch({ type: "update-controls", controls: { rowCount } });
     assert.equal(view.controls.rowCount, 50);
+    assert.deepEqual(view.preview.rows, generated.preview.rows, "rejected input leaves the last valid generated snapshot intact");
+    assert.equal(view.export.enabled, true);
     assert.match(view.actionError, /1 to 1000/u);
   }
 });

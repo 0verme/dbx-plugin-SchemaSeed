@@ -66,7 +66,9 @@ function metadataResponse(columns, fieldCapabilities = {
 function previewCore() {
   return async (schema, options) => {
     const plan = buildGenerationPlan(schema, options);
-    const generated = generateRows(plan);
+    const generated = options.validateOnly
+      ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+      : generateRows(plan);
     return JSON.parse(JSON.stringify({ plan, generated }));
   };
 }
@@ -187,7 +189,7 @@ describe("diagnostics localization: human copy", () => {
 });
 
 describe("diagnostics localization: Workbench state copy", () => {
-  const statuses = ["loading", "dirty", "ready", "warning", "blocked", "error"];
+  const statuses = ["idle", "loading", "dirty", "ready", "warning", "blocked", "error"];
   const states = ["ready", "dirty", "validating", "generating", "blocked", "warning", "error", "loading"];
 
   it("localizes every Workbench status and state line in both languages", () => {
@@ -213,8 +215,10 @@ describe("diagnostics localization: Workbench state copy", () => {
 
   it("localizes the blocked preview, export hint and constraint conflict messages", () => {
     const blocked = { status: "blocked", stage: "ready", diagnostics: [{ code: "varchar_length_unknown" }], plan: {}, export: { enabled: false } };
-    assert.equal(stateMessage(blocked, zh), "当前存在阻塞问题，暂时无法生成或导出测试数据。请先处理上方“问题诊断”中的阻塞项。");
-    assert.match(stateMessage(blocked, en), /generation settings have blocking issues/u);
+    assert.equal(stateMessage(blocked, zh), "当前方案存在阻塞问题，预览和导出不可用。点击“生成预览”可重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据。请先处理下方诊断项。");
+    assert.match(stateMessage(blocked, en), /plan has blocking issues/u);
+    assert.match(stateMessage({ ...blocked, canGenerate: true }, zh), /可重新校验/u);
+    assert.match(stateMessage({ ...blocked, canGenerate: true }, en), /revalidate/u);
     assert.match(exportStatusMessage(blocked, zh), /当前生成设置存在阻塞问题/u);
     assert.match(exportDisabledHint(blocked, zh), /无法导出/);
     assert.match(constraintEditorStateMessage({ constraintEditor: { state: "blocked" } }, zh), /生成约束或规则存在冲突/);
@@ -280,8 +284,10 @@ describe("diagnostics localization: blocking safety semantics are unchanged", ()
         translator,
       });
       const view = await controller.setContext(BASE_CONTEXT);
-      assert.equal(view.status, "warning", "only the non-blocking confirmation warning applies");
-      assert.equal(view.export.enabled, true, "a warning does not block export");
+      assert.equal(view.status, "idle", "the initial plan may contain a warning without generating data");
+      assert.equal(view.plan.status, "ready_with_warnings", "only the non-blocking confirmation warning applies");
+      assert.equal(view.export.enabled, false, "a warning does not make an ungenerated dataset exportable");
+      assert.deepEqual(view.preview.rows, []);
       const column = view.columns.find((entry) => entry.column === "customer_name");
       assert.equal(column.mappingStatusToken, "needsConfirmation");
       assert.equal(column.rule.kind, "varchar", "the schema-type fallback is retained; Person generation is not selected");

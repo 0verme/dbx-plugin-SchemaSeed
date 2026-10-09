@@ -29,11 +29,15 @@ function hostStub() {
 test("Workbench preview executes the shared Generation Core locally without Host invoke", async () => {
   const host = hostStub();
   const controller = createGenerationWorkbenchController(host.api);
-  const view = await controller.setContext(context);
+  let view = await controller.setContext(context);
 
+  assert.equal(view.status, "idle");
+  assert.deepEqual(view.preview.rows, []);
+  assert.deepEqual(view.preview.columns, ["customer_id", "display_name"]);
+  assert.equal(view.export.enabled, false);
+  view = await controller.dispatch({ type: "generate" });
   assert.ok(["ready", "warning"].includes(view.status));
   assert.equal(view.preview.rows.length, 50);
-  assert.deepEqual(view.preview.columns, ["customer_id", "display_name"]);
   assert.equal(view.export.enabled, true);
   assert.equal(view.sampleUsed, false, "unavailable Data API keeps generation metadata-only");
   assert.equal(host.invokeCalls(), 0);

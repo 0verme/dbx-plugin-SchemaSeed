@@ -46,16 +46,25 @@ function previewCore(calls = []) {
   return async (schema, options) => {
     calls.push({ schema, options: structuredClone(options) });
     const plan = buildGenerationPlan(schema, options);
-    const generated = generateRows(plan);
+    const generated = options.validateOnly
+      ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+      : generateRows(plan);
     return JSON.parse(JSON.stringify({ plan, generated }));
   };
+}
+
+function generationCalls(calls) {
+  return calls.filter((call) => call.options.validateOnly !== true);
 }
 
 function createController(options = {}) {
   return new DbxGenerationWorkbenchController({
     provider: options.provider ?? productionProvider(),
     preview: options.preview ?? previewCore(),
+    sampleProbe: options.sampleProbe,
+    temporalMetadataResolver: options.temporalMetadataResolver,
     seedFactory: options.seedFactory ?? (() => "fresh-seed"),
+    translator: options.translator,
   });
 }
 
@@ -74,27 +83,194 @@ function columnsResponse(table) {
 }
 
 describe("DBX Generation Workbench production controller", () => {
-  it("accepts direct TableContext, preserves optional scope, loads provider schema and previews Core output", async () => {
-    const calls = [];
-    const controller = createController({ provider: productionProvider({ calls }) });
+  it("loads TableContext and a validation-only plan on open without sampling or generating rows", async () => {
+    const metadataCalls = [];
+    const previewCalls = [];
+    let sampleCalls = 0;
+    const controller = createController({
+      provider: productionProvider({ calls: metadataCalls }),
+      preview: previewCore(previewCalls),
+      sampleProbe: async () => { sampleCalls += 1; return { sampleUsed: true, evidence: [] }; },
+    });
     const context = { connectionId: "connection-A", table: "customer", schema: "public" };
     const view = await controller.setContext(context);
 
-    assert.equal(view.status, "warning", "the inferred display_name mapping remains a Core warning until confirmed");
-    assert.deepEqual(calls, [{ connectionId: "connection-A", schema: "public", table: "customer" }]);
+    assert.equal(view.status, "idle");
+    assert.equal(view.plan.status, "ready_with_warnings", "the inferred display_name mapping remains a Core warning until confirmed");
+    assert.deepEqual(metadataCalls, [{ connectionId: "connection-A", schema: "public", table: "customer" }]);
     assert.deepEqual(view.context, context);
     assert.deepEqual(view.table, { database: null, schema: "public", table: "customer" });
     assert.equal(view.plan.rowCount, 50);
+    assert.equal(view.controls.seed, "demo");
     assert.equal(view.columns[0].generationRule.kind, "auto");
     assert.ok(view.columns[0].ruleChoices.some((choice) => choice.kind === "sequence"));
-    assert.equal(view.preview.rows.length, 50);
+    assert.deepEqual(view.preview.rows, []);
     assert.deepEqual(view.preview.columns, ["customer_id", "display_name"]);
-    assert.equal(view.export.enabled, true);
-    assert.equal(view.sampleUsed, false, "a missing sample probe keeps the Workbench in metadata-only mode");
+    assert.equal(view.export.enabled, false);
+    assert.equal(view.sampleUsed, false);
+    assert.equal(sampleCalls, 0, "opening a table does not query real sample rows");
+    assert.equal(generationCalls(previewCalls).length, 0, "opening a table validates a plan but never calls the Generator");
+    assert.ok(previewCalls.every((call) => call.options.validateOnly === true));
     assert.equal(view.columns[0].column, "customer_id");
     assert.equal(view.columns[0].rule.kind, "integer");
     assert.equal(view.ruleEditor.issue, 32);
-    assert.equal(Object.hasOwn(calls[0], "table"), true, "provider receives TableContext itself, not a { table: ... } envelope");
+    assert.equal(Object.hasOwn(metadataCalls[0], "table"), true, "provider receives TableContext itself, not a { table: ... } envelope");
+  });
+
+  it("configuration edits invalidate Preview/Export without invoking the Generator", async () => {
+    const previewCalls = [];
+    let sampleCalls = 0;
+    const controller = createController({
+      preview: previewCore(previewCalls),
+      sampleProbe: async () => { sampleCalls += 1; return { sampleUsed: false, evidence: [] }; },
+    });
+    let view = await controller.setContext(BASE_CONTEXT);
+    assert.equal(generationCalls(previewCalls).length, 0);
+    assert.equal(sampleCalls, 0);
+
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(generationCalls(previewCalls).length, 1);
+    assert.equal(sampleCalls, 1, "authorized sample inference is deferred until the explicit generation action");
+    assert.equal(view.export.enabled, true);
+
+    const changes = [
+      { type: "update-controls", controls: { rowCount: 12 } },
+      { type: "update-controls", controls: { locale: "en" } },
+      { type: "new-seed" },
+      { type: "update-rule", column: "customer_id", rule: { kind: "sequence", start: 5, step: 2 } },
+    ];
+    for (const action of changes) {
+      view = await controller.dispatch(action);
+      assert.deepEqual(view.preview.rows, [], `${action.type} clears the previous preview`);
+      assert.equal(view.export.enabled, false, `${action.type} disables stale export`);
+      assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_no_dataset");
+      assert.equal(generationCalls(previewCalls).length, 1, `${action.type} does not invoke the Generator`);
+    }
+    assert.equal(sampleCalls, 1, "configuration edits reuse the bounded session summary rather than sampling again");
+
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(generationCalls(previewCalls).length, 2);
+    assert.equal(view.preview.rows.length, 12);
+    assert.equal(view.controls.locale, "en");
+    assert.equal(view.controls.seed, "fresh-seed");
+
+    const beforeLocaleSwitch = structuredClone(view.preview.rows);
+    controller.setTranslator(Object.assign((key) => key, { locale: "en-US" }));
+    assert.equal(generationCalls(previewCalls).length, 2, "UI locale changes are presentation-only");
+    assert.deepEqual(controller.getViewModel().preview.rows, beforeLocaleSwitch);
+  });
+
+  it("coalesces rapid explicit Generate actions into one in-flight task", async () => {
+    const pending = deferred();
+    const started = deferred();
+    const validation = previewCore();
+    const calls = [];
+    const controller = createController({
+      preview: async (schema, options) => {
+        if (options.validateOnly) return validation(schema, options);
+        calls.push({ schema, options: structuredClone(options) });
+        started.resolve();
+        return pending.promise;
+      },
+    });
+    await controller.setContext(BASE_CONTEXT);
+
+    const first = controller.dispatch({ type: "generate" });
+    const second = controller.dispatch({ type: "generate" });
+    await started.promise;
+    assert.equal(calls.length, 1);
+    assert.equal(controller.getViewModel().status, "loading");
+    const generated = await previewCore()(calls[0].schema, calls[0].options);
+    pending.resolve(generated);
+    const [firstView, secondView] = await Promise.all([first, second]);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(firstView.preview.rows, secondView.preview.rows);
+    assert.equal(firstView.export.enabled, true);
+  });
+
+  it("drops a late A generation after switching context to B", async () => {
+    const pending = deferred();
+    const started = deferred();
+    const validation = previewCore();
+    let alphaSchema;
+    let alphaOptions;
+    const controller = createController({
+      preview: async (schema, options) => {
+        if (options.validateOnly) return validation(schema, options);
+        if (schema.columns[0].name === "alpha_id") {
+          alphaSchema = schema;
+          alphaOptions = structuredClone(options);
+          started.resolve();
+          return pending.promise;
+        }
+        return validation(schema, options);
+      },
+    });
+    await controller.setContext({ connectionId: "conn-A", database: "db", schema: "s", table: "alpha" });
+    const generatingA = controller.dispatch({ type: "generate" });
+    await started.promise;
+
+    let view = await controller.setContext({ connectionId: "conn-B", database: "db", schema: "s", table: "beta" });
+    assert.equal(view.status, "idle");
+    assert.equal(view.context.connectionId, "conn-B");
+    assert.equal(view.context.table, "beta");
+    assert.deepEqual(view.preview.rows, []);
+    assert.deepEqual(view.preview.columns, ["beta_id"]);
+    assert.equal(view.export.enabled, false);
+
+    pending.resolve(await previewCore()(alphaSchema, alphaOptions));
+    await generatingA;
+    view = controller.getViewModel();
+    assert.equal(view.context.table, "beta");
+    assert.deepEqual(view.preview.rows, []);
+    assert.deepEqual(view.preview.columns, ["beta_id"]);
+    assert.equal(view.export.enabled, false);
+  });
+
+  it("does not reuse a same-named table preview across different connections", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    let view = await controller.setContext({ connectionId: "conn-A", database: "db", table: "orders" });
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.preview.rows.length, 50);
+    assert.equal(generationCalls(calls).length, 1);
+
+    view = await controller.setContext({ connectionId: "conn-B", database: "db", table: "orders" });
+    assert.equal(view.context.connectionId, "conn-B");
+    assert.equal(view.context.table, "orders");
+    assert.equal(view.status, "idle");
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
+    assert.equal(generationCalls(calls).length, 1);
+  });
+
+  it("clears failed generation output and permits an explicit retry", async () => {
+    const calls = [];
+    const actualPreview = previewCore(calls);
+    let generationAttempts = 0;
+    const controller = createController({
+      preview: async (schema, options) => {
+        if (options.validateOnly) return actualPreview(schema, options);
+        generationAttempts += 1;
+        if (generationAttempts === 1) throw new Error("temporary generator failure");
+        return actualPreview(schema, options);
+      },
+    });
+    await controller.setContext(BASE_CONTEXT);
+    let view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "error");
+    assert.match(view.error, /temporary generator failure/u);
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
+    assert.throws(() => controller.prepareExport("sql"), (error) => error.code === "export_no_dataset");
+
+    view = await controller.dispatch({ type: "update-controls", controls: { rowCount: 7 } });
+    assert.equal(view.status, "dirty");
+    assert.deepEqual(view.preview.rows, []);
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.preview.rows.length, 7);
+    assert.equal(generationAttempts, 2);
+    assert.equal(view.export.enabled, true);
   });
 
   it("invalidates context, metadata, plan and preview for A → B → C table switches", async () => {
@@ -102,6 +278,9 @@ describe("DBX Generation Workbench production controller", () => {
     const controller = createController({ provider: productionProvider({ calls }) });
     let view = await controller.setContext({ connectionId: "conn", table: "alpha" });
     assert.deepEqual(view.preview.columns, ["alpha_id"]);
+    assert.deepEqual(view.preview.rows, []);
+    view = await controller.dispatch({ type: "generate" });
+    assert.ok(view.preview.rows.every((row) => Object.hasOwn(row, "alpha_id")));
 
     const switchingToB = controller.setContext({ connectionId: "conn", database: "db", table: "beta" });
     view = controller.getViewModel();
@@ -111,11 +290,17 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(controller.schema, null, "table A metadata is invalidated immediately");
     assert.equal(view.export.enabled, false, "table A preview cannot be exported as table B");
     view = await switchingToB;
+    assert.equal(view.status, "idle");
     assert.deepEqual(view.preview.columns, ["beta_id"]);
+    assert.deepEqual(view.preview.rows, []);
     assert.equal(view.context.table, "beta");
+    assert.equal(view.export.enabled, false);
+    view = await controller.dispatch({ type: "generate" });
+    assert.ok(view.preview.rows.every((row) => Object.hasOwn(row, "beta_id")));
 
     view = await controller.setContext({ connectionId: "conn", database: "db", schema: "s3", table: "gamma" });
     assert.deepEqual(view.preview.columns, ["gamma_id"]);
+    assert.deepEqual(view.preview.rows, []);
     assert.equal(view.context.table, "gamma");
     assert.deepEqual(calls.map((call) => call.table), ["alpha", "beta", "gamma"]);
   });
@@ -155,17 +340,25 @@ describe("DBX Generation Workbench production controller", () => {
     view = controller.getViewModel();
     assert.equal(view.context.table, "gamma");
     assert.deepEqual(view.preview.columns, ["gamma_id"]);
-    assert.ok(view.preview.rows.every((row) => Object.hasOwn(row, "gamma_id")));
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.status, "idle");
   });
 
-  it("replays the same seed, changes a new seed, and exports only the current preview dataset", async () => {
+  it("replays the same seed, changes a new seed without generating, and exports only the current snapshot", async () => {
     const previewCalls = [];
     const controller = createController({ preview: previewCore(previewCalls) });
     let view = await controller.setContext(BASE_CONTEXT);
+    assert.equal(generationCalls(previewCalls).length, 0);
+    assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_no_dataset");
+
+    view = await controller.dispatch({ type: "generate" });
     const firstRows = structuredClone(view.preview.rows);
     const firstDataset = controller.currentDataset;
+    const generationCount = generationCalls(previewCalls).length;
     const sameSeed = await controller.dispatch({ type: "regenerate-same-seed" });
+    assert.equal(sameSeed.controls.seed, "demo");
     assert.deepEqual(sameSeed.preview.rows, firstRows);
+    assert.equal(generationCalls(previewCalls).length, generationCount + 1);
 
     const callsBeforeExport = previewCalls.length;
     const datasetBeforeExport = controller.currentDataset;
@@ -180,6 +373,11 @@ describe("DBX Generation Workbench production controller", () => {
 
     view = await controller.dispatch({ type: "new-seed" });
     assert.equal(view.controls.seed, "fresh-seed");
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
+    assert.equal(generationCalls(previewCalls).length, generationCount + 1, "changing seed never generates rows");
+    assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_no_dataset");
+    view = await controller.dispatch({ type: "generate" });
     assert.notDeepEqual(view.preview.rows, firstRows);
     assert.deepEqual(JSON.parse(controller.prepareExport("json").content), view.preview.rows);
   });
@@ -217,14 +415,17 @@ describe("DBX Generation Workbench production controller", () => {
       return temporalPrecisionMetadata;
     };
 
-    const view = await controller.setContext({ connectionId: "connection-A", database: "sales", table: "events" });
+    let view = await controller.setContext({ connectionId: "connection-A", database: "sales", table: "events" });
     assert.equal(temporalCalls.length, 1);
+    assert.equal(view.status, "idle");
     assert.equal(view.columns[0].temporalPrecision.declaration.source, "system_metadata");
     assert.deepEqual(view.columns[0].temporalPrecision.generation, { value: 0, source: "system_metadata" });
     assert.equal(view.diagnostics.some((entry) => entry.code === "timestamp_precision_unknown"), false);
-    assert.ok(view.preview.rows.every((row) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(row.created_at)));
+    assert.deepEqual(view.preview.rows, []);
     assert.equal(previewCalls.at(-1).options.temporalPrecisionMetadata.created_at.value, 0);
 
+    view = await controller.dispatch({ type: "generate" });
+    assert.ok(view.preview.rows.every((row) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(row.created_at)));
     const same = await controller.dispatch({ type: "regenerate-same-seed" });
     assert.deepEqual(same.preview.rows, view.preview.rows);
     assert.equal(temporalCalls.length, 1, "changing generation actions does not repeat metadata lookup");
@@ -245,6 +446,7 @@ describe("DBX Generation Workbench production controller", () => {
     const calls = [];
     const controller = createController({ preview: previewCore(calls) });
     let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "generate" });
     const before = view.preview.rows;
     assert.equal(view.columns[0].ruleChoices.some((choice) => choice.kind === "sequence"), true);
 
@@ -360,8 +562,8 @@ describe("DBX Generation Workbench production controller", () => {
     assert.deepEqual(controller.rules, {});
     assert.deepEqual(controller.constraints, []);
     assert.equal(view.columns[0].generationRule.kind, "auto");
-    assert.ok(view.preview.rows.every((row) => Object.hasOwn(row, "beta_id")));
-    assert.equal(view.export.enabled, true);
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
   });
 
   it("represents invalid direct context and unavailable metadata as blocked, with provider diagnostics", async () => {
@@ -420,9 +622,13 @@ describe("DBX Generation Workbench production controller", () => {
         }).schema;
       },
     };
-    view = await createController({ provider: warningProvider }).setContext(BASE_CONTEXT);
-    assert.equal(view.status, "warning");
+    const warningController = createController({ provider: warningProvider });
+    view = await warningController.setContext(BASE_CONTEXT);
+    assert.equal(view.status, "idle");
     assert.equal(view.plan.status, "ready_with_warnings");
+    assert.deepEqual(view.preview.rows, []);
+    view = await warningController.dispatch({ type: "generate" });
+    assert.equal(view.status, "warning");
     assert.equal(view.preview.rows.length, 50);
     assert.equal(view.export.enabled, true);
     assert.ok(view.diagnostics.some((diagnostic) => diagnostic.code === "nullability_unknown"));

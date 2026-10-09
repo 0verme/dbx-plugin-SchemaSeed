@@ -269,8 +269,10 @@ describe("Workbench markup disclosure contract", () => {
 
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
+    assert.match(zh("columns.sampleHint.pending"), /打开表时不会读取真实样本/u);
     assert.match(zh("columns.sampleHint.sampled"), /部分字段已分析/u);
     assert.match(zh("columns.sampleHint.permission_denied"), /未授权/u);
+    assert.match(en("columns.sampleHint.pending"), /opening a table does not read real samples/u);
     assert.match(en("columns.sampleHint.sampled"), /some fields/u);
     assert.match(en("columns.sampleHint.permission_denied"), /did not authorize/u);
     assert.match(zh("columns.sampleFieldStatus.namePatternUsed", { matchedCount: 4, sampleCount: 4 }), /格式无法区分实名、昵称/u);
@@ -279,6 +281,20 @@ describe("Workbench markup disclosure contract", () => {
     const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
     assert.match(stylesheet, /\.sswb-section-hint/);
     assert.doesNotMatch(stylesheet.match(/\.sswb-section-hint[^}]*}/)?.[0] ?? "", /warning|#[89a-f][0-9a-f]{5}/i);
+  });
+
+  it("shows a localized empty preview until the explicit Generate action runs", async () => {
+    const source = await readFile(UI_SOURCE, "utf8");
+    const markup = markupOf(source);
+    assert.match(markup, /<button[^>]*data-sswb-action="generate"[^>]*data-i18n="actions\.generate"/u);
+    assert.match(markup, /<div id="sswb-preview-empty" class="sswb-preview-empty" hidden>[\s\S]*data-i18n="preview\.empty\.title"[\s\S]*data-i18n="preview\.empty\.helper"[\s\S]*<\/div>/u);
+    assert.match(source, /const showEmptyState = Boolean\(viewModel\.context && hasPreparedPlan\s+&& \["idle", "dirty", "error"\]\.includes\(viewModel\.status\)\)/u);
+    assert.match(source, /control\.disabled = viewModel\.status === "loading" \|\| !viewModel\.canGenerate/u);
+    assert.match(source, /control\.disabled = viewModel\.status === "loading" \|\| !viewModel\.context/u);
+    assert.equal(createI18n("zh-CN")("preview.empty.title"), "尚未生成预览数据");
+    assert.equal(createI18n("en-US")("preview.empty.title"), "Preview not generated yet");
+    assert.match(createI18n("zh-CN")("preview.empty.helper"), /点击「生成预览」查看测试数据/u);
+    assert.match(createI18n("en-US")("preview.empty.helper"), /click Generate to see test data/u);
   });
 
   it("keeps narrow-screen context and parameters compact without removing controls", async () => {

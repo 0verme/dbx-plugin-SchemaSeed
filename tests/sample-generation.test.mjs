@@ -273,10 +273,14 @@ test("preview and CSV/JSON/INSERT SQL exports serialize the same sample-derived 
     }, context, sampleSchema),
     async preview(tableSchema, options) {
       const plan = buildGenerationPlan(tableSchema, options);
-      return { plan, generated: generateRows(plan) };
+      const generated = options.validateOnly
+        ? { rows: [], diagnostics: [...plan.diagnostics], status: plan.status }
+        : generateRows(plan);
+      return { plan, generated };
     },
   });
-  const view = await controller.setContext(tableContext);
+  await controller.setContext(tableContext);
+  const view = await controller.dispatch({ type: "generate" });
   const generated = generateRows(controller.plan);
   const expected = createExportDataset(controller.plan, generated, { table: tableContext });
   assert.deepEqual(view.preview.rows, generated.rows);
