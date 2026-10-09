@@ -27,10 +27,15 @@ export const EN_US_MESSAGES = Object.freeze({
   "context.database": "Database",
   "context.schema": "Schema",
   "context.table": "Table",
+  "empty.title": "Select a table to get started",
+  "empty.description": "No database table context is available. Find the target table in the DBX sidebar database tree and open its context menu.",
+  "empty.path": "Database connection → table → right-click →",
+  "empty.menuAction": "Generate test data",
+  "empty.helper": "SchemaSeed reads the selected table structure automatically; you do not need to enter a database or table name.",
   "dataAccess.title": "Data access",
-  "dataAccess.description": "Real-data sampling requires DBX Host authorization, reads at most 100 rows, and is used only to infer field rules.",
+  "dataAccess.description": "Real-data sampling requires DBX Host authorization, reads at most 100 rows from privacy-screened fields, and helps infer field rules.",
   "dataAccess.detailsSummary": "Learn more",
-  "dataAccess.detailsDescription": "DBX Host manages authorization for each plugin and connection. Read-only sampling uses only privacy-screened candidate fields (up to 16 columns per request). Raw samples exist only in memory for this inference and are never persisted or shown in previews, logs, or error messages; only safe field features, distributions, or code values are retained for inference. Sampling does not run when authorization is denied, the capability is unavailable, or a query fails.",
+  "dataAccess.detailsDescription": "DBX Host manages authorization for each plugin and connection. Read-only sampling uses up to 16 privacy-screened candidate fields. When schema facts are insufficient, SchemaSeed may also read the target MySQL table's timestamp precision metadata. Raw samples exist only in memory for this inference and are never persisted or shown in previews, logs, or error messages; only safe field features, distributions, or code values are retained for inference. Sampling does not run when authorization is denied, the capability is unavailable, or a query fails.",
 
   // Dataset controls.
   "controls.rows": "Rows (1–1000)",
@@ -297,6 +302,15 @@ export const EN_US_MESSAGES = Object.freeze({
   "preview.null": "NULL",
   "preview.sqlTitle": "INSERT SQL preview",
   "preview.sqlError": "The INSERT SQL preview could not be prepared. Check that the current dataset is valid, then try again.",
+  "preview.sqlMeta": "{rows} rows · Target table {table}",
+  "preview.sqlCodeLabel": "Read-only SQL content",
+  "preview.sqlCopy": "Copy SQL",
+  "preview.sqlCopying": "Copying SQL…",
+  "preview.sqlCopied": "SQL copied to the clipboard.",
+  "preview.sqlCopyFailed": "Copy failed: this WebView could not access the clipboard.",
+  "preview.sqlExport": "Export SQL",
+  "preview.sqlClose": "Close",
+  "preview.sqlEmpty": "The current SQL content is empty and cannot be previewed or exported.",
 
   // Workbench status line.
   "status.loading.metadata": "Loading metadata",
@@ -429,9 +443,9 @@ export const EN_US_DIAGNOSTICS = Object.freeze({
     action: "Provide precision and scale, or re-read metadata once DBX returns complete column facts.",
   },
   timestamp_precision_unknown: {
-    title: "The timestamp precision is unknown",
-    description: "DBX did not return fractional-second precision for column {column}, so SchemaSeed cannot prove that generated timestamps fit the column.",
-    action: "Re-read metadata once DBX returns precision for this column, or choose a generation rule that does not depend on it.",
+    title: "The declared timestamp precision is unknown",
+    description: "Neither structured metadata, an explicit supported temporal type declaration, nor authorized system metadata confirmed fractional-second precision for column {column}. The preview may use a sample-derived format or a 3-digit fallback; neither claims the database declaration.",
+    action: "Use a DBX Host that exposes the relevant metadata, or keep the warning and verify the target column before applying generated data.",
   },
   invalid_length: {
     title: "The configured length is not a usable value",

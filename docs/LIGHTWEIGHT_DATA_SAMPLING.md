@@ -8,7 +8,7 @@ SchemaSeed 先通过 Host API 1.3 `getTableMetadata` 读取 schema，再运行�
 schema metadata → existing inference → uncertain eligible columns → sample evidence → refreshed plan
 ```
 
-Sample evidence 不能替代或覆盖 schema facts：data type、varchar length、numeric precision/scale、nullable、default 和 timestamp precision 均以 metadata 为准。标准 temporal profile 记录 observed min/max、fractional precision、`timestamp`/`timestamptz` timezone semantics 及 NULL count/rate；受限 temporal profile 只记录可解析计数、合法 observed precision、timezone semantics 与 NULL count/rate，不记录 observed min/max。已知 schema precision 始终优先；`timestamp_precision_unknown` 仍表示 metadata 缺失，合法样本精度仅决定预览格式，不构成数据库 precision 保证。受限 profile 使用原 schema fallback 时间范围，不从样本值构造边界。
+Sample evidence 不能替代或覆盖 schema facts：data type、varchar length、numeric precision/scale、nullable、default 和已确认的 temporal precision 均优先于样本。时间精度依次来自结构化 Host `precision`、显式合法 temporal type declaration、经授权的 system metadata；样本仅作为观测格式证据。标准 temporal profile 记录 observed min/max、fractional precision、`timestamp`/`timestamptz` timezone semantics 及 NULL count/rate；受限 temporal profile 只记录可解析计数、合法 observed precision、timezone semantics 与 NULL count/rate，不记录 observed min/max。样本精度不等于声明精度；如果声明仍未知，`timestamp_precision_unknown` 会保留，受限 profile 使用原 schema fallback 时间范围，不从样本值构造边界。
 
 ## Host API 边界
 
@@ -16,6 +16,14 @@ Sample evidence 不能替代或覆盖 schema facts：data type、varchar length�
 - Workbench 在 `window.dbxPlugin.ready` 后读取 `capabilities.dataApi`，并只调用 `window.dbxPlugin.queryData(...)`。
 - 请求使用当前 TableContext 的 `connectionId` 与可选 `database` / `schema`；不获取凭据、连接串、driver、pool，不创建第二连接或自行 reconnect。
 - 首次按插件/连接的 consent 由 DBX Host 显示和管理。拒绝、能力缺失、timeout 或 query error 都退回 metadata-only；SchemaSeed 不增加第二个授权 UI。
+
+## Temporal Metadata Resolver（非样本探测）
+
+时间精度补全与业务样本分析是两条独立职责路径。WorkBench 仅在结构化 precision 与明确声明精度都未知时，才可通过公开 `queryData()` 尝试补齐系统 Metadata：先用有界 `SELECT 1` 读取 Host 返回的公开 `dbType`；只有确认 `mysql` 且 TableContext 提供未歧义的 database/table/column scope，才发出针对 `information_schema.COLUMNS` 的 MySQL 查询。系统查询只返回列名、DATA_TYPE、COLUMN_TYPE 与 DATETIME_PRECISION，不读取业务字段值。
+
+公开 request shape 不包含 SQL bind 参数，因此 resolver fail-closed：仅接受 `[A-Za-z0-9_]` 范围内且长度不超过 256 的 scope/name 值；任何不安全名称或不匹配的 schema/database scope 都跳过系统查询。最多执行一次 dialect discovery 和一次 metadata SELECT；后者 `LIMIT 8`、Host `maxRows: 8`，两个请求的 `timeoutMs` 均不超过 3000 ms。只支持已由 Host 结果确认的 MySQL，不对未知、PostgreSQL、SQLite 或其他 dialect 发送 MySQL SQL。Workbench session 对最近使用的最多 32 个 table/schema key 以 LRU 缓存压缩后的精度/provenance，不保留原始 query rows。
+
+这条路径仍由 DBX 的 `host.data:read` permission、`capabilities.dataApi` 与每插件/连接 consent 控制；权限拒绝、无 capability、dialect 不匹配、system catalog 不可见、异常结果或超时都安全回退。没有绑定参数契约或严格 scope 时不尝试构造查询。该系统 Metadata 是授权读取的数据库声明事实，不是业务样本推断。
 
 ## 候选字段与查询上限
 
@@ -33,11 +41,11 @@ Probe 构造 `SELECT` 时只包含通过隐私筛选的候选字段（最多 16 
 
 ## 证据与生成
 
-原始 rows 只在 UI-side analyzer 的本次调用内存中短暂使用。Probe 生成的 profile 包括：姓名/邮箱/手机号的 pattern 计数；类别的 sample/distinct 计数及可选安全 label/frequency；numeric min/max/zeroCount；标准 temporal 的 observed min/max、precision、timezone semantics、NULL count/rate；受限 temporal 的 precision、timezone semantics、NULL count/rate 与可解析计数；filename suffix/frequency。Temporal profile 至少需要 3 行。标准 profile 仅在所有非 NULL 时间值均可按 schema 类型解析时提供范围；受限 profile 从不计算或返回范围，只将可解析值用于归纳格式精度。全 NULL 或不可解析样本不会伪造 precision，但可保留有效的 NULL 统计。
+原始业务样本 rows 只在 UI-side analyzer 的本次调用内存中短暂使用；Temporal Metadata Resolver 只保留经过验证的 schema precision/provenance。Probe 生成的 profile 包括：姓名/邮箱/手机号的 pattern 计数；类别的 sample/distinct 计数及可选安全 label/frequency；numeric min/max/zeroCount；标准 temporal 的 observed min/max、precision、timezone semantics、NULL count/rate；受限 temporal 的 precision、timezone semantics、NULL count/rate 与可解析计数；filename suffix/frequency。Temporal profile 至少需要 3 行。标准 profile 仅在所有非 NULL 时间值均可按 schema 类型解析时提供范围；受限 profile 从不计算或返回范围，只将可解析值用于归纳格式精度。全 NULL 或不可解析样本不会伪造 precision，但可保留有效的 NULL 统计。
 
 传入 Generation Core 的只包含字段名和有界 profile：类别 label 只有在列和值都通过 guard（短 lowercase ASCII、重复低基数、非敏感/非标识符）时保留，除此之外不携带类别原值；numeric decimal bounds 保留 exact decimal string；filename 仅保留扩展名；敏感 temporal profile 只携带 precision、timezone semantics、计数和 NULL 统计，不含真实时间值或 min/max。姓名/邮箱/手机号的 pattern evidence 只携带匹配计数，实际输出继续使用 SchemaSeed Safe Synthetic generator。允许通过类别 guard 的短 label 在合成结果中按观察频率重复出现，这是为保持类别分布而设的明确例外；其余原始行、自由文本、敏感值和文件名 stem 不会进入生成结果。Numeric profile 限定生成范围并按 observed zero frequency 做 seed-addressed 抽样，filename profile 使用新的 synthetic stem。
 
-GenerationPlan 的 effective rule/provenance 可观察为 sample-derived strategy；显式用户 rule、已确认 semantic mapping、schema type/precision/nullability 与 bounds 优先。NULL rate 只在 schema 明确 nullable=true 且 temporal profile 与列类型匹配时应用；NOT NULL 或 nullability unknown 时不生成 NULL。样本 range 只用于同一列，不推断 `start_at` / `finish_at` 等跨字段关系；跨字段时间关系 **DEFERRED**，当前 profile 汇总会丢弃行关联。没有足够样本、不兼容或安全性不足时保持原 schema/semantic fallback。Preview 与 CSV/JSON/INSERT SQL 仍共用同一已生成 dataset；profile/generator 的同 seed 输出可 replay。
+GenerationPlan 单独呈现 temporal precision declaration 与最终 generation precision/source；P1/P2/P3 precision 优先，样本只可在声明未知时辅助选择输出格式，fallback precision 也会被记录。其他 effective rule/provenance 可观察为 sample-derived strategy；显式用户 rule、已确认 semantic mapping、schema type/nullability 与 bounds 仍优先。NULL rate 只在 schema 明确 nullable=true 且 temporal profile 与列类型匹配时应用；NOT NULL 或 nullability unknown 时不生成 NULL。样本 range 只用于同一列，不推断 `start_at` / `finish_at` 等跨字段关系；跨字段时间关系 **DEFERRED**，当前 profile 汇总会丢弃行关联。没有足够样本、不兼容或安全性不足时保持原 schema/semantic fallback。Preview 与 CSV/JSON/INSERT SQL 仍共用同一已生成 dataset；profile/generator 的同 seed 输出可 replay。
 
 Profile 校验最多接受 100 行样本：categorical 至少 4 个非空样本、2–6 个 distinct 且至少有一个重复（distinct ratio ≤ 0.9）；数值范围至少 3 个合法样本；temporal 至少 3 行样本；filename 至少 3 个有效 suffix 且覆盖率 ≥ 0.8。类别候选最多 24 字符并要求 lowercase ASCII，suffix 为 1–8 个 ASCII 字母/数字；不满足阈值不强推策略。
 

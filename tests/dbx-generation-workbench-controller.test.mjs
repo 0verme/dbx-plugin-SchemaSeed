@@ -184,6 +184,63 @@ describe("DBX Generation Workbench production controller", () => {
     assert.deepEqual(JSON.parse(controller.prepareExport("json").content), view.preview.rows);
   });
 
+  it("caches temporal metadata per Workbench session and uses one dataset for Preview and all exports", async () => {
+    const temporalCalls = [];
+    const previewCalls = [];
+    const provider = {
+      async getTableMetadata() {
+        return normalizeTableSchema({
+          tableIdentity: "dbx:temporal-export",
+          columns: [{
+            name: "created_at",
+            dataType: "timestamp",
+            nullable: false,
+            precision: { state: "unknown", reason: "Host did not return structured precision" },
+          }],
+        }).schema;
+      },
+    };
+    const temporalPrecisionMetadata = {
+      created_at: {
+        state: "known",
+        value: 0,
+        source: "system_metadata",
+        provenance: "DBX Host Data API 1.4 MySQL information_schema.COLUMNS.DATETIME_PRECISION",
+      },
+    };
+    const controller = createController({
+      provider,
+      preview: previewCore(previewCalls),
+    });
+    controller.temporalMetadataResolver = async (request) => {
+      temporalCalls.push(request.context);
+      return temporalPrecisionMetadata;
+    };
+
+    const view = await controller.setContext({ connectionId: "connection-A", database: "sales", table: "events" });
+    assert.equal(temporalCalls.length, 1);
+    assert.equal(view.columns[0].temporalPrecision.declaration.source, "system_metadata");
+    assert.deepEqual(view.columns[0].temporalPrecision.generation, { value: 0, source: "system_metadata" });
+    assert.equal(view.diagnostics.some((entry) => entry.code === "timestamp_precision_unknown"), false);
+    assert.ok(view.preview.rows.every((row) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(row.created_at)));
+    assert.equal(previewCalls.at(-1).options.temporalPrecisionMetadata.created_at.value, 0);
+
+    const same = await controller.dispatch({ type: "regenerate-same-seed" });
+    assert.deepEqual(same.preview.rows, view.preview.rows);
+    assert.equal(temporalCalls.length, 1, "changing generation actions does not repeat metadata lookup");
+    const firstDataset = controller.currentDataset;
+    const previewCallCount = previewCalls.length;
+    const csv = controller.prepareExport("csv");
+    const json = controller.prepareExport("json");
+    const sql = controller.prepareExport("sql");
+    assert.equal(previewCalls.length, previewCallCount, "exports never regenerate a dataset");
+    assert.equal(controller.currentDataset, firstDataset, "all formats use the current ExportDataset snapshot");
+    assert.deepEqual(JSON.parse(json.content), same.preview.rows);
+    assert.ok(csv.content.includes("created_at"));
+    assert.match(sql.content, /INSERT INTO/u);
+    assert.match(sql.content, /'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'/u);
+  });
+
   it("invalidates Preview/Export on rule edits, validates through Core, and Generate uses the current rules", async () => {
     const calls = [];
     const controller = createController({ preview: previewCore(calls) });

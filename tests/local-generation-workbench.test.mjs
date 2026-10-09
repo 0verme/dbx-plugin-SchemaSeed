@@ -39,13 +39,13 @@ test("Workbench preview executes the shared Generation Core locally without Host
   assert.equal(host.invokeCalls(), 0);
 });
 
-test("opening the Workbench without table context gives a visible blocked diagnostic", async () => {
+test("opening the Workbench without table context shows the empty-state guidance", async () => {
   const host = hostStub();
   const controller = createGenerationWorkbenchController(host.api);
   const view = await controller.setContext(null);
 
-  assert.equal(view.status, "blocked");
-  assert.equal(view.diagnostics[0].code, "table_context_invalid");
+  assert.equal(view.status, "empty");
+  assert.deepEqual(view.diagnostics, []);
   assert.equal(view.preview.rows.length, 0);
   assert.equal(host.invokeCalls(), 0);
 });

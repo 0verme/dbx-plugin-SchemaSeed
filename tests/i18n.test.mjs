@@ -136,7 +136,7 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);
@@ -152,6 +152,7 @@ describe("i18n locale strategy", () => {
     assert.match(zh("dataAccess.description"), /字段规则推断/u);
     assert.match(zh("dataAccess.detailsDescription"), /候选字段/u);
     assert.match(zh("dataAccess.detailsDescription"), /每次最多 16 列/u);
+    assert.match(zh("dataAccess.detailsDescription"), /MySQL 表的时间精度元数据/u);
     assert.match(zh("dataAccess.detailsDescription"), /不会持久化/u);
     assert.match(zh("dataAccess.detailsDescription"), /预览、日志或错误信息/u);
     assert.doesNotMatch(zh("dataAccess.description"), /不会读取|不查看/u);
@@ -160,7 +161,8 @@ describe("i18n locale strategy", () => {
     assert.match(en("dataAccess.description"), /DBX Host authorization/u);
     assert.match(en("dataAccess.description"), /at most 100 rows/u);
     assert.match(en("dataAccess.detailsDescription"), /screened candidate fields/u);
-    assert.match(en("dataAccess.detailsDescription"), /up to 16 columns/u);
+    assert.match(en("dataAccess.detailsDescription"), /up to 16 privacy-screened candidate fields/u);
+    assert.match(en("dataAccess.detailsDescription"), /MySQL table's timestamp precision metadata/u);
     assert.match(en("dataAccess.detailsDescription"), /never persisted/u);
     assert.match(en("dataAccess.detailsDescription"), /previews, logs, or error messages/u);
 
@@ -178,6 +180,7 @@ describe("i18n locale strategy", () => {
 
   it("interpolates raw values without translating them", () => {
     const zh = createI18n("zh-CN");
+    const en = createI18n("en-US");
     const summary = zh("preview.summary", { rows: 50, seed: "demo", locale: "zh-CN", profile: "sha256-addressed-v1" });
     assert.equal(summary, "50 行 · 种子 demo");
     assert.doesNotMatch(summary, /zh-CN|sha256|GenerationPlan/u);
@@ -185,6 +188,8 @@ describe("i18n locale strategy", () => {
     assert.equal(zh("state.ready"), "生成完成，可在下方预览或导出。");
     assert.equal(zh("export.ready"), "export.ready", "the repeated export-ready sentence is removed");
     assert.equal(zh("safety.notice"), "预览仅展示合成测试数据，不直接展示或复用真实个人信息。");
+    assert.equal(zh("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 行 · 目标表 public.customer");
+    assert.equal(en("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 rows · Target table public.customer");
     assert.equal(zh("columns.strategyDetail", { source: "按字段类型", detected: "姓名", confidence: "高可信度" }), "按字段类型 · 识别为 姓名（高可信度）");
     // Unresolved placeholders stay visible instead of producing "undefined".
     assert.match(zh("preview.summary", { rows: 1 }), /\{seed\}/);

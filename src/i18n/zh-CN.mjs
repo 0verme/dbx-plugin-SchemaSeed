@@ -22,10 +22,15 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "context.database": "数据库",
   "context.schema": "Schema",
   "context.table": "数据表",
+  "empty.title": "请先选择一张数据表",
+  "empty.description": "当前没有获取到数据库表上下文。请在 DBX 左侧数据库导航树中找到目标表，并打开它的右键菜单。",
+  "empty.path": "数据库连接 → 数据表 → 右键 →",
+  "empty.menuAction": "生成测试数据",
+  "empty.helper": "SchemaSeed 会自动读取所选表的结构，无需手动填写数据库或表名。",
   "dataAccess.title": "数据访问",
   "dataAccess.description": "真实采样需经 DBX Host 授权，最多读取 100 行，仅用于字段规则推断。",
   "dataAccess.detailsSummary": "了解详情",
-  "dataAccess.detailsDescription": "DBX Host 按插件和连接管理授权。仅对通过隐私筛选的候选字段（每次最多 16 列）进行只读采样。原始样本只在本次内存处理中使用，不会持久化，也不会出现在预览、日志或错误信息中；系统仅保留安全的字段特征、分布或码值用于推断。拒绝授权、能力不可用或查询失败时不会采样。",
+  "dataAccess.detailsDescription": "DBX Host 按插件和连接管理授权。只读采样仅针对通过隐私筛选的候选字段（每次最多 16 列）；当表结构信息不足时，还可能读取目标 MySQL 表的时间精度元数据。原始样本只在本次内存处理中使用，不会持久化，也不会出现在预览、日志或错误信息中；系统仅保留安全的字段特征、分布或码值用于推断。拒绝授权、能力不可用或查询失败时不会采样。",
 
   // Dataset controls.
   "controls.rows": "生成行数（1–1000）",
@@ -291,6 +296,15 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "preview.null": "NULL",
   "preview.sqlTitle": "INSERT SQL 预览",
   "preview.sqlError": "无法生成 INSERT SQL 预览。请确认当前数据集有效后重试。",
+  "preview.sqlMeta": "{rows} 行 · 目标表 {table}",
+  "preview.sqlCodeLabel": "只读 SQL 内容",
+  "preview.sqlCopy": "复制 SQL",
+  "preview.sqlCopying": "正在复制 SQL…",
+  "preview.sqlCopied": "SQL 已复制到剪贴板。",
+  "preview.sqlCopyFailed": "复制失败：当前 WebView 无法访问剪贴板。",
+  "preview.sqlExport": "导出 SQL",
+  "preview.sqlClose": "关闭",
+  "preview.sqlEmpty": "当前 SQL 内容为空，无法预览或导出。",
 
   // Workbench status line.
   "status.loading.metadata": "正在读取表结构",
@@ -419,9 +433,9 @@ export const ZH_CN_DIAGNOSTICS = Object.freeze({
     action: "请手动提供 precision 与 scale，或在 DBX 返回完整字段信息后重新读取。",
   },
   timestamp_precision_unknown: {
-    title: "无法确认时间戳字段的精度",
-    description: "DBX 没有返回「{column}」字段的小数秒精度，SchemaSeed 无法确认生成的时间戳是否超出字段容量。",
-    action: "请在 DBX 返回该字段精度后重新读取，或改用不依赖该精度的生成策略。",
+    title: "无法确认时间戳声明精度",
+    description: "「{column}」字段的结构化 Metadata、明确的时间类型声明和获授权系统 Metadata 均未能确认小数秒精度。预览可能使用样本格式或 3 位小数 fallback，但这两者都不代表数据库声明精度。",
+    action: "可使用能够提供相关 Metadata 的 DBX Host；否则保留此警告，并在写入生成数据前核实目标字段。",
   },
   invalid_length: {
     title: "配置的长度不是有效值",

@@ -12,6 +12,7 @@ import { DEFAULT_GENERATION_ROW_COUNT, MAX_GENERATION_ROW_COUNT, MIN_GENERATION_
 export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: DEFAULT_GENERATION_ROW_COUNT, seed: "demo", locale: "zh-CN" });
 export const DBX_WORKBENCH_MAX_ROWS = MAX_GENERATION_ROW_COUNT;
 const MAX_IDENTIFIER_LENGTH = 256;
+const MAX_TEMPORAL_METADATA_CACHE_ENTRIES = 32;
 
 /**
  * Production DBX Workbench state. The injected provider consumes the direct
@@ -21,7 +22,7 @@ const MAX_IDENTIFIER_LENGTH = 256;
  */
 export class DbxGenerationWorkbenchController {
   /**
-   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => { plan: object, generated: object } | Promise<{ plan: object, generated: object }>, sampleProbe?: (request: { context: object, schema: object, candidates: Array<{ name: string, kind: string, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }> }) => Promise<unknown>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
+   * @param {{ provider: { getTableMetadata: (request: { tableContext: object }) => Promise<object> }, preview: (schema: object, options: object) => { plan: object, generated: object } | Promise<{ plan: object, generated: object }>, sampleProbe?: (request: { context: object, schema: object, candidates: Array<{ name: string, kind: string, privacy?: "standard" | "restricted", sampling: "direct" | "truncate" }> }) => Promise<unknown>, temporalMetadataResolver?: (request: { context: object, schema: object }) => Promise<unknown>, seedFactory?: () => string, translator?: import("../i18n/index.mjs").Translator }} options
    */
   constructor(options) {
     if (typeof options?.provider?.getTableMetadata !== "function") {
@@ -31,6 +32,9 @@ export class DbxGenerationWorkbenchController {
     this.provider = options.provider;
     this.preview = options.preview;
     this.sampleProbe = typeof options.sampleProbe === "function" ? options.sampleProbe : null;
+    this.temporalMetadataResolver = typeof options.temporalMetadataResolver === "function" ? options.temporalMetadataResolver : null;
+    this.temporalMetadataCache = new Map();
+    this.temporalPrecisionMetadata = {};
     this.sampleEvidenceCache = new Map();
     this.sampleEvidence = [];
     this.sampleUsed = false;
@@ -89,6 +93,7 @@ export class DbxGenerationWorkbenchController {
     this.contextKey = key;
     this.context = normalized.ok ? normalized.context : null;
     this.schema = null;
+    this.temporalPrecisionMetadata = {};
     this.sampleEvidence = [];
     this.sampleUsed = false;
     this.plan = null;
@@ -99,9 +104,15 @@ export class DbxGenerationWorkbenchController {
     this.error = null;
     this.actionError = null;
     this.stage = normalized.ok ? "metadata" : "context";
-    this.status = normalized.ok ? "loading" : "blocked";
+    const missingContext = tableContext === null || tableContext === undefined;
+    this.status = normalized.ok ? "loading" : missingContext ? "empty" : "blocked";
 
     if (!normalized.ok) {
+      if (missingContext) {
+        this.emit();
+        this.initialization = Promise.resolve(this.getViewModel());
+        return this.initialization;
+      }
       this.diagnostics = [makeDiagnostic({
         severity: "error",
         code: "table_context_invalid",
@@ -192,6 +203,7 @@ export class DbxGenerationWorkbenchController {
         rules: structuredClone(this.rules),
         constraints: structuredClone(this.constraints),
         sampleEvidence: structuredClone(this.sampleEvidence),
+        temporalPrecisionMetadata: structuredClone(this.temporalPrecisionMetadata),
         validateOnly: true,
         semanticOverrides: {},
         semanticMappings: {},
@@ -265,6 +277,7 @@ export class DbxGenerationWorkbenchController {
         rules: structuredClone(this.rules),
         constraints: structuredClone(this.constraints),
         sampleEvidence: structuredClone(this.sampleEvidence),
+        temporalPrecisionMetadata: structuredClone(this.temporalPrecisionMetadata),
         validateOnly: true,
         semanticOverrides: {},
         semanticMappings: {},
@@ -410,6 +423,8 @@ export class DbxGenerationWorkbenchController {
       this.schema = schema;
       this.stage = "generation";
       this.emit();
+      await this.loadTemporalPrecisionMetadata(revision, context, schema);
+      if (revision !== this.contextRevision) return this.getViewModel();
       await this.loadSampleEvidence(revision, context, schema);
       if (revision !== this.contextRevision) return this.getViewModel();
       return await this.generateCurrent(revision);
@@ -418,6 +433,30 @@ export class DbxGenerationWorkbenchController {
       this.fail(error, "metadata");
       return this.getViewModel();
     }
+  }
+
+  /** @param {number} revision @param {object} context @param {object} schema */
+  async loadTemporalPrecisionMetadata(revision, context, schema) {
+    const schemaKey = schema.columns.map((column) => [column.name, column.dataType, column.precision]);
+    const key = JSON.stringify([context, schema.tableIdentity, schemaKey]);
+    let metadataPromise = this.temporalMetadataCache.get(key);
+    if (metadataPromise) {
+      this.temporalMetadataCache.delete(key);
+      this.temporalMetadataCache.set(key, metadataPromise);
+    } else {
+      metadataPromise = this.temporalMetadataResolver
+        ? Promise.resolve().then(() => this.temporalMetadataResolver({ context: { ...context }, schema }))
+          .then((result) => sanitizeTemporalPrecisionMetadata(result, schema))
+          .catch(() => ({}))
+        : Promise.resolve({});
+      this.temporalMetadataCache.set(key, metadataPromise);
+      if (this.temporalMetadataCache.size > MAX_TEMPORAL_METADATA_CACHE_ENTRIES) {
+        this.temporalMetadataCache.delete(this.temporalMetadataCache.keys().next().value);
+      }
+    }
+    const metadata = await metadataPromise;
+    if (revision === this.contextRevision) this.temporalPrecisionMetadata = metadata;
+    return metadata;
   }
 
   /** @param {number} revision @param {object} context @param {object} schema */
@@ -453,7 +492,7 @@ export class DbxGenerationWorkbenchController {
   /** @param {number} [contextRevision] */
   async generateCurrent(contextRevision = this.contextRevision) {
     if (!this.context || !this.schema) {
-      this.status = "blocked";
+      if (!(this.status === "empty" && !this.context)) this.status = "blocked";
       this.stage = "context";
       this.emit();
       return this.getViewModel();
@@ -475,6 +514,7 @@ export class DbxGenerationWorkbenchController {
         rules: structuredClone(this.rules),
         constraints: structuredClone(this.constraints),
         sampleEvidence: structuredClone(this.sampleEvidence),
+        temporalPrecisionMetadata: structuredClone(this.temporalPrecisionMetadata),
         semanticOverrides: {},
         semanticMappings: {},
       });
@@ -573,6 +613,26 @@ function requiredIdentifier(value, key) {
 }
 
 /** @param {unknown} value */
+function sanitizeTemporalPrecisionMetadata(value, schema) {
+  if (!isRecord(value)) return {};
+  const allowedColumns = new Set(schema.columns.map((column) => column.name));
+  const accepted = [];
+  for (const [name, entry] of Object.entries(value)) {
+    if (!allowedColumns.has(name) || !isRecord(entry) || entry.state !== "known"
+      || entry.source !== "system_metadata" || !Number.isSafeInteger(entry.value)
+      || entry.value < 0 || entry.value > 6 || typeof entry.provenance !== "string"
+      || !entry.provenance.startsWith("DBX Host Data API 1.4 MySQL ")
+      || !entry.provenance.endsWith(".COLUMNS.DATETIME_PRECISION")) continue;
+    accepted.push([name, {
+      state: "known",
+      value: entry.value,
+      source: "system_metadata",
+      provenance: entry.provenance,
+    }]);
+  }
+  return Object.fromEntries(accepted);
+}
+
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
