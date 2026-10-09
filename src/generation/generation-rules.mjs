@@ -1,7 +1,7 @@
 import { sha256Hex } from "./sha256.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
 import { formatDate, formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
-import { interpretColumnType, interpretStringCapacity } from "../schema/schema-interpreter.mjs";
+import { interpretColumnType, interpretStringCapacity, resolveTemporalPrecision } from "../schema/schema-interpreter.mjs";
 import { checkSemanticCompatibility, SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
 
 export { formatDate, formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
@@ -225,7 +225,7 @@ export function getGenerationRuleEditorFields(column, rule) {
  * occurs: a rejected rule produces a located blocking diagnostic.
  * @param {import("../schema/schema-model.mjs").ColumnSchema} column
  * @param {unknown} rawRule
- * @param {{ tableIdentity?: string, rowCount?: number }} [options]
+ * @param {{ tableIdentity?: string, rowCount?: number, temporalPrecision?: { state: string, value?: number, source?: string, provenance?: string, reason?: string } }} [options]
  * @returns {{ valid: boolean, status: "valid" | "warning" | "blocked", rule: (Record<string, unknown> & { identity: string }) | null, diagnostics: import("../diagnostics.mjs").GenerationDiagnostic[] }}
  */
 export function validateGenerationRule(column, rawRule, options = {}) {
@@ -320,7 +320,7 @@ export function validateGenerationRule(column, rawRule, options = {}) {
   }
 
   if (normalized.kind === "constant") {
-    const result = validateScalarValue(column, normalized.value);
+    const result = validateScalarValue(column, normalized.value, options.temporalPrecision);
     if (!result.ok) return fail(result.code, result.reason, result.severity);
     normalized.value = result.value;
     return validRule(normalized, diagnostics);
@@ -406,7 +406,7 @@ export function validateGenerationRule(column, rawRule, options = {}) {
     }
     const values = [];
     for (let index = 0; index < normalized.values.length; index += 1) {
-      const result = validateScalarValue(column, normalized.values[index]);
+      const result = validateScalarValue(column, normalized.values[index], options.temporalPrecision);
       if (!result.ok) return fail("generation_rule_incompatible", `Enum candidate ${index + 1} is invalid: ${result.reason}`, result.severity);
       values.push(result.value);
     }
@@ -439,7 +439,7 @@ export function validateGenerationRule(column, rawRule, options = {}) {
 
   if (normalized.kind === "timestamp_range") {
     if (family !== "timestamp") return incompatible("a timestamp schema");
-    const precision = timestampPrecision(column);
+    const precision = timestampPrecision(column, options.temporalPrecision);
     if (!precision.ok) return fail(precision.code, precision.reason, precision.severity);
     const timezoneAware = type.parameters.timezoneAware === true;
     const start = parseTimestamp(normalized.start, { timezoneAware });
@@ -455,14 +455,14 @@ export function validateGenerationRule(column, rawRule, options = {}) {
     }
     normalized.start = formatTimestamp(start.nanoseconds, precision.value, timezoneAware);
     normalized.end = formatTimestamp(end.nanoseconds, precision.value, timezoneAware);
-    if (column.precision?.state !== "known") {
+    if (precision.source === "unknown") {
       diagnostics.push(makeDiagnostic({
         severity: "warning",
         code: "timestamp_precision_unknown",
         table,
         column: column.name,
         rule: "rule:timestamp_range",
-        reason: "Timestamp precision metadata is unavailable; generation uses millisecond precision without claiming a database precision guarantee",
+        reason: "Declared timestamp precision is unknown; generation uses a 3-digit fallback without claiming a database precision guarantee",
         blocking: false,
       }));
     }
@@ -517,8 +517,8 @@ export function generationRuleIdentity(rule) {
   return `rule:${String(rule.kind)}:v1:${digest.slice(0, 24)}`;
 }
 
-/** @param {import("../schema/schema-model.mjs").ColumnSchema} column @param {unknown} value */
-function validateScalarValue(column, value) {
+/** @param {import("../schema/schema-model.mjs").ColumnSchema} column @param {unknown} value @param {object} [temporalPrecision] */
+function validateScalarValue(column, value, temporalPrecision) {
   const type = interpretColumnType(column);
   if (!type) return failScalar("generation_rule_incompatible", `Schema type is ${column.dataType?.state ?? "unknown"} or unsupported`);
   switch (type.kind) {
@@ -552,7 +552,7 @@ function validateScalarValue(column, value) {
       return date === null ? failScalar("generation_rule_incompatible", "Date value must be a valid YYYY-MM-DD date") : { ok: true, value: formatDate(date) };
     }
     case "timestamp": {
-      const precision = timestampPrecision(column);
+      const precision = timestampPrecision(column, temporalPrecision);
       if (!precision.ok) return { ok: false, ...precision };
       const timezoneAware = type.parameters.timezoneAware === true;
       const parsed = parseTimestamp(value, { timezoneAware });
@@ -596,15 +596,15 @@ function varcharBound(column) {
 }
 
 /** @param {import("../schema/schema-model.mjs").ColumnSchema} column */
-function timestampPrecision(column) {
-  const fact = column.precision;
-  if (fact?.state === "known") {
-    if (!Number.isSafeInteger(fact.value) || fact.value < 0 || fact.value > 9) {
-      return { ok: false, code: "invalid_precision_scale", severity: "error", reason: `Timestamp precision must be an integer from 0 through 9; received ${String(fact.value)}` };
+function timestampPrecision(column, suppliedResolution) {
+  const resolution = suppliedResolution ?? resolveTemporalPrecision(column);
+  if (resolution.state === "known") {
+    if (!Number.isSafeInteger(resolution.value) || resolution.value < 0 || resolution.value > 9) {
+      return { ok: false, code: "invalid_precision_scale", severity: "error", reason: `Timestamp precision must be an integer from 0 through 9; received ${String(resolution.value)}` };
     }
-    return { ok: true, value: fact.value };
+    return { ok: true, value: resolution.value, source: resolution.source };
   }
-  return { ok: true, value: 3 };
+  return { ok: true, value: 3, source: "unknown" };
 }
 
 /** @param {unknown} raw @param {number} scale */

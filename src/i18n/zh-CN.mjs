@@ -25,7 +25,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "context.schema": "Schema",
   "context.table": "数据表",
   "dataAccess.title": "数据访问",
-  "dataAccess.description": "仅在 DBX Host 获得你对此插件和连接的授权后，SchemaSeed 才会通过只读 Host Data API 对最多 8 行候选字段进行采样。敏感原始值仅在内存中短暂处理以提取安全特征，随后丢弃；不会展示或持久化。",
+  "dataAccess.description": "仅在 DBX Host 获得你对此插件和连接的授权后，SchemaSeed 才会通过只读 Host Data API 读取必要的 MySQL 时间精度元数据，并对最多 8 行合格字段进行采样。敏感原始值仅在内存中短暂处理以提取安全特征，随后丢弃；不会展示或持久化。",
 
   // Dataset controls.
   "controls.rows": "生成行数",
@@ -418,9 +418,9 @@ export const ZH_CN_DIAGNOSTICS = Object.freeze({
     action: "请手动提供 precision 与 scale，或在 DBX 返回完整字段信息后重新读取。",
   },
   timestamp_precision_unknown: {
-    title: "无法确认时间戳字段的精度",
-    description: "DBX 没有返回「{column}」字段的小数秒精度，SchemaSeed 无法确认生成的时间戳是否超出字段容量。",
-    action: "请在 DBX 返回该字段精度后重新读取，或改用不依赖该精度的生成策略。",
+    title: "无法确认时间戳声明精度",
+    description: "「{column}」字段的结构化 Metadata、明确的时间类型声明和获授权系统 Metadata 均未能确认小数秒精度。预览可能使用样本格式或 3 位小数 fallback，但这两者都不代表数据库声明精度。",
+    action: "可使用能够提供相关 Metadata 的 DBX Host；否则保留此警告，并在写入生成数据前核实目标字段。",
   },
   invalid_length: {
     title: "配置的长度不是有效值",
