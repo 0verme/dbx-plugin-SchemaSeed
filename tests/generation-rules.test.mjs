@@ -333,6 +333,18 @@ describe("GenerationRule scalar strategies", () => {
     const values = rowsFor(plan).map((row) => row.id);
     assert.ok(values.every((value) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)));
     assert.equal(new Set(values).size, values.length);
+    assert.deepEqual(values, [
+      "7e7f3177-cb15-43b4-a7fe-87bf3fc765bd",
+      "dd793476-5a0d-4344-bac8-4cc82f58d98f",
+      "1b4066a3-c21c-4db6-928f-56fb459f057d",
+      "49abaeb3-1d4b-459e-a986-6bca9c9fa6b9",
+      "ddf678b9-4d75-49de-9327-074efff07d75",
+      "a36db1ea-491c-4599-9490-96bdb992cc7a",
+      "43c106a7-5c6b-440a-92ad-1cef5dd5a470",
+      "e9939017-02fb-485d-948d-f864663763d4",
+      "b878d69f-5374-46d2-86dd-b180022b56e7",
+      "3250ebc0-a3e0-49e4-9306-ba45fe01a2bf",
+    ], "isomorphic SHA-256 preserves the established seeded UUID vector");
     assert.deepEqual(values, rowsFor(plan).map((row) => row.id));
     assert.notDeepEqual(values, rowsFor(planFor(schema, { id: { kind: "uuid" } }, { seed: "other" })).map((row) => row.id));
   });

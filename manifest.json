@@ -16,24 +16,12 @@
     "host.data:read"
   ],
   "entrypoints": {
-    "backend": {
-      "protocol_versions": [1],
-      "transport": "stdio-jsonl",
-      "executable": "bin/universal/schema-seed-runtime"
-    },
     "ui": {
       "root": "ui",
       "entry": "ui/index.html"
     }
   },
   "contributions": [
-    {
-      "type": "workbench",
-      "id": "io.github.0verme.schema-seed.schema-metadata-probe",
-      "label": "Schema Metadata Probe",
-      "description": "Inspect the public DBX Schema Metadata Host API response.",
-      "icon": "assets/plugin.svg"
-    },
     {
       "type": "workbench",
       "id": "io.github.0verme.schema-seed.generation-workbench",
@@ -58,10 +46,6 @@
       "name": "SchemaSeed",
       "description": "根据数据库表结构快速生成测试数据，用于开发、联调与功能验证。",
       "contributions": {
-        "io.github.0verme.schema-seed.schema-metadata-probe": {
-          "label": "Schema Metadata Probe",
-          "description": "查看 DBX 公开 Schema Metadata Host API 返回结果。"
-        },
         "io.github.0verme.schema-seed.generation-workbench": {
           "label": "SchemaSeed 测试数据生成",
           "description": "根据当前 DBX 表生成并预览确定性的 synthetic 测试数据，支持中英文界面与本地化诊断信息。"

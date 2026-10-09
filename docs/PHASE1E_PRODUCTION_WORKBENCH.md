@@ -2,8 +2,9 @@
 
 ## Status
 
-- Workbench UI, provider wiring, manifest contribution and `.dbxp` implementation: **IMPLEMENTATION_READY**.
-- Runtime smoke / Issue #31 acceptance: **PASSED — DBX v0.6.23 Desktop, 2026-09-26, SchemaSeed v0.2.4 candidate** (see [Runtime smoke record](#runtime-smoke-record)).
+- Original Workbench UI, Host provider wiring, manifest contribution and `.dbxp` implementation: **IMPLEMENTED**.
+- Original sidecar-based runtime smoke / Issue #31 acceptance: **PASSED — DBX v0.6.23 Desktop, 2026-09-26, SchemaSeed v0.2.4 candidate** (historical; see [Runtime smoke record](#runtime-smoke-record)).
+- Node-free frontend-only migration: **IMPLEMENTED in the current Draft PR**; the new `.dbxp` still requires current Windows/macOS DBX runtime acceptance. Until then, mark `MAC_RUNTIME_PENDING`.
 - Runtime floor: **DBX v0.6.23**, the first official released runtime containing upstream `t8y2/dbx#10244` (released 2026-09-25; release notes explicitly list the table context-menu → Workbench entry). The previous `>=0.6.19` floor did not cover `context-menu.action.open-workbench` and has been removed.
 - Historical note: DBX v0.6.22 predates #10244 and its manifest parser rejects unknown context-menu fields (`deny_unknown_fields`). v0.6.22 is **not** a valid install target for this candidate.
 
@@ -16,13 +17,13 @@ DBX Sidebar table
   → direct TableContext (not `{ table: TableContext }`)
   → DbxHostSchemaMetadataProvider
   → SchemaSeed TableSchema / ColumnSchema
-  → GenerationPlan + per-column GenerationRules (existing Core, via local sidecar RPC)
+  → GenerationPlan + per-column GenerationRules (existing Core, local in the WebView)
   → generateRows() (existing deterministic Core)
   → ExportDataset
   → Preview / CSV / JSON / INSERT SQL
 ```
 
-The browser Workbench invokes the public `window.dbxPlugin.getTableMetadata()` bridge through `DbxHostSchemaMetadataProvider`. It passes the normalized SchemaSeed-owned schema, column rules and generation settings to the package's local JSONL runtime; that runtime calls the existing `buildGenerationPlan()` and `generateRows()`. Rule validation-only calls reuse the `generation/preview` RPC contract and return Core plan diagnostics without rows. It performs no network request, database access, credential lookup, or second connection. The Phase 0 Probe remains a separate UI surface and RPC method on the same plugin process; neither path is used as a fallback for the other. The historical Probe table context-menu contribution has been removed from the production manifest, so the legacy sidecar handoff is no longer reachable from the table menu; the Probe Workbench itself is retained and can be opened manually from the plugin details page.
+The browser Workbench reads table metadata through the public `window.dbxPlugin.getTableMetadata()` bridge and `DbxHostSchemaMetadataProvider`. It passes the normalized SchemaSeed-owned schema, column rules and generation settings directly to the shared local `executeGenerationPreview()` entrypoint; that entrypoint validates the former `generation/preview` request contract and calls the existing `buildGenerationPlan()` and `generateRows()`. Rule-validation-only calls use the same function and return Core plan diagnostics without rows. Generation performs no Host invoke, sidecar startup, network request, database connection, credential lookup or second connection. Optional sample profiling remains a separate consent-gated Host `queryData()` operation and all failures fall back to metadata-only behavior. The former manually opened Schema Metadata Probe UI depended on the removed backend handoff and has therefore been removed along with the obsolete sidecar RPC; its historical Host API contract evidence remains documented separately.
 
 ### TableContext and refresh
 
@@ -63,17 +64,17 @@ The manifest declares:
 - table action: `io.github.0verme.schema-seed.generate-test-data`;
 - action contract: `{ "type": "open-workbench", "workbench": "io.github.0verme.schema-seed.generation-workbench" }`.
 
-The production manifest exposes exactly one `menu: "table"` contribution: `io.github.0verme.schema-seed.generate-test-data` (「生成测试数据」). The historical Phase 0 `io.github.0verme.schema-seed.table-context-probe` right-click entry and its zh-CN localization were removed so the table menu no longer shows 「SchemaSeed：保存 Table Context」. The Schema Metadata Probe Workbench is retained for manual diagnostics from the plugin details page; its legacy sidecar RPC is retained only as historical Phase 0 machinery and is not a production table-menu entry.
+The production manifest exposes exactly one `menu: "table"` contribution: `io.github.0verme.schema-seed.generate-test-data` (「生成测试数据」). The historical Phase 0 `io.github.0verme.schema-seed.table-context-probe` right-click entry, the manually opened Schema Metadata Probe Workbench and their backend RPC handoff are removed; the metadata Host contract and runtime evidence remain in the audit documents. Opening the generation Workbench without table context produces the controller's visible `table_context_invalid` diagnostic rather than a blank screen.
 
 The action is host-handled and does not route through `contextMenu/<id>` or require a sidecar handoff before opening the Workbench.
 
-Package allowlist includes the production Workbench UI, production provider, Generation Core/runtime modules, Probe modules and icon. It excludes `web/`, `fixtures/`, tests, fixture provider/controller, fixture Preview and standalone HTTP server. `scripts/build.mjs` and package contract tests inspect the resulting `.dbxp` contents and checksums.
+The manifest is frontend-only and the package uses the DBX official plugin CLI. `scripts/build.mjs` stages the manifest, icon, UI and every reachable browser-safe module from the existing Generation Core under `ui/src/`, then invokes `dbx-plugin package` for one universal artifact. The package excludes backend/launcher files, the obsolete Probe UI, `web/`, `fixtures/`, tests, fixture provider/controller, fixture Preview and standalone HTTP server. Contract tests inspect the actual `.dbxp`, runtime module graph, artifact metadata and checksums.
 
 ## DBX sandbox asset contract
 
 The production `ui/index.html` deliberately declares **no** Content-Security-Policy and **no** `base` element. DBX v0.6.23 injects its own sandbox CSP, the Host Bridge SDK and the plugin asset origin as the document `base`; multiple CSP policies intersect, so a plugin policy that lacks `'unsafe-inline'` and the asset origin blocks the injected SDK and the inlined entry module, and `base-uri 'none'` discards the host base. The Host sandbox CSP remains the only security boundary.
 
-DBX serves UI files from `entrypoints.ui.root` (`ui`), so runtime module URLs are rooted at the ui directory (`<origin>/<plugin-id>/<ui-path>`). The entry document must reference every script/stylesheet at the ui root: the host derives its injected base from the first subdirectory it sees, and a subdirectory entry asset would move lazy module resolution away from the root. Shared Generation Core modules are vendored under `ui/src/**` by `scripts/build.mjs` so `ui/generation-workbench/app.mjs` can import them through the asset origin; the same walk rejects `node:` builtins and `Buffer`, which do not exist in the sandboxed WebView (the sha256-addressed identity/rule/constraint helpers use the isomorphic `src/generation/sha256.mjs` instead of `node:crypto`). `tests/package-contract.test.mjs` reconstructs the host `<base>`, inlining and module-fetch resolution from the built `.dbxp` and fails on any unresolved or Node-only module.
+DBX serves UI files from `entrypoints.ui.root` (`ui`), so runtime module URLs are rooted at the UI directory (`<origin>/<plugin-id>/<ui-path>`). The entry document references script and stylesheet assets at the UI root; the host derives its injected base from entry resources. Shared Generation Core modules are staged under `ui/src/**` by `scripts/build.mjs` and packaged by the official CLI. The graph walk rejects Node builtins and Node-only globals. Both UUID formatting and Person-synthetic digest operations now use the existing isomorphic SHA-256 helpers instead of `Buffer` or `node:crypto`, preserving deterministic output. `tests/package-contract.test.mjs` inspects actual `.dbxp` contents, the complete reachable module graph, the host asset contract and checksums.
 
 ## DBX compatibility decision
 
@@ -89,7 +90,7 @@ Issue #32 implements the frozen 13-rule v0.1 model and Rule Editor in the existi
 
 ## Runtime smoke record
 
-Environment: **DBX v0.6.23 Desktop (Windows)**, the first official release containing `t8y2/dbx#10244`. Candidate: SchemaSeed `v0.2.4` unsigned universal `.dbxp` (`io.github.0verme.schema-seed-0.2.4-universal.dbxp`, SHA-256 `6cc5dd874cce5cbe92ad47c5092ebe4613631ebe4d354d39fa2bbf722af73b10`, 679971 bytes). Verified manually by the maintainer on **2026-09-26**; this section is the formal record.
+Historical environment: **DBX v0.6.23 Desktop (Windows)**, using the SchemaSeed `v0.2.4` unsigned universal `.dbxp` (`io.github.0verme.schema-seed-0.2.4-universal.dbxp`, SHA-256 `6cc5dd874cce5cbe92ad47c5092ebe4613631ebe4d354d39fa2bbf722af73b10`, 679971 bytes). Verified manually on **2026-09-26**. This record applies only to the earlier sidecar-based artifact and is not evidence for the current Node-free package; the latter needs a fresh Windows/macOS DBX smoke.
 
 | # | Check | Result |
 | --- | --- | --- |
@@ -99,7 +100,7 @@ Environment: **DBX v0.6.23 Desktop (Windows)**, the first official release conta
 | 4 | CSV / JSON / INSERT SQL equal the current Preview dataset; since v0.2.4 each export opens the host native save dialog and writes the file (cancel reports cancelled, not saved) | PASS |
 | 5 | opening table B while table A's Workbench is reused refreshes context, metadata, plan, preview and exports | PASS |
 | 6 | repeated table switch (A→B→C) leaves no stale response | PASS |
-| 7 | the Phase 0 Probe Workbench still opens manually from the plugin details page | PASS |
+| 7 | the Phase 0 Probe Workbench still opens manually from the plugin details page | PASS for the historical v0.2.4 candidate only; the Probe UI is removed from the Node-free candidate |
 
 Consequences:
 

@@ -220,7 +220,7 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host
 → `{ table: { ... } }` sidecar invocation
 ```
 
-SchemaSeed 已实现薄 adapter 与 probe；不把该能力外推到 Object Browser 或 Web UI。DBX v0.6.21 Probe runtime 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递，该路径已纳入 PR #28 runtime evidence（historical Phase 0 evidence）。上游 #10244 已 merge 并随 DBX v0.6.23 正式发布，正式提供 context-menu → `open-workbench` handoff；其 runtime smoke 属于 #31，已于 2026-09-26 在该版本通过（SchemaSeed v0.2.4 candidate，见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md#runtime-smoke-record)）。production manifest 已移除遗留的 table context-menu probe 入口；Schema Metadata Probe Workbench 保留为插件详情页手动入口。
+SchemaSeed 的 production adapter 消费公开 Host API；不把该能力外推到 Object Browser 或 Web UI。DBX v0.6.21 Probe runtime 通过 10 分钟 plugin-owned in-memory state 和公开 backend RPC 完成两步传递，该路径属于历史 Phase 0 runtime evidence。上游 #10244 已 merge 并随 DBX v0.6.23 正式发布，提供 context-menu → `open-workbench` handoff；旧 SchemaSeed v0.2.4 candidate 的 runtime smoke 于 2026-09-26 通过（见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md#runtime-smoke-record)）。当前 node-free frontend-only candidate 移除遗留 table context-menu probe、Schema Metadata Probe Workbench 和 sidecar RPC；新包仍需独立真机验收。
 
 ### Host API 1.3 — Resolved Metadata Host Boundary
 
@@ -269,7 +269,7 @@ Host/API failure                                → typed provider error + block
 本契约文档不实现也不冻结：
 
 - Generator、Faker、Semantic Inference、SchemaModel、Constraint Engine、Relation Planner。
-- SQL / CSV / JSON exporter、正式/fixture-driven Workbench、Direct Insert、Rust sidecar 或 AI；本仓库另有范围受限的 Phase 0 Probe Workbench。
+- SQL / CSV / JSON exporter、正式/fixture-driven Workbench、Direct Insert、Rust sidecar 或 AI；Phase 0 Probe UI 仅作为历史运行验收证据记录，不再作为生产入口。
 - 数据库 direct connection、第二套连接体系、credential 读取。
 - `information_schema`、`pg_catalog`、`PRAGMA`、`SHOW CREATE TABLE` 等数据库 introspection workaround。
 - DBX private store、private frontend module、未公开 Tauri/HTTP API 或 Object Browser state。

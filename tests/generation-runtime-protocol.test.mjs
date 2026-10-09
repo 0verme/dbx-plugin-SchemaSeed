@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { handleRuntimeRpcRequest } from "../backend/schema-seed-runtime.mjs";
+import { handleGenerationRuntimeRequest as handleRuntimeRpcRequest } from "../src/generation/generation-runtime-protocol.mjs";
+import { executeGenerationPreview } from "../src/generation/generation-runtime.mjs";
 import { GENERATION_PREVIEW_METHOD } from "../src/generation/generation-runtime-contract.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
 const schema = {
   tableIdentity: "dbx:[\"conn\",\"sales\",\"public\",\"customer\"]",
   columns: [
@@ -24,6 +24,7 @@ function request(params, id = 1) {
 test("production runtime builds the existing GenerationPlan and generates deterministic preview rows", () => {
   const first = handleRuntimeRpcRequest(request({ schema, options }));
   const replay = handleRuntimeRpcRequest(request({ schema, options }, 2));
+  const local = executeGenerationPreview(schema, options);
   assert.equal(first.id, 1);
   assert.equal(first.error, undefined);
   assert.equal(first.result.plan.table.tableIdentity, schema.tableIdentity);
@@ -31,6 +32,7 @@ test("production runtime builds the existing GenerationPlan and generates determ
   assert.equal(first.result.generated.status, "ready");
   assert.equal(first.result.generated.rows.length, 5);
   assert.deepEqual(first.result.generated.rows, replay.result.generated.rows);
+  assert.deepEqual(local, first.result, "local Workbench execution and compatibility RPC share the exact runtime contract");
 });
 
 test("runtime transports GenerationRules and manual constraints through validation-only requests", () => {
@@ -190,17 +192,17 @@ test("runtime rejects oversized or malformed preview input without generating ro
   assert.match(invalidSchema.error.message, /non-empty normalized schema/);
 });
 
-test("same backend keeps Phase 0 Probe RPC separate from production generation RPC", () => {
-  const initialized = handleRuntimeRpcRequest({ jsonrpc: "2.0", id: "init", method: "plugin/initialize", params: {} });
-  assert.equal(initialized.result.plugin.id, manifest.id);
-  assert.equal(initialized.result.plugin.version, manifest.version);
-
-  const unsupported = handleRuntimeRpcRequest({ jsonrpc: "2.0", id: 4, method: "not/a-method", params: {} });
-  assert.equal(unsupported.error.code, -32601);
+test("preview compatibility adapter delegates to the shared local executor", () => {
+  const protocol = handleRuntimeRpcRequest(request({ schema, options }));
+  assert.deepEqual(protocol.result, executeGenerationPreview(schema, options));
+  assert.equal(handleRuntimeRpcRequest({ jsonrpc: "2.0", id: 1, method: "other/method", params: {} }), null);
+  assert.equal(handleRuntimeRpcRequest({ jsonrpc: "2.0", method: GENERATION_PREVIEW_METHOD, params: { schema, options } }), null);
 });
 
-test("production generation RPC has no fixture, DBX Host, credential or database connection dependency", async () => {
-  const source = await readFile(path.join(root, "src/generation/generation-runtime-protocol.mjs"), "utf8");
-  assert.doesNotMatch(source, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider|fixtures\/schemas/);
-  assert.doesNotMatch(source, /window\.dbxPlugin|getTableMetadata|credentialStore|password|username|information_schema|pg_catalog|\bSHOW\s|\bPRAGMA\b|new\s+(?:Pool|Client|Connection)\b/i);
+test("shared generation runtime has no fixture, DBX Host, credential or database connection dependency", async () => {
+  for (const relative of ["src/generation/generation-runtime.mjs", "src/generation/generation-runtime-protocol.mjs"]) {
+    const source = await readFile(path.join(root, relative), "utf8");
+    assert.doesNotMatch(source, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider|fixtures\/schemas/);
+    assert.doesNotMatch(source, /window\.dbxPlugin|getTableMetadata|credentialStore|password|username|information_schema|pg_catalog|\bSHOW\s|\bPRAGMA\b|new\s+(?:Pool|Client|Connection)\b/i);
+  }
 });

@@ -2,23 +2,20 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import os from "node:os";
+import { inflateRawSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { collectUiRuntimeGraph } from "../scripts/ui-runtime-graph.mjs";
+import { collectUiRuntimeGraph, stripComments } from "../scripts/ui-runtime-graph.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
 const PLUGIN_ID = manifest.id;
 const WORKBENCH_ID = `${PLUGIN_ID}.generation-workbench`;
 const TABLE_ACTION_ID = `${PLUGIN_ID}.generate-test-data`;
-const PHASE0_PROBE_ID = `${PLUGIN_ID}.table-context-probe`;
-// WebView2 maps DBX's dbx-plugin scheme to this origin; the host injects it as
-// the sandbox document <base> and allows exactly this origin in its CSP.
 const HOST_PLUGIN_BASE = `http://dbx-plugin.localhost/${PLUGIN_ID}/`;
 
-function readStoredZip(buffer) {
+function readDbxZip(buffer) {
   const end = buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   assert.notEqual(end, -1, "dbxp is a ZIP package");
   const count = buffer.readUInt16LE(end + 10);
@@ -28,23 +25,28 @@ function readStoredZip(buffer) {
   for (let index = 0; index < count; index += 1) {
     assert.equal(buffer.readUInt32LE(offset), 0x02014b50, "valid central directory entry");
     const method = buffer.readUInt16LE(offset + 10);
-    assert.equal(method, 0, "package uses the supported stored-entry format");
     const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
     const nameLength = buffer.readUInt16LE(offset + 28);
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
     const localOffset = buffer.readUInt32LE(offset + 42);
     const name = buffer.toString("utf8", offset + 46, offset + 46 + nameLength);
+    assert.equal(buffer.readUInt32LE(localOffset), 0x04034b50, `valid local ZIP header for ${name}`);
     const localNameLength = buffer.readUInt16LE(localOffset + 26);
     const localExtraLength = buffer.readUInt16LE(localOffset + 28);
     const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
-    entries.set(name, buffer.subarray(dataOffset, dataOffset + compressedSize));
+    const compressed = buffer.subarray(dataOffset, dataOffset + compressedSize);
+    const contents = method === 0 ? compressed : method === 8 ? inflateRawSync(compressed) : null;
+    assert.ok(contents, `supported ZIP compression method ${method} for ${name}`);
+    assert.equal(contents.length, uncompressedSize, `uncompressed size for ${name}`);
+    assert.equal(entries.has(name), false, `unique package path ${name}`);
+    entries.set(name, contents);
     offset += 46 + nameLength + extraLength + commentLength;
   }
   return entries;
 }
 
-/** Tags parsed like the host DOM parser: HTML comments cannot contribute elements. */
 function startTags(html, name) {
   const withoutComments = html.replace(/<!--[\s\S]*?-->/g, "");
   return [...withoutComments.matchAll(new RegExp(`<${name}\\b[^>]*>`, "gi"))].map((match) => match[0]);
@@ -59,19 +61,21 @@ function tagAttributes(tag) {
   return attributes;
 }
 
-/** Entry `script[src]` / `link[rel=stylesheet][href]` references in document order. */
 function entryResourceReferences(html) {
   const resources = [];
   const withoutComments = html.replace(/<!--[\s\S]*?-->/g, "");
   for (const match of withoutComments.matchAll(/<(script|link)\b[^>]*>/gi)) {
     const attributes = tagAttributes(match[0]);
-    if (match[1].toLowerCase() === "script" && attributes.get("src")) resources.push({ kind: "script", reference: attributes.get("src"), module: (attributes.get("type") ?? "").toLowerCase() === "module" });
-    if (match[1].toLowerCase() === "link" && (attributes.get("rel") ?? "").toLowerCase() === "stylesheet" && attributes.get("href")) resources.push({ kind: "stylesheet", reference: attributes.get("href") });
+    if (match[1].toLowerCase() === "script" && attributes.get("src")) {
+      resources.push({ kind: "script", reference: attributes.get("src"), module: (attributes.get("type") ?? "").toLowerCase() === "module" });
+    }
+    if (match[1].toLowerCase() === "link" && (attributes.get("rel") ?? "").toLowerCase() === "stylesheet" && attributes.get("href")) {
+      resources.push({ kind: "stylesheet", reference: attributes.get("href") });
+    }
   }
   return resources;
 }
 
-/** Mirrors PluginWorkbenchHost.pluginUiBaseUrl/pluginUiHtmlCache entryDirectory. */
 function hostEntryDirectory(resources) {
   let entryDirectory = "";
   for (const { reference } of resources) {
@@ -81,7 +85,6 @@ function hostEntryDirectory(resources) {
   return entryDirectory;
 }
 
-/** DBX serves `<origin>/<plugin-id>/<path>` from `<package>/ui/<path>`. */
 function pluginUrlToPackagePath(url) {
   assert.equal(url.origin, "http://dbx-plugin.localhost");
   const prefix = `/${PLUGIN_ID}/`;
@@ -93,250 +96,136 @@ function contentSecurityPolicyMetas(html) {
   return startTags(html, "meta").filter((tag) => (tagAttributes(tag).get("http-equiv") ?? "").trim().toLowerCase() === "content-security-policy");
 }
 
-/** The DBX v0.6.23 sandbox contract: the host owns CSP + <base>; every entry
- * resource and every dynamic import must resolve to a packaged ui asset. */
 function assertDbxSandboxDocumentContract(html, entries) {
-  assert.equal(contentSecurityPolicyMetas(html).length, 0, "plugin UI must not declare its own CSP: DBX injects the sandbox CSP as a separate policy and the intersection is the strictest of both");
-  assert.equal(startTags(html, "base").length, 0, "plugin UI must not declare <base>: DBX injects the plugin asset base and owns base-uri");
-
+  assert.equal(contentSecurityPolicyMetas(html).length, 0, "DBX owns the sandbox CSP");
+  assert.equal(startTags(html, "base").length, 0, "DBX injects the plugin asset base");
   const resources = entryResourceReferences(html);
-  assert.ok(resources.length >= 3, "entry document references the runtime assets");
+  assert.ok(resources.length >= 2, "entry document references its runtime assets");
   for (const { reference } of resources) {
-    assert.match(reference, /^\.\//, `entry reference ${reference} must be ui-root-relative`);
-    assert.doesNotMatch(reference, /\.\./, `entry reference ${reference} must not leave the ui root`);
-    assert.equal(entries.has(pluginUrlToPackagePath(new URL(reference, HOST_PLUGIN_BASE))), true, `DBX <base> resolves ${reference} to a packaged asset`);
+    assert.match(reference, /^\.\//, `entry reference ${reference} is ui-root-relative`);
+    assert.doesNotMatch(reference, /\.\./, `entry reference ${reference} stays inside the ui root`);
+    assert.equal(entries.has(pluginUrlToPackagePath(new URL(reference, HOST_PLUGIN_BASE))), true, `packaged asset resolves: ${reference}`);
   }
-  assert.ok(resources.some((entry) => entry.reference === "./app.mjs" && entry.module), "the entry module stays a packaged relative module script");
-  assert.ok(resources.some((entry) => entry.reference === "./generation-workbench.css"), "the Workbench stylesheet stays a packaged relative stylesheet");
-
-  const entryDirectory = hostEntryDirectory(resources);
-  assert.equal(entryDirectory, "", "no subdirectory entry asset may move DBX's injected <base> away from the ui root");
-
-  const entryModule = entries.get("ui/app.mjs").toString("utf8");
-  const dynamicSpecifiers = [...entryModule.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]);
-  assert.ok(dynamicSpecifiers.includes("./generation-workbench/app.mjs"), "the Workbench module is reachable from the inlined entry");
-  assert.ok(dynamicSpecifiers.includes("./probe-app.mjs"), "the Probe module stays reachable from the inlined entry");
-  for (const specifier of dynamicSpecifiers) {
-    const packagePath = pluginUrlToPackagePath(new URL(specifier, HOST_PLUGIN_BASE));
-    assert.equal(entries.has(packagePath), true, `the inlined entry import ${specifier} resolves to packaged ${packagePath}`);
-  }
+  assert.ok(resources.some((entry) => entry.reference === "./app.mjs" && entry.module), "entry module is packaged");
+  assert.ok(resources.some((entry) => entry.reference === "./generation-workbench.css"), "Workbench stylesheet is packaged");
+  assert.equal(hostEntryDirectory(resources), "", "all entry resources stay at the UI root");
 }
 
-test("manifest declares the production Workbench and DBX v0.6.23 table action contract", async () => {
-  const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
+const dist = path.join(root, "dist");
+const packageName = `${manifest.id}-${manifest.version}-universal.dbxp`;
+const packagePath = path.join(dist, packageName);
+execFileSync(process.execPath, [path.join(root, "scripts/build.mjs")], { cwd: root, stdio: "pipe" });
+const packageBytes = await readFile(packagePath);
+const entries = readDbxZip(packageBytes);
+
+
+test("manifest declares a frontend-only Workbench and the current DBX Host contract", async () => {
   const config = await readFile(path.join(root, "dbx-plugin.toml"), "utf8");
+  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(manifest.engines.host_api, "^1.4");
-  assert.equal(manifest.engines.dbx, ">=0.6.23", "DBX v0.6.23 is the first released runtime containing upstream #10244");
-  assert.equal(manifest.icon, "assets/plugin.svg");
+  assert.equal(manifest.engines.dbx, ">=0.6.23");
   assert.deepEqual(manifest.permissions, ["host.schema:read", "host.data:read"]);
-  assert.deepEqual(manifest.entrypoints.ui, { root: "ui", entry: "ui/index.html" });
-  assert.equal(manifest.entrypoints.backend.executable, "bin/universal/schema-seed-runtime");
+  assert.deepEqual(manifest.entrypoints, { ui: { root: "ui", entry: "ui/index.html" } });
+  assert.doesNotMatch(config, /^\[backend\]/m);
+  assert.match(config, /include\s*=\s*\["assets",\s*"ui"\]/);
+  assert.equal(packageJson.devDependencies["@dbx-app/plugin-cli"], "0.1.9");
 
   const workbenches = manifest.contributions.filter((entry) => entry.type === "workbench");
-  assert.equal(workbenches.some((entry) => entry.id === `${PLUGIN_ID}.schema-metadata-probe`), true);
-  assert.equal(workbenches.some((entry) => entry.id === WORKBENCH_ID), true);
-  const generationWorkbench = workbenches.find((entry) => entry.id === WORKBENCH_ID);
-  assert.equal(generationWorkbench.icon, manifest.icon);
-
+  assert.deepEqual(workbenches.map((entry) => entry.id), [WORKBENCH_ID]);
   const action = manifest.contributions.find((entry) => entry.id === TABLE_ACTION_ID);
   assert.equal(action.type, "context-menu");
   assert.equal(action.menu, "table");
-  assert.equal(action.label, "生成测试数据");
   assert.deepEqual(action.action, { type: "open-workbench", workbench: WORKBENCH_ID });
-  const tableContextMenus = manifest.contributions.filter((entry) => entry.type === "context-menu" && entry.menu === "table");
-  assert.equal(tableContextMenus.length, 1, "production manifest exposes exactly one table context-menu contribution");
-  assert.equal(tableContextMenus[0].id, TABLE_ACTION_ID);
-  assert.equal(manifest.contributions.some((entry) => entry.id === PHASE0_PROBE_ID), false, "the Phase 0 table context probe is not a production entry point");
-  assert.equal(manifest.localizations?.["zh-CN"]?.contributions?.[PHASE0_PROBE_ID], undefined, "the Phase 0 table context probe localization is removed");
+  assert.equal(manifest.localizations?.["zh-CN"]?.contributions?.[`${PLUGIN_ID}.schema-metadata-probe`], undefined);
 
   const router = await readFile(path.join(root, "ui/app.mjs"), "utf8");
-  assert.match(router, /GENERATION_WORKBENCH_SUFFIX/);
-  assert.match(router, /PHASE0_WORKBENCH_SUFFIX/);
-  assert.equal(router.includes(PLUGIN_ID), false, "browser UI must not duplicate the manifest plugin id");
-  assert.match(router, /dbx-plugin-init/);
-  assert.match(router, /await host\.ready/, "the Workbench waits for Host initialization before reading capabilities");
-  const productionApp = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
-  const browserViewModel = await readFile(path.join(root, "src/workbench/workbench-view-model.mjs"), "utf8");
-  assert.doesNotMatch(browserViewModel, /node:/, "the DBX browser UI view model must remain browser-safe");
-  assert.match(productionApp, /data-rule-selector/);
-  assert.match(productionApp, /data-rule-field/);
-  assert.match(productionApp, /data-constraint-kind/);
-  assert.match(productionApp, /saveExportWithHost/, "the production Workbench saves through the DBX Host adapter");
-  assert.match(productionApp, /host\.saveFile/, "the production Workbench calls the public window.dbxPlugin.saveFile host API");
-  assert.doesNotMatch(productionApp, /URL\.createObjectURL|new Blob\(|\.download\s*=|link\.click\(\)/, "the production Workbench must not fall back to a sandboxed browser download");
-  assert.match(productionApp, /data-i18n="app\.titleSuffix"/, "Workbench copy is bound to i18n message keys");
-  assert.match(productionApp, /describeDiagnostics/);
-  assert.match(productionApp, /data-i18n="diagnostics\.technicalSummary"|diagnostics\.technicalSummary/);
-  assert.doesNotMatch(productionApp, /locale === "zh-CN" \?/, "no inline locale conditionals in the Workbench UI");
-  assert.doesNotMatch(productionApp, /fixture-schema-metadata-provider/);
-  assert.match(productionApp, /DbxHostSchemaMetadataProvider/);
-  assert.match(productionApp, /probeDbxDataSamples/);
-  assert.match(productionApp, /host\.capabilities/);
-  assert.match(productionApp, /host\.queryData/);
-  assert.match(productionApp, /onContext/);
-  assert.match(productionApp, /\.\.\/src\/workbench\/dbx-generation-workbench-controller\.mjs/, "the Workbench module imports the DBX ui-root-relative vendored runtime");
-  assert.doesNotMatch(productionApp, /node:crypto|\bBuffer\s*\./, "the browser Workbench module must stay WebView-safe");
-  assert.doesNotMatch(productionApp, /FixtureSchemaMetadataProvider|fixture-schema-metadata-provider/);
-  assert.match(config, /backend\/plugin-identity\.mjs/);
-  assert.match(config, /src\/workbench\/dbx-generation-workbench-controller\.mjs/);
-  assert.doesNotMatch(config, /^\s+"(?:fixtures|web|tests|src\/providers\/fixture|src\/workbench\/workbench-controller)/m);
+  assert.match(router, /await host\.ready/);
+  assert.match(router, /mountGenerationWorkbench/);
+  assert.match(router, /showFatalBootError/);
+  assert.match(router, /catch \(error\)/);
+  assert.doesNotMatch(router, /host\.invoke/);
+  const workbenchApp = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
+  const adapter = await readFile(path.join(root, "src/workbench/dbx-generation-workbench-adapter.mjs"), "utf8");
+  assert.match(workbenchApp, /createGenerationWorkbenchController/);
+  assert.match(adapter, /preview: executeGenerationPreview/);
+  assert.match(adapter, /host\.getTableMetadata/);
+  assert.match(adapter, /host\.queryData/);
+  assert.match(workbenchApp, /host\.saveFile/);
+  assert.doesNotMatch(workbenchApp, /host\.invoke/);
+  assert.doesNotMatch(workbenchApp, /URL\.createObjectURL|new Blob\(|\.download\s*=|link\.click\(\)/);
 });
 
-test("backend manifest identity stays outside the browser UI runtime graph", async () => {
-  const identitySource = await readFile(path.join(root, "backend/plugin-identity.mjs"), "utf8");
-  assert.match(identitySource, /node:fs\/promises/);
-  assert.match(identitySource, /new URL\("\.\.\/manifest\.json", import\.meta\.url\)/);
-
-  const uiGraph = await collectUiRuntimeGraph((sourcePath) => readFile(path.join(root, sourcePath), "utf8"));
-  assert.equal([...uiGraph.values()].some(({ source }) => /node:(?:fs|fs\/promises)/.test(source)), false);
-  assert.equal(uiGraph.has("ui/backend/plugin-identity.mjs"), false);
-});
-
-test("package build refuses to mislabel a platform target", () => {
+test("package build rejects platform-specific labels for the universal frontend runtime", () => {
   const result = spawnSync(process.execPath, [path.join(root, "scripts/build.mjs")], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, DBX_PLUGIN_TARGET: "linux-x64" },
+    env: { ...process.env, DBX_PLUGIN_TARGET: "darwin-arm64" },
   });
-  assert.notEqual(result.status, 0, "SchemaSeed only publishes the platform-independent universal candidate");
+  assert.notEqual(result.status, 0);
   assert.match(result.stderr, /DBX_PLUGIN_TARGET/);
 });
 
-test("candidate artifact metadata matches the packaged bytes and stays unsigned", async () => {
-  execFileSync(process.execPath, [path.join(root, "scripts/build.mjs")], { cwd: root, stdio: "pipe" });
-  const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
-  const candidateName = `${manifest.id}-${manifest.version}-universal`;
-  const packagePath = path.join(root, "dist", `${candidateName}.dbxp`);
-  const packageBytes = await readFile(packagePath);
-  const metadata = JSON.parse(await readFile(path.join(root, "dist", `${candidateName}.artifact.json`), "utf8"));
+test("official CLI candidate metadata and archive bytes agree; candidate remains unsigned", async () => {
+  const metadata = JSON.parse(await readFile(path.join(dist, `${manifest.id}-${manifest.version}-universal.artifact.json`), "utf8"));
   assert.equal(metadata.target, "universal");
-  assert.equal(metadata.url, `${candidateName}.dbxp`);
+  assert.equal(metadata.url, packageName);
   assert.equal(metadata.sha256, createHash("sha256").update(packageBytes).digest("hex"));
   assert.equal(metadata.size, packageBytes.length);
-  assert.equal(metadata.signingKeyId, undefined, "release candidates stay unsigned for DBX Store signing");
-  const entries = readStoredZip(packageBytes);
-  assert.equal(entries.has("signature.json"), false, "an unsigned candidate must not ship signature.json");
-  const packagedManifest = JSON.parse(entries.get("manifest.json").toString("utf8"));
-  assert.equal(packagedManifest.id, manifest.id);
-  assert.equal(packagedManifest.publisher, manifest.publisher);
-  assert.equal(packagedManifest.version, manifest.version);
-
-  const smoke = spawnSync(process.execPath, [path.join(root, "scripts/packaged-identity-smoke.mjs"), packagePath], {
-    cwd: os.tmpdir(),
+  assert.equal(metadata.signingKeyId, undefined);
+  assert.equal(entries.has("signature.json"), false);
+  const identitySmoke = spawnSync(process.execPath, [path.join(root, "scripts/packaged-identity-smoke.mjs"), packagePath], {
+    cwd: root,
     encoding: "utf8",
   });
-  assert.equal(smoke.status, 0, `${smoke.stdout}\n${smoke.stderr}`);
-  assert.match(smoke.stdout, /Packaged backend identity matches its manifest/u);
-});
-
-test("built DBXP contains production runtime/UI and Phase 0 Probe, but excludes fixture/dev resources", async () => {
-  execFileSync(process.execPath, [path.join(root, "scripts/build.mjs")], { cwd: root, stdio: "pipe" });
-  const dist = path.join(root, "dist");
-  const names = (await (await import("node:fs/promises")).readdir(dist)).filter((name) => name.endsWith(".dbxp"));
-  assert.equal(names.length, 1);
-
-  const entries = readStoredZip(await readFile(path.join(dist, names[0])));
-  const expected = [
-    "manifest.json",
-    "assets/plugin.svg",
-    "backend/schema-seed-runtime.mjs",
-    "backend/plugin-identity.mjs",
-    "src/diagnostics.mjs",
-    "src/export/export-dataset.mjs",
-    "src/generation/constraint-allocation.mjs",
-    "src/generation/constraint-domain.mjs",
-    "src/generation/generation-engine.mjs",
-    "src/generation/generation-identity.mjs",
-    "src/generation/generation-plan.mjs",
-    "src/generation/manual-constraints.mjs",
-    "src/generation/generation-rules.mjs",
-    "src/generation/generation-runtime-contract.mjs",
-    "src/generation/generation-runtime-protocol.mjs",
-    "src/host/dbx-data-sample-probe.mjs",
-    "src/host/dbx-schema-metadata-probe.mjs",
-    "src/semantic/sample-evidence.mjs",
-    "src/i18n/catalog.mjs",
-    "src/i18n/diagnostics.mjs",
-    "src/i18n/en-US.mjs",
-    "src/i18n/evidence.mjs",
-    "src/i18n/index.mjs",
-    "src/i18n/labels.mjs",
-    "src/i18n/ui-locale.mjs",
-    "src/i18n/workbench-messages.mjs",
-    "src/i18n/zh-CN.mjs",
-    "src/probe-protocol.mjs",
-    "src/providers/dbx-host-schema-metadata-provider.mjs",
-    "src/schema/temporal-values.mjs",
-    "src/workbench/dbx-generation-workbench-controller.mjs",
-    "src/workbench/workbench-view-model.mjs",
-    "ui/index.html",
-    "ui/app.mjs",
-    "ui/probe-app.mjs",
-    "ui/generation-workbench/app.mjs",
-    "ui/generation-workbench/export-save.mjs",
-    "ui/generation-workbench.css",
-    "ui/schema-metadata-probe.mjs",
-    "checksums.json",
-  ];
-  for (const name of expected) assert.equal(entries.has(name), true, `package includes ${name}`);
-
-  for (const name of entries.keys()) {
-    assert.equal(/^(?:fixtures|web|tests)\//.test(name), false, `package excludes dev path ${name}`);
-    assert.equal(/(?:^|\/)(?:fixture-schema-metadata-provider|fixture-preview)\.mjs$/.test(name), false, `package excludes fixture module ${name}`);
-    assert.equal(/(?:^|\/)workbench-controller\.mjs$/.test(name), false, `package excludes the fixture workbench controller ${name}`);
-    assert.equal(/(?:^|\/)workbench-server\.mjs$/.test(name), false, `package excludes the standalone workbench server ${name}`);
-    assert.notEqual(name, "backend/schema-seed-probe.mjs");
-  }
+  assert.equal(identitySmoke.status, 0, `${identitySmoke.stdout}\n${identitySmoke.stderr}`);
+  assert.match(identitySmoke.stdout, /Packaged frontend identity matches its manifest/u);
 
   const packagedManifest = JSON.parse(entries.get("manifest.json").toString("utf8"));
-  const packagedAction = packagedManifest.contributions.find((entry) => entry.id === TABLE_ACTION_ID);
-  assert.deepEqual(packagedAction.action, { type: "open-workbench", workbench: WORKBENCH_ID });
-  assert.equal(packagedManifest.contributions.some((entry) => entry.id === packagedAction.action.workbench), true);
-  assert.equal(packagedManifest.engines.dbx, ">=0.6.23", "DBX v0.6.23 is the first released runtime containing upstream #10244");
-  const packagedTableMenus = packagedManifest.contributions.filter((entry) => entry.type === "context-menu" && entry.menu === "table");
-  assert.equal(packagedTableMenus.length, 1, "packaged manifest exposes exactly one table context-menu contribution");
-  assert.equal(packagedTableMenus[0].id, TABLE_ACTION_ID);
-  assert.equal(packagedManifest.contributions.some((entry) => entry.id === PHASE0_PROBE_ID), false, "packaged manifest has no Phase 0 table context probe entry");
-  assert.equal(packagedManifest.entrypoints.backend.executable, "bin/universal/schema-seed-runtime");
-  assert.match(entries.get("ui/index.html").toString("utf8"), /generation-workbench\.css/);
-  assert.match(entries.get("backend/schema-seed-runtime.mjs").toString("utf8"), /generation-runtime-protocol/);
-  assert.match(entries.get("src/generation/generation-runtime-protocol.mjs").toString("utf8"), /generation\/preview/);
-  assert.match(entries.get("src/generation/generation-runtime-protocol.mjs").toString("utf8"), /validateOnly/);
-  assert.match(entries.get("src/generation/generation-plan.mjs").toString("utf8"), /generation-rules\.mjs/);
-  assert.match(entries.get("ui/generation-workbench/app.mjs").toString("utf8"), /data-rule-selector/);
-
-  const referencedIcons = [packagedManifest.icon, ...packagedManifest.contributions.map((entry) => entry.icon).filter(Boolean)];
-  for (const iconPath of referencedIcons) {
-    assert.equal(entries.has(iconPath), true, `package includes manifest icon ${iconPath}`);
-    assert.deepEqual(entries.get(iconPath), await readFile(path.join(root, iconPath)), `packaged icon matches ${iconPath}`);
-  }
+  assert.deepEqual(packagedManifest, manifest);
+  assert.deepEqual(packagedManifest.entrypoints, { ui: { root: "ui", entry: "ui/index.html" } });
   assert.deepEqual(packagedManifest.permissions, ["host.schema:read", "host.data:read"]);
-  assert.equal(packagedManifest.entrypoints.ui.entry, "ui/index.html");
-  const checksums = JSON.parse(entries.get("checksums.json").toString("utf8")).files;
-  for (const [name, digest] of Object.entries(checksums)) {
-    assert.deepEqual(createHash("sha256").update(entries.get(name)).digest("hex"), digest, `checksum for ${name}`);
+
+  const checksumDocument = JSON.parse(entries.get("checksums.json").toString("utf8"));
+  assert.equal(checksumDocument.algorithm, "sha256");
+  assert.deepEqual(Object.keys(checksumDocument.files).sort(), [...entries.keys()].filter((name) => name !== "checksums.json").sort());
+  for (const [name, digest] of Object.entries(checksumDocument.files)) {
+    assert.equal(createHash("sha256").update(entries.get(name)).digest("hex"), digest, `checksum covers ${name}`);
   }
 });
 
-test("packaged Workbench satisfies the DBX v0.6.23 sandbox asset contract", async () => {
-  execFileSync(process.execPath, [path.join(root, "scripts/build.mjs")], { cwd: root, stdio: "pipe" });
-  const dist = path.join(root, "dist");
-  const names = (await (await import("node:fs/promises")).readdir(dist)).filter((name) => name.endsWith(".dbxp"));
-  assert.equal(names.length, 1);
-  const entries = readStoredZip(await readFile(path.join(dist, names[0])));
+test("the actual .dbxp contains a complete Node-free UI graph and no backend launcher", async () => {
+  assert.equal(entries.has("manifest.json"), true);
+  assert.equal(entries.has("assets/plugin.svg"), true);
+  assert.equal(entries.has("ui/index.html"), true);
+  assert.equal(entries.has("ui/app.mjs"), true);
+  assert.equal(entries.has("ui/src/generation/generation-runtime.mjs"), true);
+  assert.equal(entries.has("ui/src/generation/generation-engine.mjs"), true);
+  assert.equal(entries.has("ui/src/generation/person-synthetic.mjs"), true);
+  assert.equal([...entries.keys()].some((name) => name.startsWith("backend/") || name.startsWith("bin/")), false);
+  assert.equal([...entries.keys()].some((name) => /^(?:tests|fixtures|web)\//.test(name)), false);
+  assert.equal([...entries.keys()].some((name) => /(?:^|\/)(?:schema-seed-runtime|unix-launcher|windows-launcher)/i.test(name)), false);
 
-  assertDbxSandboxDocumentContract(entries.get("ui/index.html").toString("utf8"), entries);
-
-  // The package must ship exactly the reachable ui-rooted module graph; the
-  // resolver rejects Node-only modules (`node:` builtins, `Buffer`), so a
-  // browser-unsafe import fails this test instead of the DBX WebView.
+  const runtimeModules = [...entries.keys()].filter((name) => name.startsWith("ui/") && name.endsWith(".mjs")).sort();
   const graph = await collectUiRuntimeGraph((sourcePath) => readFile(path.join(root, sourcePath), "utf8"));
+  assert.deepEqual(runtimeModules, [...graph.keys()].filter((name) => name.endsWith(".mjs")).sort());
   for (const [packagePath, module] of graph) {
-    assert.equal(entries.has(packagePath), true, `package contains UI runtime module ${packagePath}`);
-    assert.deepEqual(entries.get(packagePath), Buffer.from(module.source), `packaged ${packagePath} matches its source`);
+    assert.deepEqual(entries.get(packagePath), Buffer.from(module.source), `packaged runtime source ${packagePath}`);
+    const source = stripComments(entries.get(packagePath).toString("utf8"));
+    assert.doesNotMatch(source, /\bnode:/, `no Node builtin in ${packagePath}`);
+    assert.doesNotMatch(source, /\b(?:Buffer|process)\s*\./, `no Node-only global in ${packagePath}`);
   }
-  const packagedModules = [...entries.keys()].filter((name) => name.startsWith("ui/") && name.endsWith(".mjs")).sort();
-  assert.deepEqual(packagedModules, [...graph.keys()].filter((name) => name.endsWith(".mjs")).sort(), "the package ships exactly the reachable UI module graph");
-  assert.equal(graph.has("ui/src/generation/generation-identity.mjs"), true, "the shared sha256-addressed identity module is vendored under ui/src");
-  assert.equal(graph.has("ui/src/workbench/dbx-generation-workbench-controller.mjs"), true, "the production Workbench controller is vendored under ui/src");
+  assert.equal(entries.has("ui/src/workbench/dbx-generation-workbench-controller.mjs"), true);
+  assert.equal(entries.has("ui/src/generation/generation-runtime-protocol.mjs"), false, "test-only JSON-RPC compatibility adapter is not part of the production package");
+  assertDbxSandboxDocumentContract(entries.get("ui/index.html").toString("utf8"), entries);
+});
+
+test("Workbench boot errors have an accessible fatal state instead of a blank screen", async () => {
+  const source = await readFile(path.join(root, "src/bootstrap-error-state.mjs"), "utf8");
+  const html = entries.get("ui/index.html").toString("utf8");
+  assert.match(source, /role/);
+  assert.match(source, /textContent/);
+  assert.match(html, /id="boot-fatal"/);
+  assert.match(html, /id="boot-fatal-description"/);
+  assert.match(html, /id="boot-retry"/);
+  assert.match(entries.get("ui/app.mjs").toString("utf8"), /showFatalBootError/);
 });

@@ -1,6 +1,6 @@
 # SchemaSeed Roadmap
 
-> 本文件同步已验证的 Phase 0 Gate 决定和真实进度；不把 DBX 未公开 API 写成已实现事实。
+> 本文件同步 Phase 0 的已验证证据；DBX/SchemaSeed 的 sidecar Probe 内容属于历史记录。当前 node-free 候选已移除 Probe UI 与插件 backend，不能将旧 runtime smoke 当作新包验收。
 
 ## Phase 0 — Feasibility / Host API
 
@@ -40,7 +40,7 @@ Overall Phase 0: READY_WITH_FOLLOWUPS
 
 ### Table Context path（historical Phase 0, DBX v0.6.21）
 
-> Historical evidence only. The production table context-menu entry `io.github.0verme.schema-seed.table-context-probe` (zh-CN「SchemaSeed：保存 Table Context」) was removed from the manifest in the DBX v0.6.23 runtime-validation cleanup. The Schema Metadata Probe Workbench is retained and can still be opened manually from the plugin details page; the sidecar RPC below is no longer reachable through a production table-menu entry.
+> Historical evidence only. The production table context-menu entry `io.github.0verme.schema-seed.table-context-probe` (zh-CN「SchemaSeed：保存 Table Context」) was removed from the manifest in the DBX v0.6.23 runtime-validation cleanup. The Schema Metadata Probe Workbench and its sidecar RPC were subsequently removed from the node-free frontend-only candidate; metadata contract evidence remains in the audit documents.
 
 ```text
 DBX Sidebar Table Node
@@ -53,7 +53,7 @@ DBX Sidebar Table Node
   → Raw Host API response + normalized metadata + diagnostics
 ```
 
-The DBX v0.6.21 Phase 0 Probe runtime used a two-step flow: save the selected table context, then manually open the Workbench. That is historical runtime evidence, not the current upstream contract. Upstream [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) is merged and released in DBX v0.6.23; it supports table/connection context-menu → `open-workbench`, passes the current context, and refreshes context when reusing a Workbench tab. SchemaSeed has not yet runtime-smoked DBX v0.6.23; #31 owns that validation and uses the direct table-level entry. #30 does not implement a Workbench UI or manifest contribution. The retained Phase 0 Probe Workbench keeps its historical sidecar RPC contract, but its production table context-menu entry is removed.
+The DBX v0.6.21 Phase 0 Probe runtime used a two-step flow: save the selected table context, then manually open the Workbench. That is historical runtime evidence, not the current upstream contract. Upstream [t8y2/dbx#10244](https://github.com/t8y2/dbx/pull/10244) is merged and released in DBX v0.6.23; it supports table/connection context-menu → `open-workbench`, passes the current context, and refreshes context when reusing a Workbench tab. The old v0.2.4 Windows smoke for this context contract passed; it is not a smoke of the new frontend-only artifact, which still requires Windows/macOS validation.
 
 ### 审计范围
 
@@ -201,7 +201,7 @@ DBX Sidebar table
 - The current dataset is created from the same Core generation result used by Preview. Export serializes only that dataset and never calls `generateRows()` again.
 - Context change synchronously invalidates old metadata, plan, preview and export dataset. `A → B → C` calls are revision-guarded so late responses cannot replace C.
 - UI states distinguish `loading`, `ready`, `warning`, `blocked` and `error`; provider/Core diagnostics remain the single diagnostic source.
-- `ui/` includes both the production Workbench UI and the separate Phase 0 Probe Workbench (manual plugin-details entry only; its historical table context-menu contribution was removed). The `.dbxp` package explicitly excludes `web/`, `fixtures/`, fixture providers/controllers, tests and standalone harness server.
+- The current candidate's `ui/` contains only the production Generation Workbench. The former Phase 0 Probe UI and sidecar are historical evidence and are not packaged. The `.dbxp` explicitly excludes `web/`, `fixtures/`, fixture providers/controllers, tests and standalone harness server.
 - Issue #32 implements the frozen 13-rule v0.1 Core contract and production Rule Editor; see [COLUMN_GENERATION_RULES.md](COLUMN_GENERATION_RULES.md). The release gate is satisfied by DBX v0.6.23; the 2026-09-26 workbench smoke covered the rules-driven Generate → Preview → Export path (the per-rule editor interaction is not itemized in that record).
 
 ### DBX release compatibility decision
@@ -215,14 +215,14 @@ DBX Sidebar table
 
 - Exactly 13 tagged rules are frozen, Core-validated and available through existing GenerationPlan diagnostics. Plan and generator reuse existing deterministic cell/row identity; no parallel RNG engine is introduced.
 - Rule availability and config fields are Core-provided. The production Workbench Rule Editor edits table-session state, uses validation-only calls, invalidates the old Preview/Export immediately, and blocks invalid rules rather than falling back.
-- Existing `generation/preview` RPC carries rules and validation-only options; package allowlist/contract tests include the Core module while preserving fixture-free production runtime boundaries.
+- The local `executeGenerationPreview()` entrypoint carries the former `generation/preview` validation and result semantics; a compatibility RPC adapter is exercised by tests, while production UI calls the Core locally.
 - Focused and full local Node tests validate tagged contracts, schema bounds, exact decimal arithmetic, UTC ranges, stable identities, controller invalidation, RPC and `.dbxp` packaging. These are not DBX runtime E2E evidence.
 - State: the 2026-09-26 DBX v0.6.23 workbench smoke covered the rules-driven Generate → Preview → Export path; the per-rule editor interaction detail is not itemized in that record, and Issue closure is a maintainer decision based on it. No release fabrication or local upstream compilation.
 
 ### Issue #37 — Manual Single-table Constraint Engine v0.1
 
 - Core accepts only explicit `unique`, ordered `composite_unique` and `required_unique` configuration; it builds an independent inspectable ConstraintPlan, proves finite domain / tuple capacity, allocates deterministically without collision retry, and independently validates the final dataset.
-- The production Workbench editor uses the existing `generation/preview` validation-only path. Constraint edits invalidate Preview / Export; constraints are cleared on context refresh and are not persisted. `.dbxp` includes the new Core and Workbench assets while excluding test / fixture / standalone resources.
+- The production Workbench editor uses local `executeGenerationPreview()` validation-only calls. Constraint edits invalidate Preview / Export; constraints are cleared on context refresh and are not persisted. The universal `.dbxp` includes the browser-safe Core and Workbench assets while excluding test / fixture / standalone resources.
 - This capability is a SchemaSeed generation obligation, not database PK / UNIQUE discovery. No host schema provenance is rewritten and no database catalog, private API, credential or second connection is used. See the canonical [Manual Constraints contract](MANUAL_CONSTRAINTS.md).
 - #37 does not depend on or alter #31 runtime smoke / #32 runtime E2E gates, and does not claim either gate verified.
 

@@ -55,7 +55,7 @@ Person semantic values继续使用现有 `Person group + row identity + locale +
 
 ## Workbench state and scope
 
-正式 DBX Generation Workbench 复用现有 `DbxHostSchemaMetadataProvider → TableSchema → generation/preview RPC → buildGenerationPlan() → generateRows()`。RPC 扩展既有 `generation/preview` 请求以承载 `rules`；规则编辑时可用同一 method 的 `validateOnly` 仅重建 plan/diagnostics，不生成 dataset。
+正式 DBX Generation Workbench 复用现有 `DbxHostSchemaMetadataProvider → TableSchema → executeGenerationPreview() → buildGenerationPlan() → generateRows()`。本地执行入口沿用历史 `generation/preview` 参数/结果校验语义并承载 `rules`；规则编辑时通过同一入口的 `validateOnly` 仅重建 plan/diagnostics，不生成 dataset。JSON-RPC adapter 仅供兼容性契约测试使用，生产 UI 不调用 backend。
 
 规则是当前 Workbench table session state，不持久化。A→B→C 切换清空旧 rules、plan、diagnostics、Preview 与 Export dataset；已有 stale-request revision guard 不变。编辑规则后立即清除当前 dataset、进入 dirty/blocked 状态并禁用 Export；只有当前 rule plan Generate 成功后 Preview 与 Export 才恢复。CSV/JSON 继续只序列化当前 Preview 的同一个 `ExportDataset`。
 

@@ -9,5 +9,8 @@
     "build": "node scripts/build.mjs",
     "smoke:package-identity": "node scripts/packaged-identity-smoke.mjs",
     "workbench": "node scripts/workbench.mjs"
+  },
+  "devDependencies": {
+    "@dbx-app/plugin-cli": "0.1.9"
   }
 }

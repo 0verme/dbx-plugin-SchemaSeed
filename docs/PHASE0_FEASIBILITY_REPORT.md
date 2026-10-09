@@ -2,6 +2,8 @@
 
 Status: READY_WITH_FOLLOWUPS
 
+> 历史 Phase 0 可行性与运行证据。node-free frontend-only 候选不再打包本报告描述的 Probe UI/sidecar；公开 Host API 契约与旧运行结果仍作为审计证据保留，新 `.dbxp` 的真机验收单独跟踪。
+
 ## Gate Decision and Current Status
 
 ```text
