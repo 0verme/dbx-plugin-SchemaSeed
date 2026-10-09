@@ -8,6 +8,7 @@ import { toColumnViewModel } from "./workbench-view-model.mjs";
 import { getSampleProbeCandidates } from "../host/dbx-data-sample-probe.mjs";
 import { sanitizeSampleEvidence } from "../semantic/sample-evidence.mjs";
 import { DEFAULT_GENERATION_ROW_COUNT, MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "../generation/row-count.mjs";
+import { previewPrimaryAction } from "./preview-action-state.mjs";
 
 export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: DEFAULT_GENERATION_ROW_COUNT, seed: "demo", locale: "zh-CN" });
 export const DBX_WORKBENCH_MAX_ROWS = MAX_GENERATION_ROW_COUNT;
@@ -57,6 +58,7 @@ export class DbxGenerationWorkbenchController {
     this.schema = null;
     this.plan = null;
     this.currentDataset = null;
+    this.lastSuccessfulParameters = null;
     this.rules = {};
     this.constraints = [];
     this.diagnostics = [];
@@ -107,6 +109,7 @@ export class DbxGenerationWorkbenchController {
     this.sampleEvidenceLoaded = false;
     this.plan = null;
     this.currentDataset = null;
+    this.lastSuccessfulParameters = null;
     this.rules = {};
     this.constraints = [];
     this.diagnostics = [];
@@ -267,11 +270,19 @@ export class DbxGenerationWorkbenchController {
   /** @returns {ReturnType<DbxGenerationWorkbenchController["getViewModel"]>} */
   getViewModel() {
     const plan = this.plan;
+    const canGenerate = Boolean(this.context && this.schema);
+    const currentDataset = Boolean(this.currentDataset && ["ready", "warning"].includes(this.status));
+    const generationState = { status: this.status, stage: this.stage, context: this.context, canGenerate, hasCurrentDataset: currentDataset };
+    const primaryAction = previewPrimaryAction(generationState);
     return {
       status: this.status,
+      previewState: primaryAction.state,
+      previewAction: primaryAction,
+      lastSuccessfulParameters: this.lastSuccessfulParameters ? structuredClone(this.lastSuccessfulParameters) : null,
+      lastSuccessfulParametersCurrent: currentDataset,
       stage: this.stage,
       context: this.context ? { ...this.context } : null,
-      canGenerate: Boolean(this.context && this.schema),
+      canGenerate,
       table: this.context ? {
         database: this.context.database ?? null,
         schema: this.context.schema ?? null,
@@ -322,7 +333,6 @@ export class DbxGenerationWorkbenchController {
         : this.status === "dirty" ? (this.stage === "constraint-validation" ? "validating" : "dirty")
           : this.status === "blocked" ? "blocked" : this.status === "warning" ? "warning"
             : this.status === "error" ? "error" : "ready" },
-      safeSyntheticNoticeKey: "safety.notice",
       error: this.error,
       actionError: this.actionError,
     };
@@ -537,7 +547,8 @@ export class DbxGenerationWorkbenchController {
       }
       if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
 
-      const response = await this.preview(schema, this.generationOptions());
+      const generationOptions = this.generationOptions();
+      const response = await this.preview(schema, generationOptions);
       if (contextRevision !== this.contextRevision || operation !== this.operationRevision) return this.getViewModel();
       if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
         throw new Error("Generation Core runtime returned an invalid preview response");
@@ -553,6 +564,13 @@ export class DbxGenerationWorkbenchController {
         this.status = response.generated.status === "ready_with_warnings" || response.plan.status === "ready_with_warnings"
           ? "warning" : "ready";
         this.currentDataset = createExportDataset(response.plan, response.generated, { table: context });
+        this.lastSuccessfulParameters = {
+          rowCount: response.plan.rowCount,
+          seed: response.plan.seed,
+          locale: response.plan.locale,
+          rules: structuredClone(generationOptions.rules),
+          constraints: structuredClone(generationOptions.constraints),
+        };
       }
       this.stage = "ready";
       this.emit();

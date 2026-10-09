@@ -51,19 +51,11 @@ const WORKBENCH_MARKUP = `
           <div><span data-i18n="context.schema"></span><strong id="sswb-schema">—</strong></div>
           <div><span data-i18n="context.table"></span><strong id="sswb-table">—</strong></div>
         </div>
-        <aside class="sswb-data-access" role="note" aria-labelledby="sswb-data-access-title">
-          <h3 id="sswb-data-access-title" data-i18n="dataAccess.title"></h3>
-          <p data-i18n="dataAccess.description"></p>
-          <details class="sswb-data-access-details">
-            <summary data-i18n="dataAccess.detailsSummary"></summary>
-            <p data-i18n="dataAccess.detailsDescription"></p>
-          </details>
-        </aside>
         <form id="sswb-controls" class="sswb-controls">
           <label><span data-i18n="controls.rows"></span><input id="sswb-rows" name="rowCount" type="number" min="1" max="1000" step="1" value="50" required></label>
           <label><span data-i18n="controls.seed"></span><input id="sswb-seed" name="seed" type="text" value="demo" maxlength="128"></label>
           <label><span data-i18n="controls.dataLocale"></span><select id="sswb-locale" name="locale" data-i18n-title="controls.dataLocaleHelp"><option value="zh-CN">zh-CN</option><option value="en">en</option></select></label>
-          <div class="sswb-actions"><button class="sswb-button sswb-primary" type="button" data-sswb-action="generate" data-i18n="actions.generate"></button><button class="sswb-button" type="button" data-sswb-action="generate-new-data" data-i18n="actions.generateNewData"></button></div>
+          <div class="sswb-actions"><button class="sswb-button sswb-primary" type="button" data-sswb-action="preview"></button></div>
         </form>
         <p id="sswb-action-error" class="sswb-inline-error" role="alert" hidden></p>
       </section>
@@ -71,7 +63,6 @@ const WORKBENCH_MARKUP = `
       <section class="sswb-panel" aria-labelledby="sswb-preview-title">
         <div class="sswb-heading"><div><h2 id="sswb-preview-title" data-i18n="preview.title"></h2><p id="sswb-preview-summary" class="sswb-caption"></p></div><span class="sswb-readonly" data-i18n="preview.readonly"></span></div>
         <p id="sswb-state-message" class="sswb-state-message" role="status"></p>
-        <p id="sswb-safe-notice" class="sswb-safe-notice"></p>
         <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button><button id="sswb-preview-sql" class="sswb-button" type="button" data-sswb-preview-sql data-i18n="actions.previewSql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
         <div id="sswb-preview-empty" class="sswb-preview-empty" hidden><strong data-i18n="preview.empty.title"></strong><p data-i18n="preview.empty.helper"></p></div>
         <div id="sswb-preview-scroll" class="sswb-scroll sswb-preview-scroll" hidden><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
@@ -330,6 +321,11 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       void controller.dispatch({ type: "delete-constraint", id: target.dataset.constraintId });
       return;
     }
+    if (target.dataset.sswbAction === "preview") {
+      const action = controller.getViewModel().previewAction;
+      if (!action.disabled) void controller.dispatch({ type: action.action });
+      return;
+    }
     void controller.dispatch({ type: target.dataset.sswbAction });
   }
 
@@ -383,8 +379,6 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       && ["idle", "dirty"].includes(viewModel.status));
     element("sswb-action-error").textContent = viewModel.actionError ? actionErrorMessage(viewModel.actionError, t) : "";
     element("sswb-action-error").hidden = !viewModel.actionError;
-    const noticeKey = viewModel.safeSyntheticNoticeKey ?? "safety.notice";
-    element("sswb-safe-notice").textContent = viewModel.plan ? t(noticeKey) : "";
     const rowInput = element("sswb-rows");
     const seedInput = element("sswb-seed");
     const localeInput = element("sswb-locale");
@@ -394,9 +388,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     for (const control of root.querySelector(".sswb").querySelectorAll("button, input, select, textarea")) {
       if (control.id !== "sswb-ui-locale") control.disabled = viewModel.status === "loading";
     }
-    for (const control of root.querySelectorAll('[data-sswb-action="generate"], [data-sswb-action="generate-new-data"]')) {
-      control.disabled = viewModel.status === "loading" || !viewModel.canGenerate;
-    }
+    const previewButton = root.querySelector('[data-sswb-action="preview"]');
+    previewButton.textContent = t(viewModel.previewAction.labelKey);
+    previewButton.disabled = viewModel.previewAction.disabled;
+    previewButton.dataset.previewState = viewModel.previewAction.state.toLowerCase();
+    if (viewModel.previewAction.busy) previewButton.setAttribute("aria-busy", "true");
+    else previewButton.removeAttribute("aria-busy");
     element("sswb-rule-state").textContent = ruleEditorStateMessage(viewModel, t);
     element("sswb-constraint-state").textContent = constraintEditorStateMessage(viewModel, t);
     renderSectionSummaries(viewModel, t);

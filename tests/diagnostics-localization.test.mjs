@@ -215,9 +215,9 @@ describe("diagnostics localization: Workbench state copy", () => {
 
   it("localizes the blocked preview, export hint and constraint conflict messages", () => {
     const blocked = { status: "blocked", stage: "ready", diagnostics: [{ code: "varchar_length_unknown" }], plan: {}, export: { enabled: false } };
-    assert.equal(stateMessage(blocked, zh), "当前方案存在阻塞问题，预览和导出不可用。点击“生成预览”或“换一批数据”可重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据。请先处理下方诊断项。");
+    assert.equal(stateMessage(blocked, zh), "当前方案存在阻塞问题，预览和导出不可用。可使用上方主按钮重新校验（适用时先使用已授权样本）；若仍阻塞则不会生成数据。请先处理下方诊断项。");
     assert.match(stateMessage(blocked, en), /plan has blocking issues/u);
-    assert.match(stateMessage({ ...blocked, canGenerate: true }, zh), /可重新校验/u);
+    assert.match(stateMessage({ ...blocked, canGenerate: true }, zh), /可使用上方主按钮重新校验/u);
     assert.match(stateMessage({ ...blocked, canGenerate: true }, en), /revalidate/u);
     assert.match(exportStatusMessage(blocked, zh), /当前生成设置存在阻塞问题/u);
     assert.match(exportDisabledHint(blocked, zh), /无法导出/);

@@ -138,48 +138,39 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.generateNewData", "actions.previewSql", "diagnostics.title", "preview.title", "preview.empty.title", "preview.empty.helper", "preview.readonly", "status.idle", "status.loading.plan", "state.idle", "state.loading.plan", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "state.blocked.plan.canGenerate", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.sampled", "columns.sampleHint.not_attempted"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.generateNewData", "actions.regeneratePreview", "actions.generatingPreview", "actions.retryGeneration", "actions.retry", "actions.previewSql", "diagnostics.title", "preview.title", "preview.empty.title", "preview.empty.helper", "preview.readonly", "status.idle", "status.loading.plan", "state.idle", "state.loading.plan", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "state.blocked.plan.canGenerate", "constraints.empty.none", "preview.pagination.previous", "columns.sampleHint.sampled", "columns.sampleHint.not_attempted"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);
     }
     assert.equal(zh("actions.generateNewData"), "换一批数据");
+    assert.equal(zh("actions.regeneratePreview"), "重新生成预览");
+    assert.equal(zh("actions.retryGeneration"), "重试生成");
     assert.equal(en("actions.generate"), "Generate Preview");
     assert.equal(en("actions.generateNewData"), "Generate New Data");
+    assert.equal(en("actions.regeneratePreview"), "Regenerate Preview");
+    assert.equal(en("actions.retryGeneration"), "Retry Generation");
+    assert.equal(zh("preview.summary.stale", { rows: 50, seed: "demo", locale: "zh-CN" }), "上次预览参数：50 行 · 种子 demo · 数据语言 zh-CN（当前设置已变更）");
+    assert.equal(en("preview.summary.stale", { rows: 50, seed: "demo", locale: "zh-CN" }), "Last preview parameters: 50 rows · seed demo · data locale zh-CN (current settings changed)");
   });
 
-  it("localizes the DBX data-access privacy disclosure without claiming sensitive values are never read", async () => {
+  it("keeps concise Host authorization and sampling limits without rendering removed callouts", async () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    assert.equal(zh("dataAccess.title"), "数据访问");
-    assert.match(zh("dataAccess.description"), /DBX Host 授权/u);
-    assert.match(zh("dataAccess.description"), /最多读取 100 行/u);
-    assert.match(zh("dataAccess.description"), /仅在点击“生成预览”或“换一批数据”后/u);
-    assert.match(zh("dataAccess.description"), /字段规则推断/u);
-    assert.match(zh("dataAccess.detailsDescription"), /候选字段/u);
-    assert.match(zh("dataAccess.detailsDescription"), /每次最多 16 列/u);
-    assert.match(zh("dataAccess.detailsDescription"), /MySQL 表的时间精度元数据/u);
-    assert.match(zh("dataAccess.detailsDescription"), /不会持久化/u);
-    assert.match(zh("dataAccess.detailsDescription"), /预览、日志或错误信息/u);
-    assert.doesNotMatch(zh("dataAccess.description"), /不会读取|不查看/u);
+    assert.equal(zh.has("dataAccess.title"), false);
+    assert.equal(en.has("dataAccess.description"), false);
+    assert.equal(zh.has("safety.notice"), false);
+    assert.match(zh("columns.sampleHint.pending"), /DBX Host 授权/u);
+    assert.match(zh("columns.sampleHint.pending"), /最多读取 100 行/u);
+    assert.match(en("columns.sampleHint.pending"), /DBX Host authorization/u);
+    assert.match(en("columns.sampleHint.pending"), /limit of 100 rows/u);
     assert.match(zh("diagnostic.safe_synthetic_mode.description"), /授权的只读采样/u);
     assert.doesNotMatch(zh("diagnostic.safe_synthetic_mode.description"), /不会读取任何真实数据行/u);
-    assert.match(en("dataAccess.description"), /only after you click Generate Preview or Generate New Data/u);
-    assert.match(en("dataAccess.description"), /DBX Host authorization/u);
-    assert.match(en("dataAccess.description"), /at most 100 rows/u);
-    assert.match(en("dataAccess.detailsDescription"), /screened candidate fields/u);
-    assert.match(en("dataAccess.detailsDescription"), /up to 16 privacy-screened candidate fields/u);
-    assert.match(en("dataAccess.detailsDescription"), /MySQL table's timestamp precision metadata/u);
-    assert.match(en("dataAccess.detailsDescription"), /never persisted/u);
-    assert.match(en("dataAccess.detailsDescription"), /previews, logs, or error messages/u);
-
     assert.match(en("diagnostic.safe_synthetic_mode.description"), /authorized read-only sampling/u);
-    assert.doesNotMatch(en("dataAccess.description"), /\{/u);
 
     const workbench = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
-    assert.match(workbench, /data-i18n="dataAccess\.title"/u);
-    assert.match(workbench, /data-i18n="dataAccess\.description"/u);
-    assert.match(workbench, /data-i18n="dataAccess\.detailsDescription"/u);
+    assert.doesNotMatch(workbench, /dataAccess\.|sswb-data-access|sswb-safe-notice|safety\.notice/u);
+    assert.match(workbench, /data-sswb-action="preview"/u);
     assert.match(workbench, /max="1000" step="1" value="50"/u);
     assert.match(workbench, /data-preview-page="next"/u);
     assert.doesNotMatch(workbench, /基于当前表结构生成测试数据|直接使用 DBX 传入的表上下文/u);
@@ -194,7 +185,6 @@ describe("i18n locale strategy", () => {
     assert.equal(zh("controls.rows"), "生成行数（1–1000）");
     assert.equal(zh("state.ready"), "生成完成，可在下方预览或导出。");
     assert.equal(zh("export.ready"), "export.ready", "the repeated export-ready sentence is removed");
-    assert.equal(zh("safety.notice"), "预览仅展示合成测试数据，不直接展示或复用真实个人信息。");
     assert.equal(zh("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 行 · 目标表 public.customer");
     assert.equal(en("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 rows · Target table public.customer");
     assert.equal(zh("columns.strategyDetail", { source: "按字段类型", detected: "姓名", confidence: "高可信度" }), "按字段类型 · 识别为 姓名（高可信度）");

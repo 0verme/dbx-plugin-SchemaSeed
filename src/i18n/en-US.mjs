@@ -32,11 +32,6 @@ export const EN_US_MESSAGES = Object.freeze({
   "empty.path": "Database connection → table → right-click →",
   "empty.menuAction": "Generate test data",
   "empty.helper": "SchemaSeed reads the selected table structure automatically; you do not need to enter a database or table name.",
-  "dataAccess.title": "Data access",
-  "dataAccess.description": "Real-data sampling is requested only after you click Generate Preview or Generate New Data; it requires DBX Host authorization, reads at most 100 rows from privacy-screened fields, and helps infer field rules.",
-  "dataAccess.detailsSummary": "Learn more",
-  "dataAccess.detailsDescription": "DBX Host manages authorization for each plugin and connection. Read-only sampling uses up to 16 privacy-screened candidate fields. When schema facts are insufficient, SchemaSeed may also read the target MySQL table's timestamp precision metadata. Raw samples exist only in memory for this inference and are never persisted or shown in previews, logs, or error messages; only safe field features, distributions, or code values are retained for inference. Sampling does not run when authorization is denied, the capability is unavailable, or a query fails.",
-
   // Dataset controls.
   "controls.rows": "Rows (1–1000)",
   "controls.seed": "Seed",
@@ -47,13 +42,17 @@ export const EN_US_MESSAGES = Object.freeze({
   // Primary actions.
   "actions.generate": "Generate Preview",
   "actions.generateNewData": "Generate New Data",
+  "actions.regeneratePreview": "Regenerate Preview",
+  "actions.generatingPreview": "Generating preview…",
+  "actions.retryGeneration": "Retry Generation",
+  "actions.retry": "Retry",
   "actions.previewSql": "Preview INSERT SQL",
 
   // Column / strategy table.
   "columns.title": "Columns and generation strategy",
   "columns.summary": "{count} fields",
   "columns.summaryPending": "{count} fields · {pending} to confirm",
-  "columns.sampleHint.pending": "Sampling status will appear after you click Generate Preview or Generate New Data; opening a table does not read real samples.",
+  "columns.sampleHint.pending": "Real samples are requested only when you explicitly generate a preview with DBX Host authorization, with a limit of 100 rows; opening a table does not read them.",
   "columns.sampleHint.not_attempted": "No real-data sampling was performed; recognition uses schema metadata and column names.",
   "columns.sampleHint.unavailable": "This DBX host does not provide data-read capability; no real data was queried.",
   "columns.sampleHint.permission_denied": "DBX did not authorize this read; no real samples were used.",
@@ -314,8 +313,9 @@ export const EN_US_MESSAGES = Object.freeze({
   "preview.caption.waitingContext": "Waiting for a valid DBX TableContext",
   "preview.caption.waitingPlan": "Waiting for generation settings",
   "preview.summary": "{rows} rows · seed {seed}",
+  "preview.summary.stale": "Last preview parameters: {rows} rows · seed {seed} · data locale {locale} (current settings changed)",
   "preview.empty.title": "Preview not generated yet",
-  "preview.empty.helper": "Adjust the generation settings, then click Generate to see test data.",
+  "preview.empty.helper": "Adjust the settings, then use the primary button above to generate a preview.",
   "preview.pagination.ariaLabel": "Preview pagination",
   "preview.pagination.previous": "Previous",
   "preview.pagination.next": "Next",
@@ -353,8 +353,8 @@ export const EN_US_MESSAGES = Object.freeze({
   "state.loading.plan": "Preparing generation settings from the table schema…",
   "state.loading.generation": "Generating the synthetic data preview…",
   "state.blocked.metadataCapability": "This DBX runtime does not expose the Schema Metadata capability, so this table cannot be generated.",
-  "state.blocked.plan": "The current plan has blocking issues, so Preview and Export are unavailable. Click Generate Preview or Generate New Data to revalidate (using authorized samples first when applicable); no data will be generated if the plan remains blocked. Resolve the issues below first.",
-  "state.blocked.plan.canGenerate": "The current plan has blocking issues. Click Generate Preview or Generate New Data to revalidate (using authorized samples first when applicable); no data will be generated or exported if the plan remains blocked. Resolve the issues below first.",
+  "state.blocked.plan": "The current plan has blocking issues, so Preview and Export are unavailable. Use the primary button above to revalidate (using authorized samples first when applicable); no data will be generated if the plan remains blocked. Resolve the issues below first.",
+  "state.blocked.plan.canGenerate": "The current plan has blocking issues. Use the primary button above to revalidate (using authorized samples first when applicable); no data will be generated or exported if the plan remains blocked. Resolve the issues below first.",
   "state.blocked.context": "The TableContext is invalid or its metadata is unavailable; reopen this Workbench from the DBX sidebar table context menu.",
   "state.error": "The Host API or Generation Runtime request failed.",
   "state.warning": "Preview is ready, but Core diagnostics contain warning / unsupported facts.",
@@ -385,9 +385,6 @@ export const EN_US_MESSAGES = Object.freeze({
   // Errors surfaced by Workbench actions.
   "error.actionFailed": "Action rejected: {message}",
   "error.invalidRowCount": "Row count must be a whole number from 1 to 1000.",
-
-  // Safety notice.
-  "safety.notice": "Preview shows synthetic test data only; it does not display or reuse real personal information.",
 
   // Locale switcher option labels (each language names itself).
   "uiLocale.zh-CN": "简体中文",

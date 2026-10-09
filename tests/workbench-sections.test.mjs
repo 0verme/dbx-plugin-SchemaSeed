@@ -218,7 +218,7 @@ describe("Workbench markup disclosure contract", () => {
 
   it("keeps advanced sections as disclosures and renders SQL preview in a separate Modal", async () => {
     const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
-    assert.equal((markup.match(/<details\b/g) ?? []).length, 4, "data-access details and the three advanced sections remain disclosures");
+    assert.equal((markup.match(/<details\b/g) ?? []).length, 3, "only the three advanced sections remain disclosures");
     assert.match(markup, /<div id="sswb-sql-modal" class="sswb-modal" hidden>/, "the SQL Modal starts hidden");
     assert.match(markup, /role="dialog" aria-modal="true" aria-labelledby="sswb-sql-modal-title"/, "the Modal is announced as a modal dialog");
     assert.match(markup, /<pre id="sswb-sql-code-scroll"[^>]*tabindex="0"[^>]*><code id="sswb-sql-code"><\/code><\/pre>/, "SQL is rendered in a focusable, read-only code region");
@@ -269,10 +269,12 @@ describe("Workbench markup disclosure contract", () => {
 
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    assert.match(zh("columns.sampleHint.pending"), /点击“生成预览”或“换一批数据”后/u);
+    assert.match(zh("columns.sampleHint.pending"), /DBX Host 授权/u);
+    assert.match(zh("columns.sampleHint.pending"), /最多读取 100 行/u);
     assert.match(zh("columns.sampleHint.sampled"), /部分字段已分析/u);
     assert.match(zh("columns.sampleHint.permission_denied"), /未授权/u);
-    assert.match(en("columns.sampleHint.pending"), /after you click Generate Preview or Generate New Data/u);
+    assert.match(en("columns.sampleHint.pending"), /DBX Host authorization/u);
+    assert.match(en("columns.sampleHint.pending"), /limit of 100 rows/u);
     assert.match(en("columns.sampleHint.sampled"), /some fields/u);
     assert.match(en("columns.sampleHint.permission_denied"), /did not authorize/u);
     assert.match(zh("columns.sampleFieldStatus.namePatternUsed", { matchedCount: 4, sampleCount: 4 }), /格式无法区分实名、昵称/u);
@@ -286,15 +288,17 @@ describe("Workbench markup disclosure contract", () => {
   it("shows a localized empty preview until the explicit Generate action runs", async () => {
     const source = await readFile(UI_SOURCE, "utf8");
     const markup = markupOf(source);
-    assert.match(markup, /<button[^>]*data-sswb-action="generate"[^>]*data-i18n="actions\.generate"/u);
+    assert.match(markup, /<button[^>]*data-sswb-action="preview"[^>]*><\/button>/u);
     assert.match(markup, /<div id="sswb-preview-empty" class="sswb-preview-empty" hidden>[\s\S]*data-i18n="preview\.empty\.title"[\s\S]*data-i18n="preview\.empty\.helper"[\s\S]*<\/div>/u);
     assert.match(source, /const showEmptyState = Boolean\(viewModel\.context && hasPreparedPlan\s+&& \["idle", "dirty", "error"\]\.includes\(viewModel\.status\)\)/u);
-    assert.match(source, /control\.disabled = viewModel\.status === "loading" \|\| !viewModel\.canGenerate/u);
+    assert.match(source, /previewButton\.disabled = viewModel\.previewAction\.disabled/u);
+    assert.match(source, /previewButton\.textContent = t\(viewModel\.previewAction\.labelKey\)/u);
+    assert.match(source, /previewButton\.setAttribute\("aria-busy", "true"\)/u);
     assert.doesNotMatch(source, /data-sswb-action="new-seed"/u);
     assert.equal(createI18n("zh-CN")("preview.empty.title"), "尚未生成预览数据");
     assert.equal(createI18n("en-US")("preview.empty.title"), "Preview not generated yet");
-    assert.match(createI18n("zh-CN")("preview.empty.helper"), /点击「生成预览」查看测试数据/u);
-    assert.match(createI18n("en-US")("preview.empty.helper"), /click Generate to see test data/u);
+    assert.match(createI18n("zh-CN")("preview.empty.helper"), /点击上方主按钮/u);
+    assert.match(createI18n("en-US")("preview.empty.helper"), /primary button above/u);
   });
 
   it("keeps narrow-screen context and parameters compact without removing controls", async () => {
@@ -305,19 +309,16 @@ describe("Workbench markup disclosure contract", () => {
     for (const id of ["sswb-database", "sswb-schema", "sswb-table", "sswb-rows", "sswb-seed", "sswb-locale"]) {
       assert.match(contextPanel, new RegExp(`id="${id}"`), `${id} remains available in the context/control panel`);
     }
-    for (const action of ["generate", "generate-new-data"]) {
-      assert.match(contextPanel, new RegExp(`data-sswb-action="${action}"`), `${action} remains available`);
-    }
-    assert.match(contextPanel, /class="sswb-button sswb-primary"[^>]*data-sswb-action="generate"/u, "Generate remains the primary action");
+    assert.match(contextPanel, /class="sswb-button sswb-primary"[^>]*data-sswb-action="preview"/u, "one state-driven preview action remains primary");
     assert.match(contextPanel, /id="sswb-seed"[^>]*type="text"/u, "the editable random Seed remains available");
-    assert.equal((contextPanel.match(/<button[^>]*data-sswb-action=/gu) ?? []).length, 2, "the preview action area contains exactly two buttons");
-    assert.doesNotMatch(contextPanel, /regenerate-same-seed|new-seed|actions\.regenerateSameSeed|actions\.newSeed/u);
-    assert.match(contextPanel, /class="sswb-data-access" role="note"/u, "the data access and safety explanation stays visible");
+    assert.equal((contextPanel.match(/<button[^>]*data-sswb-action=/gu) ?? []).length, 1, "the preview action area contains exactly one button");
+    assert.doesNotMatch(contextPanel, /sswb-data-access|dataAccess\.|了解详情|Learn more/u);
+    assert.doesNotMatch(markup, /sswb-safe-notice|safety\.notice/u, "the full-row data-access and green safety callouts are removed");
 
     const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
     assert.match(stylesheet, /@media \(max-width: 640px\)[\s\S]*?\.sswb-context-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/u, "the three context facts stay in a compact row on narrow screens");
     assert.match(stylesheet, /\.sswb-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.7fr\)\s+minmax\(0,\s*1\.4fr\)\s+minmax\(0,\s*\.8fr\)/u, "row count, seed and data locale share a compact parameter row");
-    assert.match(stylesheet, /\.sswb-actions\s+\[data-sswb-action="generate"\]\s*\{\s*grid-column:\s*1\s*\/\s*-1;/u, "the primary Generate action receives the full narrow-screen row");
+    assert.match(stylesheet, /\.sswb-actions\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/u, "the single preview action uses the full narrow-screen row");
     assert.match(stylesheet, /\.sswb-preview-scroll\s*\{[^}]*max-height:\s*min\(55vh,\s*620px\)/u, "the preview table has a bounded viewport for long datasets");
   });
 

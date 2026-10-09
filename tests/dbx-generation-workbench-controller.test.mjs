@@ -96,6 +96,8 @@ describe("DBX Generation Workbench production controller", () => {
     const view = await controller.setContext(context);
 
     assert.equal(view.status, "idle");
+    assert.equal(view.previewState, "EMPTY");
+    assert.equal(view.previewAction.action, "generate");
     assert.equal(view.plan.status, "ready_with_warnings", "the inferred display_name mapping remains a Core warning until confirmed");
     assert.deepEqual(metadataCalls, [{ connectionId: "connection-A", schema: "public", table: "customer" }]);
     assert.deepEqual(view.context, context);
@@ -132,6 +134,12 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(generationCalls(previewCalls).length, 1);
     assert.equal(sampleCalls, 1, "authorized sample inference is deferred until the explicit generation action");
     assert.equal(view.export.enabled, true);
+    assert.equal(view.previewState, "READY");
+    assert.equal(view.previewAction.action, "generate-new-data");
+    assert.deepEqual(view.lastSuccessfulParameters, {
+      rowCount: 50, seed: "demo", locale: "zh-CN", rules: {}, constraints: [],
+    });
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
 
     const changes = [
       { type: "update-controls", controls: { rowCount: 12 } },
@@ -143,7 +151,13 @@ describe("DBX Generation Workbench production controller", () => {
       view = await controller.dispatch(action);
       assert.deepEqual(view.preview.rows, [], `${action.type} clears the previous preview`);
       assert.equal(view.export.enabled, false, `${action.type} disables stale export`);
-      assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_no_dataset");
+      assert.equal(view.previewState, "DIRTY");
+      assert.equal(view.previewAction.action, "generate", "DIRTY regenerates the edited configuration rather than changing its seed");
+      assert.equal(view.lastSuccessfulParametersCurrent, false);
+      assert.equal(view.lastSuccessfulParameters.seed, "demo", "the previous generation snapshot is separate from edited controls");
+      for (const format of ["csv", "json", "sql"]) {
+        assert.throws(() => controller.prepareExport(format), (error) => error.code === "export_no_dataset");
+      }
       assert.equal(generationCalls(previewCalls).length, 1, `${action.type} does not invoke the Generator`);
     }
     assert.equal(sampleCalls, 1, "configuration edits reuse the bounded session summary rather than sampling again");
@@ -153,6 +167,9 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.preview.rows.length, 12);
     assert.equal(view.controls.locale, "en");
     assert.equal(view.controls.seed, "manual-seed");
+    assert.equal(view.previewState, "READY");
+    assert.equal(view.lastSuccessfulParameters.seed, "manual-seed");
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
 
     const beforeLocaleSwitch = structuredClone(view.preview.rows);
     controller.setTranslator(Object.assign((key) => key, { locale: "en-US" }));
@@ -180,9 +197,14 @@ describe("DBX Generation Workbench production controller", () => {
     await started.promise;
     assert.equal(calls.length, 1);
     assert.equal(controller.getViewModel().status, "loading");
+    assert.equal(controller.getViewModel().previewState, "GENERATING");
+    assert.equal(controller.getViewModel().previewAction.disabled, true);
+    assert.equal(controller.getViewModel().previewAction.busy, true);
     const generated = await previewCore()(calls[0].schema, calls[0].options);
     const newBatchWhileBusy = await controller.dispatch({ type: "generate-new-data" });
+    const repeatedNewBatchWhileBusy = await controller.dispatch({ type: "generate-new-data" });
     assert.equal(newBatchWhileBusy.controls.seed, "demo", "a new-batch action cannot mutate the seed during an in-flight generation");
+    assert.equal(repeatedNewBatchWhileBusy.controls.seed, "demo", "repeated new-batch clicks remain inert while generation is active");
     pending.resolve(generated);
     const [firstView, secondView] = await Promise.all([first, second]);
     assert.equal(calls.length, 1);
@@ -246,6 +268,24 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(generationCalls(calls).length, 1);
   });
 
+  it("clears the generated snapshot and returns to EMPTY when the table context is lost", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    await controller.setContext(BASE_CONTEXT);
+    let view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.previewState, "READY");
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
+
+    view = await controller.setContext({});
+    assert.equal(view.status, "empty");
+    assert.equal(view.previewState, "EMPTY");
+    assert.equal(view.previewAction.disabled, true);
+    assert.equal(view.lastSuccessfulParameters, null);
+    assert.deepEqual(view.preview.rows, []);
+    assert.equal(view.export.enabled, false);
+    assert.equal(generationCalls(calls).length, 1, "losing context never auto-generates");
+  });
+
   it("clears failed generation output and permits an explicit retry", async () => {
     const calls = [];
     const actualPreview = previewCore(calls);
@@ -259,20 +299,31 @@ describe("DBX Generation Workbench production controller", () => {
       },
     });
     await controller.setContext(BASE_CONTEXT);
-    let view = await controller.dispatch({ type: "generate" });
+    let view = await controller.dispatch({ type: "update-controls", controls: { rowCount: 7, seed: "manual-retry-seed" } });
+    assert.equal(view.status, "dirty");
+    view = await controller.dispatch({ type: "generate" });
     assert.equal(view.status, "error");
+    assert.equal(view.previewState, "ERROR");
+    assert.equal(view.previewAction.action, "generate");
+    assert.equal(view.previewAction.labelKey, "actions.retryGeneration");
     assert.match(view.error, /temporary generator failure/u);
+    assert.equal(view.controls.rowCount, 7);
+    assert.equal(view.controls.seed, "manual-retry-seed");
     assert.deepEqual(view.preview.rows, []);
     assert.equal(view.export.enabled, false);
-    assert.throws(() => controller.prepareExport("sql"), (error) => error.code === "export_no_dataset");
+    assert.equal(view.lastSuccessfulParametersCurrent, false);
+    for (const format of ["csv", "json", "sql"]) {
+      assert.throws(() => controller.prepareExport(format), (error) => error.code === "export_no_dataset");
+    }
 
-    view = await controller.dispatch({ type: "update-controls", controls: { rowCount: 7 } });
-    assert.equal(view.status, "dirty");
-    assert.deepEqual(view.preview.rows, []);
-    view = await controller.dispatch({ type: "generate" });
+    view = await controller.dispatch({ type: view.previewAction.action });
     assert.equal(view.preview.rows.length, 7);
+    assert.equal(view.controls.seed, "manual-retry-seed", "retry does not replace a manually entered seed");
     assert.equal(generationAttempts, 2);
     assert.equal(view.export.enabled, true);
+    assert.equal(view.previewState, "READY");
+    assert.equal(view.error, null, "a successful retry clears the prior error");
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
   });
 
   it("invalidates context, metadata, plan and preview for A → B → C table switches", async () => {
@@ -293,6 +344,8 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.export.enabled, false, "table A preview cannot be exported as table B");
     view = await switchingToB;
     assert.equal(view.status, "idle");
+    assert.equal(view.previewState, "EMPTY");
+    assert.equal(view.lastSuccessfulParameters, null);
     assert.deepEqual(view.preview.columns, ["beta_id"]);
     assert.deepEqual(view.preview.rows, []);
     assert.equal(view.context.table, "beta");
@@ -359,6 +412,8 @@ describe("DBX Generation Workbench production controller", () => {
     const generationCount = generationCalls(previewCalls).length;
     const sameSeed = await controller.dispatch({ type: "generate" });
     assert.equal(sameSeed.controls.seed, "demo");
+    assert.equal(sameSeed.previewAction.state, "READY");
+    assert.equal(sameSeed.previewAction.action, "generate-new-data");
     assert.deepEqual(sameSeed.preview.rows, firstRows);
     assert.equal(generationCalls(previewCalls).length, generationCount + 1);
 
@@ -373,7 +428,7 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(csv.summary.rowCount, sameSeed.preview.rows.length);
     assert.equal(firstDataset.rows.length, 50);
 
-    view = await controller.dispatch({ type: "generate-new-data" });
+    view = await controller.dispatch({ type: sameSeed.previewAction.action });
     assert.equal(view.controls.seed, "fresh-seed");
     assert.equal(view.preview.rows.length, 50);
     assert.equal(view.export.enabled, true);
@@ -475,6 +530,8 @@ describe("DBX Generation Workbench production controller", () => {
     view = await controller.dispatch({ type: "generate" });
     assert.equal(view.status, "warning", "the unrelated inferred display_name candidate retains its Core warning");
     assert.deepEqual(view.preview.rows.map((row) => row.customer_id), Array.from({ length: 50 }, (_v, index) => 40 + index * 3));
+    assert.deepEqual(view.lastSuccessfulParameters.rules.customer_id, { kind: "sequence", start: 40, step: 3 });
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
     const generated = structuredClone(view.preview.rows);
     const exported = JSON.parse(controller.prepareExport("json").content);
     assert.deepEqual(exported, generated);
