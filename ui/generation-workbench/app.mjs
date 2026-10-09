@@ -4,8 +4,11 @@ import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mj
 import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
 import { constraintKindOptions, constraintPlanLabel } from "../src/i18n/labels.mjs";
 import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "../src/i18n/ui-locale.mjs";
+import { createModalDialogController } from "./modal-dialog.mjs";
+import { copyTextToClipboard } from "./clipboard.mjs";
 import {
   actionErrorMessage,
+  exportErrorMessage,
   constraintEditorStateMessage,
   diagnosticsEmptyMessage,
   exportDisabledHint,
@@ -54,8 +57,6 @@ const WORKBENCH_MARKUP = `
         <p id="sswb-safe-notice" class="sswb-safe-notice"></p>
         <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button><button id="sswb-preview-sql" class="sswb-button" type="button" data-sswb-preview-sql data-i18n="actions.previewSql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
         <div class="sswb-scroll sswb-preview-scroll"><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
-        <details id="sswb-sql-details" class="sswb-sql-details" hidden><summary data-i18n="preview.sqlTitle"></summary><textarea id="sswb-sql-content" readonly spellcheck="false" aria-label="INSERT SQL"></textarea></details>
-        <p id="sswb-sql-preview-error" class="sswb-inline-error" role="alert" hidden></p>
       </section>
 
       <section class="sswb-panel sswb-section" aria-labelledby="sswb-columns-title">
@@ -104,6 +105,27 @@ const WORKBENCH_MARKUP = `
       </section>
       <footer data-i18n="footer.statement"></footer>
     </main>
+  </div>
+  <div id="sswb-sql-modal" class="sswb-modal" hidden>
+    <section class="sswb-sql-dialog" role="dialog" aria-modal="true" aria-labelledby="sswb-sql-modal-title" aria-describedby="sswb-sql-modal-meta">
+      <header class="sswb-sql-dialog-header">
+        <div><h2 id="sswb-sql-modal-title" data-i18n="preview.sqlTitle"></h2><p id="sswb-sql-modal-meta" class="sswb-caption"></p></div>
+        <button class="sswb-icon-button" type="button" data-sswb-sql-modal-close data-i18n-aria-label="preview.sqlClose" data-i18n-title="preview.sqlClose"><span aria-hidden="true">×</span></button>
+      </header>
+      <div class="sswb-sql-modal-content">
+        <h3 id="sswb-sql-code-label" data-i18n="preview.sqlCodeLabel"></h3>
+        <p id="sswb-sql-modal-error" class="sswb-sql-modal-error" role="alert" hidden></p>
+        <pre id="sswb-sql-code-scroll" class="sswb-sql-code-scroll" tabindex="0" aria-labelledby="sswb-sql-code-label"><code id="sswb-sql-code"></code></pre>
+      </div>
+      <footer class="sswb-sql-dialog-footer">
+        <p id="sswb-sql-modal-status" class="sswb-sql-modal-status" role="status" aria-live="polite"></p>
+        <div>
+          <button class="sswb-button" type="button" data-sswb-sql-modal-copy data-i18n="preview.sqlCopy" disabled></button>
+          <button class="sswb-button sswb-primary" type="button" data-sswb-sql-modal-export data-i18n="preview.sqlExport" disabled></button>
+          <button class="sswb-button" type="button" data-sswb-sql-modal-close data-i18n="preview.sqlClose"></button>
+        </div>
+      </footer>
+    </section>
   </div>`;
 
 /**
@@ -125,8 +147,24 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   // keeps the inline message attached to a real save result, and is cleared by
   // any action that starts a new dataset so a stale success cannot mislead.
   let exportSaveState = null;
-  let sqlPreviewContent = null;
-  let sqlPreviewFailed = false;
+  let sqlPreviewDescriptor = null;
+  let sqlPreviewError = null;
+  let sqlCopyStatus = null;
+  let sqlCopyInProgress = false;
+  const sqlDialog = createModalDialogController({
+    overlay: element("sswb-sql-modal"),
+    dialog: element("sswb-sql-modal").querySelector(".sswb-sql-dialog"),
+    background: root.querySelector(".sswb"),
+    initialFocus: () => element("sswb-sql-modal").querySelector("[data-sswb-sql-modal-close]"),
+    onClose: () => {
+      sqlPreviewDescriptor = null;
+      sqlPreviewError = null;
+      sqlCopyStatus = null;
+      sqlCopyInProgress = false;
+      element("sswb-sql-code").replaceChildren();
+      renderSqlPreviewModal(controller.getViewModel(), localeStore.getTranslator());
+    },
+  });
   const unsubscribeContext = host.onContext((context) => {
     // A new table context invalidates the dataset, so a previously displayed
     // save result must not keep describing it.
@@ -150,6 +188,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const t = localeStore.getTranslator();
     for (const node of root.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
     for (const node of root.querySelectorAll("[data-i18n-title]")) node.title = t(node.dataset.i18nTitle);
+    for (const node of root.querySelectorAll("[data-i18n-aria-label]")) node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
     document.documentElement.lang = t.locale;
     renderUiLocaleOptions();
   }
@@ -227,32 +266,31 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   }
 
   function onClick(event) {
-    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-constraint-add], [data-constraint-delete]");
+    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete]");
     if (!target) return;
+    if (target.matches("[data-sswb-sql-modal-close]")) {
+      sqlDialog.close();
+      return;
+    }
+    if (target.matches("[data-sswb-sql-modal-copy]")) {
+      void copyPreviewSql();
+      return;
+    }
+    if (target.matches("[data-sswb-sql-modal-export]")) {
+      if (sqlPreviewDescriptor) void saveExport("sql", sqlPreviewDescriptor);
+      return;
+    }
     if (target.dataset.sswbExport) {
       void saveExport(target.dataset.sswbExport);
+      return;
+    }
+    if (target.matches("[data-sswb-preview-sql]")) {
+      openSqlPreview(target);
       return;
     }
     // Any non-export action may invalidate the dataset, so it also clears a
     // previously displayed save result.
     exportSaveState = null;
-    if (target.matches("[data-sswb-preview-sql]")) {
-      sqlPreviewContent = null;
-      sqlPreviewFailed = false;
-      element("sswb-sql-details").open = false;
-      element("sswb-sql-details").hidden = true;
-      element("sswb-sql-content").value = "";
-      try {
-        const descriptor = controller.prepareExport("sql");
-        if (typeof descriptor?.content !== "string") throw new TypeError("SQL export did not return text");
-        sqlPreviewContent = descriptor.content;
-      } catch {
-        sqlPreviewFailed = true;
-      }
-      render(controller.getViewModel());
-      if (sqlPreviewContent !== null) element("sswb-sql-details").open = true;
-      return;
-    }
     if (target.matches("[data-constraint-add]")) {
       void controller.dispatch({ type: "add-constraint", kind: "unique" });
       return;
@@ -272,11 +310,11 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
    * never set from the click itself.
    * @param {string} format
    */
-  async function saveExport(format) {
+  async function saveExport(format, preparedDescriptor = null) {
     if (exportSaveState?.status === "saving" || exportSaveState?.status === "waiting") return;
-    let descriptor;
+    let descriptor = preparedDescriptor;
     try {
-      descriptor = controller.prepareExport(format);
+      if (!descriptor) descriptor = controller.prepareExport(format);
     } catch (error) {
       exportSaveState = { status: "prepare_failed", code: typeof error?.code === "string" ? error.code : "export_error" };
       render(controller.getViewModel());
@@ -318,7 +356,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (document.activeElement !== rowInput) rowInput.value = String(viewModel.controls.rowCount);
     if (document.activeElement !== seedInput) seedInput.value = viewModel.controls.seed;
     if (document.activeElement !== localeInput) localeInput.value = viewModel.controls.locale;
-    for (const control of root.querySelectorAll("button, input, select, textarea")) {
+    for (const control of root.querySelector(".sswb").querySelectorAll("button, input, select, textarea")) {
       if (control.id !== "sswb-ui-locale") control.disabled = viewModel.status === "loading";
     }
     for (const control of root.querySelectorAll('[data-sswb-action="generate"], [data-sswb-action="regenerate-same-seed"], [data-sswb-action="new-seed"]')) {
@@ -612,28 +650,113 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     return item;
   }
 
+  function openSqlPreview(trigger) {
+    if (!sqlDialog.open(trigger)) return;
+    exportSaveState = null;
+    sqlPreviewDescriptor = null;
+    sqlPreviewError = null;
+    sqlCopyStatus = null;
+    sqlCopyInProgress = false;
+    const viewModel = controller.getViewModel();
+    const codeScroll = element("sswb-sql-code-scroll");
+    codeScroll.scrollTop = 0;
+    codeScroll.scrollLeft = 0;
+    renderSqlPreviewModal(viewModel, localeStore.getTranslator());
+    try {
+      const descriptor = controller.prepareExport("sql");
+      if (typeof descriptor?.content !== "string") throw new TypeError("SQL export did not return text");
+      if (descriptor.content.length === 0) sqlPreviewError = localeStore.getTranslator()("preview.sqlEmpty");
+      else sqlPreviewDescriptor = descriptor;
+    } catch (error) {
+      sqlPreviewError = error?.code ? exportErrorMessage(error, localeStore.getTranslator()) : localeStore.getTranslator()("preview.sqlError");
+    }
+    renderSqlPreviewModal(controller.getViewModel(), localeStore.getTranslator());
+  }
+
+  async function copyPreviewSql() {
+    if (!sqlPreviewDescriptor || sqlCopyInProgress) return;
+    sqlCopyInProgress = true;
+    sqlCopyStatus = "copying";
+    renderSqlPreviewModal(controller.getViewModel(), localeStore.getTranslator());
+    try {
+      await copyTextToClipboard(sqlPreviewDescriptor.content);
+      sqlCopyStatus = "copied";
+    } catch {
+      sqlCopyStatus = "failed";
+    } finally {
+      sqlCopyInProgress = false;
+      renderSqlPreviewModal(controller.getViewModel(), localeStore.getTranslator());
+    }
+  }
+
   function renderSqlPreview(viewModel, t) {
     const button = element("sswb-preview-sql");
-    const details = element("sswb-sql-details");
-    const content = element("sswb-sql-content");
-    const error = element("sswb-sql-preview-error");
     button.disabled = !viewModel.export.enabled;
+    button.title = button.disabled ? exportDisabledHint(viewModel, t) : "";
     if (!viewModel.export.enabled) {
-      sqlPreviewContent = null;
-      sqlPreviewFailed = false;
-      details.open = false;
-      details.hidden = true;
-      content.value = "";
-    } else if (sqlPreviewContent !== null) {
-      details.hidden = false;
-      content.value = sqlPreviewContent;
-    } else {
-      details.open = false;
-      details.hidden = true;
-      content.value = "";
+      sqlPreviewDescriptor = null;
+      sqlPreviewError = null;
+      sqlCopyStatus = null;
+      if (sqlDialog.isOpen) sqlDialog.close();
     }
-    error.hidden = !sqlPreviewFailed;
-    error.textContent = sqlPreviewFailed ? t("preview.sqlError") : "";
+    renderSqlPreviewModal(viewModel, t);
+  }
+
+  function renderSqlPreviewModal(viewModel, t) {
+    const descriptor = sqlPreviewDescriptor;
+    const target = viewModel.table;
+    const qualifier = target?.schema ?? target?.database;
+    const tableName = target?.table
+      ? [qualifier, target.table].filter(Boolean).join(".")
+      : "—";
+    const rowCount = descriptor?.summary?.rowCount ?? viewModel.export?.rowCount ?? 0;
+    element("sswb-sql-modal-meta").textContent = t("preview.sqlMeta", { rows: rowCount, table: tableName });
+
+    const error = element("sswb-sql-modal-error");
+    error.hidden = !sqlPreviewError;
+    error.textContent = sqlPreviewError ?? "";
+    const codeScroll = element("sswb-sql-code-scroll");
+    const code = element("sswb-sql-code");
+    codeScroll.hidden = descriptor === null;
+    if (descriptor && code.textContent !== descriptor.content) renderSqlCode(code, descriptor.content);
+
+    const copyButton = element("sswb-sql-modal").querySelector("[data-sswb-sql-modal-copy]");
+    const exportButton = element("sswb-sql-modal").querySelector("[data-sswb-sql-modal-export]");
+    const exportBusy = exportSaveState?.status === "saving" || exportSaveState?.status === "waiting";
+    copyButton.disabled = descriptor === null || sqlCopyInProgress;
+    exportButton.disabled = descriptor === null || exportBusy;
+
+    const status = element("sswb-sql-modal-status");
+    const modalExportState = descriptor && exportSaveState?.descriptor === descriptor ? exportSaveState : null;
+    let statusMessage = "";
+    if (sqlCopyStatus === "copying") statusMessage = t("preview.sqlCopying");
+    else if (sqlCopyStatus === "copied") statusMessage = t("preview.sqlCopied");
+    else if (sqlCopyStatus === "failed") statusMessage = t("preview.sqlCopyFailed");
+    else if (modalExportState) statusMessage = exportSaveMessage(modalExportState, t) ?? "";
+    status.textContent = statusMessage;
+    if (sqlCopyStatus === "failed" || modalExportState?.status === "failed" || modalExportState?.status === "prepare_failed") status.dataset.state = "error";
+    else if (sqlCopyStatus === "copied" || modalExportState?.status === "saved") status.dataset.state = "success";
+    else delete status.dataset.state;
+  }
+
+  function renderSqlCode(code, sql) {
+    const tokens = /(--[^\r\n]*|'(?:''|[^'])*'|\b(?:INSERT|INTO|VALUES)\b|\b(?:NULL|TRUE|FALSE)\b)/giu;
+    const content = document.createDocumentFragment();
+    let offset = 0;
+    for (const match of sql.matchAll(tokens)) {
+      const [token] = match;
+      const start = match.index ?? 0;
+      if (start > offset) content.append(document.createTextNode(sql.slice(offset, start)));
+      const part = document.createElement("span");
+      part.className = token.startsWith("--") ? "sswb-sql-token-comment"
+        : token.startsWith("'") ? "sswb-sql-token-string"
+          : /^(?:NULL|TRUE|FALSE)$/iu.test(token) ? "sswb-sql-token-value" : "sswb-sql-token-keyword";
+      part.textContent = token;
+      content.append(part);
+      offset = start + token.length;
+    }
+    if (offset < sql.length) content.append(document.createTextNode(sql.slice(offset)));
+    code.replaceChildren(content);
   }
 
   function renderPreview(viewModel, t) {
@@ -662,6 +785,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   }
 
   return () => {
+    if (sqlDialog.isOpen) sqlDialog.close();
     unsubscribeRender();
     unsubscribeContext();
     root.removeEventListener("change", onControlsChange);

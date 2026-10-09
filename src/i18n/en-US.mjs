@@ -295,6 +295,15 @@ export const EN_US_MESSAGES = Object.freeze({
   "preview.null": "NULL",
   "preview.sqlTitle": "INSERT SQL preview",
   "preview.sqlError": "The INSERT SQL preview could not be prepared. Check that the current dataset is valid, then try again.",
+  "preview.sqlMeta": "{rows} rows · Target table {table}",
+  "preview.sqlCodeLabel": "Read-only SQL content",
+  "preview.sqlCopy": "Copy SQL",
+  "preview.sqlCopying": "Copying SQL…",
+  "preview.sqlCopied": "SQL copied to the clipboard.",
+  "preview.sqlCopyFailed": "Copy failed: this WebView could not access the clipboard.",
+  "preview.sqlExport": "Export SQL",
+  "preview.sqlClose": "Close",
+  "preview.sqlEmpty": "The current SQL content is empty and cannot be previewed or exported.",
 
   // Workbench status line.
   "status.loading.metadata": "Loading metadata",

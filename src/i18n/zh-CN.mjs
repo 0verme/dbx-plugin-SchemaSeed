@@ -289,6 +289,15 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "preview.null": "NULL",
   "preview.sqlTitle": "INSERT SQL 预览",
   "preview.sqlError": "无法生成 INSERT SQL 预览。请确认当前数据集有效后重试。",
+  "preview.sqlMeta": "{rows} 行 · 目标表 {table}",
+  "preview.sqlCodeLabel": "只读 SQL 内容",
+  "preview.sqlCopy": "复制 SQL",
+  "preview.sqlCopying": "正在复制 SQL…",
+  "preview.sqlCopied": "SQL 已复制到剪贴板。",
+  "preview.sqlCopyFailed": "复制失败：当前 WebView 无法访问剪贴板。",
+  "preview.sqlExport": "导出 SQL",
+  "preview.sqlClose": "关闭",
+  "preview.sqlEmpty": "当前 SQL 内容为空，无法预览或导出。",
 
   // Workbench status line.
   "status.loading.metadata": "正在读取表结构",

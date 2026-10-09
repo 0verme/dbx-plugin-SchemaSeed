@@ -136,7 +136,7 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "footer.statement", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "footer.statement", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);
@@ -165,11 +165,14 @@ describe("i18n locale strategy", () => {
 
   it("interpolates raw values without translating them", () => {
     const zh = createI18n("zh-CN");
+    const en = createI18n("en-US");
     const summary = zh("preview.summary", { rows: 20, seed: "demo", locale: "zh-CN", profile: "sha256-v1" });
     assert.match(summary, /20/);
     assert.match(summary, /demo/);
     assert.match(summary, /zh-CN/, "the generation locale value is shown verbatim");
     assert.match(summary, /sha256-v1/);
+    assert.equal(zh("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 行 · 目标表 public.customer");
+    assert.equal(en("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 rows · Target table public.customer");
     assert.equal(zh("columns.strategyDetail", { source: "按字段类型", detected: "姓名", confidence: "高可信度" }), "按字段类型 · 识别为 姓名（高可信度）");
     // Unresolved placeholders stay visible instead of producing "undefined".
     assert.match(zh("preview.summary", { rows: 1 }), /\{seed\}/);
