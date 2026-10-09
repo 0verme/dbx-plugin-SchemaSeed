@@ -9,6 +9,7 @@ import { getSampleProbeCandidates } from "../host/dbx-data-sample-probe.mjs";
 import { sanitizeSampleEvidence } from "../semantic/sample-evidence.mjs";
 import { DEFAULT_GENERATION_ROW_COUNT, MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "../generation/row-count.mjs";
 import { previewPrimaryAction } from "./preview-action-state.mjs";
+import { sameSettingsConfiguration } from "./settings-draft.mjs";
 
 export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: DEFAULT_GENERATION_ROW_COUNT, seed: "demo", locale: "zh-CN" });
 export const DBX_WORKBENCH_MAX_ROWS = MAX_GENERATION_ROW_COUNT;
@@ -64,6 +65,7 @@ export class DbxGenerationWorkbenchController {
     this.diagnostics = [];
     this.error = null;
     this.actionError = null;
+    this.settingsSaveResult = null;
     this.initialization = null;
   }
 
@@ -115,6 +117,7 @@ export class DbxGenerationWorkbenchController {
     this.diagnostics = [];
     this.error = null;
     this.actionError = null;
+    this.settingsSaveResult = null;
     this.stage = normalized.ok ? "metadata" : "context";
     this.status = normalized.ok ? "loading" : absentContext ? "empty" : "blocked";
 
@@ -149,6 +152,7 @@ export class DbxGenerationWorkbenchController {
       return this.getViewModel();
     }
     this.actionError = null;
+    this.settingsSaveResult = null;
     try {
       switch (action?.type) {
         case "generate":
@@ -171,6 +175,9 @@ export class DbxGenerationWorkbenchController {
         case "update-constraint":
           await this.updateConstraint(action.constraint);
           break;
+        case "save-settings":
+          await this.saveSettings(action);
+          break;
         case "delete-constraint":
           await this.deleteConstraint(action.id);
           break;
@@ -185,9 +192,77 @@ export class DbxGenerationWorkbenchController {
       }
     } catch (error) {
       this.actionError = errorText(error);
+      if (action?.type === "save-settings") {
+        this.settingsSaveResult = { ok: false, changed: false, diagnostics: [], error: this.actionError };
+      }
       this.emit();
     }
     return this.getViewModel();
+  }
+
+  /**
+   * Validate and atomically commit the modal's rule/constraint draft. Validation
+   * uses the same Core plan path in validation-only mode; it never invokes data
+   * generation. Failed validation leaves effective config and Preview untouched.
+   * @param {{ type: string, rules: unknown, constraints: unknown, contextKey: string }} action
+   */
+  async saveSettings(action) {
+    if (!this.context || !this.schema) throw new Error("Load a DBX table before saving advanced settings");
+    if (action.contextKey !== JSON.stringify(this.context)) throw new Error("The table changed while advanced settings were open");
+    if (!isRecord(action.rules) || !Array.isArray(action.constraints)) throw new TypeError("Advanced settings must contain rules and constraints");
+
+    const candidate = { rules: structuredClone(action.rules), constraints: structuredClone(action.constraints) };
+    const current = { rules: this.rules, constraints: this.constraints };
+    const changed = !sameSettingsConfiguration(candidate, current);
+    if (!changed) {
+      const diagnostics = this.plan?.status === "blocked" ? this.diagnostics.map((entry) => ({ ...entry })) : [];
+      this.settingsSaveResult = this.plan?.status === "blocked"
+        ? { ok: false, changed: false, diagnostics }
+        : { ok: true, changed: false, diagnostics: [] };
+      this.emit();
+      return;
+    }
+
+    const contextRevision = this.contextRevision;
+    const operationRevision = this.operationRevision;
+    const schema = this.schema;
+    const response = await this.preview(schema, {
+      ...this.generationOptions(true),
+      rules: candidate.rules,
+      constraints: candidate.constraints,
+    });
+    if (contextRevision !== this.contextRevision || operationRevision !== this.operationRevision
+      || JSON.stringify(this.context) !== action.contextKey) {
+      throw new Error("The table or settings changed before advanced settings could be saved");
+    }
+    if (!isRecord(response) || !isRecord(response.plan) || !isRecord(response.generated)) {
+      throw new Error("Generation Core runtime returned an invalid settings validation response");
+    }
+
+    const diagnostics = Array.isArray(response.plan.diagnostics)
+      ? response.plan.diagnostics.map((entry) => ({ ...entry }))
+      : Array.isArray(response.generated.diagnostics) ? response.generated.diagnostics.map((entry) => ({ ...entry })) : [];
+    if (response.plan.status === "blocked" || response.generated.status === "blocked") {
+      this.settingsSaveResult = { ok: false, changed: false, diagnostics };
+      this.emit();
+      return;
+    }
+
+    // Invalidate any in-flight generation that started against the previous
+    // effective settings so its late response cannot make the stale snapshot current.
+    this.operationRevision += 1;
+    this.rules = candidate.rules;
+    this.constraints = candidate.constraints;
+    this.plan = response.plan;
+    this.diagnostics = diagnostics;
+    this.error = null;
+    this.actionError = null;
+    this.status = "dirty";
+    this.stage = "ready";
+    // Keep the old immutable snapshot visible for reference, but dirty status
+    // makes it ineligible for export and marks it stale until explicit Generate.
+    this.settingsSaveResult = { ok: true, changed: true, diagnostics };
+    this.emit();
   }
 
   /** @param {string} columnName @param {unknown} rule */
@@ -335,6 +410,10 @@ export class DbxGenerationWorkbenchController {
             : this.status === "error" ? "error" : "ready" },
       error: this.error,
       actionError: this.actionError,
+      settingsSaveResult: this.settingsSaveResult ? {
+        ...this.settingsSaveResult,
+        diagnostics: [...(this.settingsSaveResult.diagnostics ?? [])].map((diagnostic) => ({ ...diagnostic })),
+      } : null,
     };
   }
 
@@ -524,7 +603,6 @@ export class DbxGenerationWorkbenchController {
     const operation = ++this.operationRevision;
     const context = this.context;
     const schema = this.schema;
-    this.currentDataset = null;
     this.error = null;
     this.stage = "generation";
     this.status = "loading";
@@ -559,7 +637,6 @@ export class DbxGenerationWorkbenchController {
         : Array.isArray(response.plan.diagnostics) ? response.plan.diagnostics : [];
       if (response.plan.status === "blocked" || response.generated.status === "blocked") {
         this.status = "blocked";
-        this.currentDataset = null;
       } else {
         this.status = response.generated.status === "ready_with_warnings" || response.plan.status === "ready_with_warnings"
           ? "warning" : "ready";
@@ -584,7 +661,7 @@ export class DbxGenerationWorkbenchController {
   /** @param {unknown} error @param {"metadata" | "generation"} stage */
   fail(error, stage) {
     if (stage === "metadata") this.plan = null;
-    this.currentDataset = null;
+    if (stage === "metadata") this.currentDataset = null;
     this.schema = stage === "metadata" ? null : this.schema;
     this.stage = stage;
     const providerDiagnostic = error && typeof error === "object" ? error.diagnostic : null;

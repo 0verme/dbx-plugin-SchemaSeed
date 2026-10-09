@@ -168,8 +168,13 @@ describe("i18n locale strategy", () => {
     assert.doesNotMatch(zh("diagnostic.safe_synthetic_mode.description"), /不会读取任何真实数据行/u);
     assert.match(en("diagnostic.safe_synthetic_mode.description"), /authorized read-only sampling/u);
 
+    assert.match(zh("controls.dataAccessNotice"), /DBX Host 授权/u);
+    assert.match(zh("controls.dataAccessNotice"), /最多 100 行/u);
+    assert.match(en("controls.dataAccessNotice"), /DBX Host authorizes access/u);
+    assert.match(en("controls.dataAccessNotice"), /Up to 100 real sample rows/u);
     const workbench = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
-    assert.doesNotMatch(workbench, /dataAccess\.|sswb-data-access|sswb-safe-notice|safety\.notice/u);
+    assert.match(workbench, /data-i18n="controls\.dataAccessNotice"/u);
+    assert.doesNotMatch(workbench, /sswb-safe-notice|safety\.notice/u);
     assert.match(workbench, /data-sswb-action="preview"/u);
     assert.match(workbench, /max="1000" step="1" value="50"/u);
     assert.match(workbench, /data-preview-page="next"/u);

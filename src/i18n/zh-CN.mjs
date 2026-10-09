@@ -32,6 +32,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "controls.seed": "随机种子",
   "controls.dataLocale": "数据语言",
   "controls.dataLocaleHelp": "只影响生成值的语言形态，不改变界面语言。",
+  "controls.dataAccessNotice": "仅在主动生成预览并获得 DBX Host 授权后，才会请求最多 100 行真实样本；打开表时不会读取。",
   "controls.uiLocale": "界面语言",
 
   // Primary actions.
@@ -42,6 +43,31 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "actions.retryGeneration": "重试生成",
   "actions.retry": "重试",
   "actions.previewSql": "预览 INSERT SQL",
+  "actions.advancedSettings": "高级设置",
+  "actions.diagnosticsLink": "发现 {count} 项问题 · 查看诊断",
+
+  // Advanced settings dialog.
+  "advanced.title": "高级设置",
+  "advanced.tab.columns": "字段与生成策略",
+  "advanced.tab.constraints": "生成约束",
+  "advanced.tab.diagnostics": "问题诊断",
+  "advanced.tabs.label": "高级设置页签",
+  "advanced.close": "关闭",
+  "advanced.save": "保存设置",
+  "advanced.cancel": "取消",
+  "advanced.search.label": "搜索字段",
+  "advanced.search.placeholder": "输入字段名称或类型",
+  "advanced.search.empty": "没有匹配的字段。",
+  "advanced.draft.changed": "有未保存修改。保存后配置生效，预览需重新生成。",
+  "advanced.draft.saving": "正在校验并保存设置…",
+  "advanced.draft.validationFailed": "配置未保存：存在阻止应用的问题，请检查诊断信息。",
+  "advanced.draft.saveFailed": "保存设置失败，请确认表上下文后重试。",
+  "advanced.confirm.title": "有未保存修改",
+  "advanced.confirm.message": "关闭将放弃当前修改。是否放弃修改？",
+  "advanced.confirm.discard": "放弃修改",
+  "advanced.confirm.continue": "继续编辑",
+  "advanced.diagnostics.none": "未发现问题",
+  "advanced.previewStale": "配置已更新，请重新生成预览",
 
   // Column / strategy table.
   "columns.title": "字段与生成策略",
