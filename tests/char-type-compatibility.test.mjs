@@ -10,6 +10,8 @@ import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { executeGenerationPreview } from "../src/generation/generation-runtime.mjs";
 import { DbxHostSchemaMetadataProvider } from "../src/providers/dbx-host-schema-metadata-provider.mjs";
 import { interpretColumnType, interpretStringCapacity } from "../src/schema/schema-interpreter.mjs";
+import { getSampleProbeCandidates, probeDbxDataSamples } from "../src/host/dbx-data-sample-probe.mjs";
+import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import { checkSemanticCompatibility } from "../src/semantic/semantic-inference.mjs";
 
 const TABLE_CONTEXT = Object.freeze({ connectionId: "char-compat-connection", database: "bilibili", table: "char_compat" });
@@ -128,6 +130,40 @@ describe("CHAR(n) schema type compatibility", () => {
     assert.equal(csv.split("\r\n").length, 21);
     assert.equal(JSON.parse(json).length, 20);
     assert.equal((sql.match(/INSERT INTO/g) ?? []).length, 20);
+  });
+
+  it("reuses safe real-sample profiling for CHAR while excluding sensitive CHAR columns", async () => {
+    const schema = normalizeTableSchema({
+      tableIdentity: "char-sampling",
+      columns: [
+        { name: "status", dataType: "CHAR(7)", nullable: false },
+        { name: "password", dataType: "CHAR(32)", nullable: false },
+      ],
+    }).schema;
+    const candidates = getSampleProbeCandidates(schema);
+    assert.deepEqual(candidates.map(({ name, sampling }) => [name, sampling]), [["status", "direct"]]);
+
+    let capturedRequest;
+    const sample = await probeDbxDataSamples({
+      capabilities: { dataApi: true },
+      async queryData(request) {
+        capturedRequest = request;
+        return {
+          columns: [{ name: "status" }],
+          rows: [["open"], ["open"], ["open"], ["open"], ["open"], ["closed"], ["closed"], ["closed"]],
+        };
+      },
+    }, TABLE_CONTEXT, schema);
+    assert.match(capturedRequest.sql, /SELECT ss\.status FROM char_compat/u);
+    assert.doesNotMatch(capturedRequest.sql, /password/u);
+    assert.equal(sample.sampleUsed, true);
+
+    const plan = buildGenerationPlan(schema, { rowCount: 20, seed: "char-sample-profile", sampleEvidence: sample.evidence });
+    assert.equal(plan.status, "ready");
+    const status = plan.columns.find(({ schema: column }) => column.name === "status");
+    assert.equal(status.rule.kind, "sample_enum");
+    assert.equal(status.rule.source, "sample_inference");
+    assert.deepEqual(status.rule.parameters.candidates.map(({ value }) => value), ["open", "closed"]);
   });
 
   it("keeps the declared maximum authoritative for explicit and Unicode string values", () => {
