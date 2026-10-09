@@ -24,6 +24,11 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "context.database": "数据库",
   "context.schema": "Schema",
   "context.table": "数据表",
+  "empty.title": "请先选择一张数据表",
+  "empty.description": "当前没有获取到数据库表上下文。请在 DBX 左侧数据库导航树中找到目标表，并打开它的右键菜单。",
+  "empty.path": "数据库连接 → 数据表 → 右键 →",
+  "empty.menuAction": "生成测试数据",
+  "empty.helper": "SchemaSeed 会自动读取所选表的结构，无需手动填写数据库或表名。",
   "dataAccess.title": "数据访问",
   "dataAccess.description": "仅在 DBX Host 获得你对此插件和连接的授权后，SchemaSeed 才会通过只读 Host Data API 对最多 8 行候选字段进行采样。敏感原始值仅在内存中短暂处理以提取安全特征，随后丢弃；不会展示或持久化。",
 

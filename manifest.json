@@ -55,6 +55,20 @@
           "description": "为当前 DBX 表生成可预览、可导出的 synthetic 测试数据。"
         }
       }
+    },
+    "en-US": {
+      "name": "SchemaSeed",
+      "description": "Generate synthetic test data from a database table schema.",
+      "contributions": {
+        "io.github.0verme.schema-seed.generation-workbench": {
+          "label": "SchemaSeed Test Data Generator",
+          "description": "Generate and preview synthetic test data from the current DBX table."
+        },
+        "io.github.0verme.schema-seed.generate-test-data": {
+          "label": "Generate test data",
+          "description": "Generate previewable and exportable synthetic test data for the current DBX table."
+        }
+      }
     }
   }
 }
