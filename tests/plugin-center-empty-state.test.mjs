@@ -85,7 +85,7 @@ describe("plugin-center missing table context", () => {
   });
 
   it("keeps non-empty incomplete contexts invalid and retry does not reclassify them as empty", async () => {
-    for (const context of [{ connectionId: "A" }, { table: "users" }, []]) {
+    for (const context of [{ connectionId: "A" }, { table: "users" }, [], new Map(), new Date()]) {
       const { controller, metadataCalls, previewCalls } = createHarness();
       let view = await controller.setContext(context);
       assert.equal(view.status, "blocked");

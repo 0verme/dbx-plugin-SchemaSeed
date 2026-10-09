@@ -639,7 +639,10 @@ function sanitizeTemporalPrecisionMetadata(value, schema) {
 }
 
 function isAbsentTableContext(value) {
-  return value === null || value === undefined || (isRecord(value) && Object.keys(value).length === 0);
+  if (value === null || value === undefined) return true;
+  if (!isRecord(value) || Object.keys(value).length > 0) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function isRecord(value) {
