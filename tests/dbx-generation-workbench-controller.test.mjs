@@ -136,7 +136,7 @@ describe("DBX Generation Workbench production controller", () => {
     const changes = [
       { type: "update-controls", controls: { rowCount: 12 } },
       { type: "update-controls", controls: { locale: "en" } },
-      { type: "new-seed" },
+      { type: "update-controls", controls: { seed: "manual-seed" } },
       { type: "update-rule", column: "customer_id", rule: { kind: "sequence", start: 5, step: 2 } },
     ];
     for (const action of changes) {
@@ -152,7 +152,7 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(generationCalls(previewCalls).length, 2);
     assert.equal(view.preview.rows.length, 12);
     assert.equal(view.controls.locale, "en");
-    assert.equal(view.controls.seed, "fresh-seed");
+    assert.equal(view.controls.seed, "manual-seed");
 
     const beforeLocaleSwitch = structuredClone(view.preview.rows);
     controller.setTranslator(Object.assign((key) => key, { locale: "en-US" }));
@@ -181,6 +181,8 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(calls.length, 1);
     assert.equal(controller.getViewModel().status, "loading");
     const generated = await previewCore()(calls[0].schema, calls[0].options);
+    const newBatchWhileBusy = await controller.dispatch({ type: "generate-new-data" });
+    assert.equal(newBatchWhileBusy.controls.seed, "demo", "a new-batch action cannot mutate the seed during an in-flight generation");
     pending.resolve(generated);
     const [firstView, secondView] = await Promise.all([first, second]);
     assert.equal(calls.length, 1);
@@ -344,7 +346,7 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.status, "idle");
   });
 
-  it("replays the same seed, changes a new seed without generating, and exports only the current snapshot", async () => {
+  it("replays the same seed, generates a different batch immediately, and exports only the current snapshot", async () => {
     const previewCalls = [];
     const controller = createController({ preview: previewCore(previewCalls) });
     let view = await controller.setContext(BASE_CONTEXT);
@@ -355,7 +357,7 @@ describe("DBX Generation Workbench production controller", () => {
     const firstRows = structuredClone(view.preview.rows);
     const firstDataset = controller.currentDataset;
     const generationCount = generationCalls(previewCalls).length;
-    const sameSeed = await controller.dispatch({ type: "regenerate-same-seed" });
+    const sameSeed = await controller.dispatch({ type: "generate" });
     assert.equal(sameSeed.controls.seed, "demo");
     assert.deepEqual(sameSeed.preview.rows, firstRows);
     assert.equal(generationCalls(previewCalls).length, generationCount + 1);
@@ -371,13 +373,11 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(csv.summary.rowCount, sameSeed.preview.rows.length);
     assert.equal(firstDataset.rows.length, 50);
 
-    view = await controller.dispatch({ type: "new-seed" });
+    view = await controller.dispatch({ type: "generate-new-data" });
     assert.equal(view.controls.seed, "fresh-seed");
-    assert.deepEqual(view.preview.rows, []);
-    assert.equal(view.export.enabled, false);
-    assert.equal(generationCalls(previewCalls).length, generationCount + 1, "changing seed never generates rows");
-    assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_no_dataset");
-    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.preview.rows.length, 50);
+    assert.equal(view.export.enabled, true);
+    assert.equal(generationCalls(previewCalls).length, generationCount + 2, "Generate New Data immediately runs the Generator");
     assert.notDeepEqual(view.preview.rows, firstRows);
     assert.deepEqual(JSON.parse(controller.prepareExport("json").content), view.preview.rows);
   });
@@ -426,7 +426,7 @@ describe("DBX Generation Workbench production controller", () => {
 
     view = await controller.dispatch({ type: "generate" });
     assert.ok(view.preview.rows.every((row) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(row.created_at)));
-    const same = await controller.dispatch({ type: "regenerate-same-seed" });
+    const same = await controller.dispatch({ type: "generate" });
     assert.deepEqual(same.preview.rows, view.preview.rows);
     assert.equal(temporalCalls.length, 1, "changing generation actions does not repeat metadata lookup");
     const firstDataset = controller.currentDataset;
@@ -478,7 +478,7 @@ describe("DBX Generation Workbench production controller", () => {
     const generated = structuredClone(view.preview.rows);
     const exported = JSON.parse(controller.prepareExport("json").content);
     assert.deepEqual(exported, generated);
-    view = await controller.dispatch({ type: "regenerate-same-seed" });
+    view = await controller.dispatch({ type: "generate" });
     assert.deepEqual(view.preview.rows, generated);
   });
 
