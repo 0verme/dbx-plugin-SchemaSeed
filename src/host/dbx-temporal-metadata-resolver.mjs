@@ -3,14 +3,16 @@ import { interpretColumnType, resolveTemporalPrecision } from "../schema/schema-
 export const TEMPORAL_METADATA_MAX_ROWS = 8;
 export const TEMPORAL_METADATA_TIMEOUT_MS = 3_000;
 const MYSQL_METADATA_PROVENANCE = "DBX Host Data API 1.4 MySQL information_schema.COLUMNS.DATETIME_PRECISION";
+const POSTGRES_METADATA_PROVENANCE = "DBX Host Data API 1.4 PostgreSQL information_schema.columns.datetime_precision";
+const POSTGRES_DB_TYPES = new Set(["postgres", "postgresql"]);
 const SAFE_SCOPE_IDENTIFIER = /^[A-Za-z0-9_]{1,256}$/u;
 
 /**
  * Resolve missing temporal precision through DBX's consent-gated Data API.
- * The first bounded, read-only query discovers the public `dbType` result; a
- * MySQL-only information_schema query is issued only after that result is
- * verified. The function returns precision summaries only, never raw rows.
- * Every failure is a safe metadata-only fallback.
+ * The first bounded, read-only query discovers the public `dbType` result;
+ * only a verified MySQL or PostgreSQL result can select its narrowly scoped
+ * information_schema query. The function returns precision summaries only,
+ * never raw rows. Every failure is a safe metadata-only fallback.
  *
  * @param {{ capabilities?: unknown, queryData?: (request: object) => Promise<unknown> }} host
  * @param {{ connectionId: string, database?: string, schema?: string, table: string }} context
@@ -24,25 +26,35 @@ export async function resolveDbxTemporalMetadata(host, context, schema, options 
     : TEMPORAL_METADATA_TIMEOUT_MS;
   if (host?.capabilities?.dataApi !== true || typeof host?.queryData !== "function") return {};
   const candidates = temporalCandidates(schema);
-  if (candidates.length === 0 || !isSafeScope(context)) return {};
+  if (candidates.length === 0 || !isSafeBaseScope(context)) return {};
 
   try {
     const discovery = await requestWithDeadline(host, context, "SELECT 1 AS ss_temporal_precision_probe", 1, timeoutMs);
-    if (!isValidQueryResult(discovery, 1) || discovery.rows.length !== 1 || discovery.dbType !== "mysql") return {};
+    if (!isValidQueryResult(discovery, 1) || discovery.rows.length !== 1) return {};
 
-    const mysqlCandidates = candidates
-      .filter((column) => ["timestamp", "datetime"].includes(getTemporalTypeName(column)))
-      .slice(0, TEMPORAL_METADATA_MAX_ROWS);
-    const query = buildMySqlTemporalMetadataQuery(context, mysqlCandidates);
-    if (!query) return {};
-    const result = await requestWithDeadline(host, context, query.sql, TEMPORAL_METADATA_MAX_ROWS, timeoutMs);
-    const values = readMySqlTemporalMetadata(result, query.columnTypes);
-    return Object.fromEntries([...values].map(([column, value]) => [column, {
-      state: "known",
-      value,
-      source: "system_metadata",
-      provenance: MYSQL_METADATA_PROVENANCE,
-    }]));
+    if (discovery.dbType === "mysql") {
+      const mysqlCandidates = candidates
+        .filter((column) => ["timestamp", "datetime"].includes(getTemporalTypeName(column)))
+        .slice(0, TEMPORAL_METADATA_MAX_ROWS);
+      const query = buildMySqlTemporalMetadataQuery(context, mysqlCandidates);
+      if (!query) return {};
+      const result = await requestWithDeadline(host, context, query.sql, TEMPORAL_METADATA_MAX_ROWS, timeoutMs);
+      const values = readMySqlTemporalMetadata(result, query.columnTypes);
+      return toSystemMetadata(values, MYSQL_METADATA_PROVENANCE);
+    }
+
+    if (POSTGRES_DB_TYPES.has(discovery.dbType.toLowerCase())) {
+      const postgresCandidates = candidates
+        .filter((column) => ["timestamp", "timestamptz"].includes(getTemporalTypeName(column)))
+        .slice(0, TEMPORAL_METADATA_MAX_ROWS);
+      const query = buildPostgresTemporalMetadataQuery(context, postgresCandidates);
+      if (!query) return {};
+      const result = await requestWithDeadline(host, context, query.sql, TEMPORAL_METADATA_MAX_ROWS, timeoutMs);
+      const values = readPostgresTemporalMetadata(result, query.columnTypes);
+      return toSystemMetadata(values, POSTGRES_METADATA_PROVENANCE);
+    }
+
+    return {};
   } catch {
     // Consent denial, missing capabilities, query rejection and timeout do not
     // escape the metadata path or leak Host error details into diagnostics.
@@ -59,7 +71,7 @@ export async function resolveDbxTemporalMetadata(host, context, schema, options 
  * @returns {{ sql: string, columnTypes: Record<string, string> } | null}
  */
 export function buildMySqlTemporalMetadataQuery(context, columns) {
-  if (!isSafeScope(context) || !Array.isArray(columns) || columns.length === 0) return null;
+  if (!isSafeMySqlScope(context) || !Array.isArray(columns) || columns.length === 0) return null;
   const uniqueColumns = [...new Map(columns.map((column) => [column?.name, column])).values()];
   const names = uniqueColumns.map((column) => column?.name);
   if (names.length === 0 || names.length > TEMPORAL_METADATA_MAX_ROWS
@@ -70,6 +82,35 @@ export function buildMySqlTemporalMetadataQuery(context, columns) {
   const quoted = (value) => `'${value}'`;
   return {
     sql: `SELECT COLUMN_NAME AS column_name, DATA_TYPE AS data_type, COLUMN_TYPE AS column_type, DATETIME_PRECISION AS datetime_precision FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ${quoted(context.database)} AND TABLE_NAME = ${quoted(context.table)} AND COLUMN_NAME IN (${names.map(quoted).join(", ")}) LIMIT ${TEMPORAL_METADATA_MAX_ROWS}`,
+    columnTypes,
+  };
+}
+
+/**
+ * Construct a target-scoped PostgreSQL information_schema query. Precision is
+ * accepted only after verifying the database type and the returned timestamp
+ * timezone category; unsafe identifiers decline the query entirely.
+ * @param {{ database?: string, schema?: string, table: string }} context
+ * @param {Array<{ name: string, dataType?: { state?: string, value?: unknown } }>} columns
+ * @returns {{ sql: string, columnTypes: Record<string, string> } | null}
+ */
+export function buildPostgresTemporalMetadataQuery(context, columns) {
+  if (!isSafePostgresScope(context) || !Array.isArray(columns) || columns.length === 0) return null;
+  const uniqueColumns = [...new Map(columns.map((column) => [column?.name, column])).values()];
+  const names = uniqueColumns.map((column) => column?.name);
+  if (names.length === 0 || names.length > TEMPORAL_METADATA_MAX_ROWS
+    || names.some((name) => !isSafeScopeIdentifier(name))) return null;
+
+  const columnTypes = Object.fromEntries(uniqueColumns.map((column) => {
+    const interpreted = interpretColumnType(column);
+    if (interpreted?.kind !== "timestamp") return [column.name, ""];
+    const timezoneAware = interpreted.parameters.timezoneAware === true;
+    return [column.name, timezoneAware ? "timestamp with time zone" : "timestamp without time zone"];
+  }));
+  if (Object.values(columnTypes).some((type) => !["timestamp with time zone", "timestamp without time zone"].includes(type))) return null;
+  const quoted = (value) => `'${value}'`;
+  return {
+    sql: `SELECT column_name AS column_name, data_type AS data_type, datetime_precision AS datetime_precision FROM information_schema.columns WHERE table_catalog = ${quoted(context.database)} AND table_schema = ${quoted(context.schema)} AND table_name = ${quoted(context.table)} AND column_name IN (${names.map(quoted).join(", ")}) LIMIT ${TEMPORAL_METADATA_MAX_ROWS}`,
     columnTypes,
   };
 }
@@ -92,13 +133,23 @@ function getTemporalTypeName(column) {
 }
 
 /** @param {{ connectionId: string, database?: string, schema?: string, table: string }} context */
-function isSafeScope(context) {
+function isSafeBaseScope(context) {
   return context !== null && typeof context === "object"
     && typeof context.connectionId === "string" && context.connectionId.trim() !== "" && context.connectionId.length <= 256
     && isSafeScopeIdentifier(context.database)
     && isSafeScopeIdentifier(context.table)
-    && (context.schema === undefined || context.schema === null
-      || (isSafeScopeIdentifier(context.schema) && context.schema === context.database));
+    && (context.schema === undefined || context.schema === null || isSafeScopeIdentifier(context.schema));
+}
+
+/** @param {unknown} context */
+function isSafeMySqlScope(context) {
+  return isSafeBaseScope(context)
+    && (context.schema === undefined || context.schema === null || context.schema === context.database);
+}
+
+/** @param {unknown} context */
+function isSafePostgresScope(context) {
+  return isSafeBaseScope(context) && isSafeScopeIdentifier(context.schema);
 }
 
 /** @param {unknown} value */
@@ -157,6 +208,43 @@ function readMySqlTemporalMetadata(result, requestedColumnTypes) {
   return output;
 }
 
+/** @param {unknown} result @param {Record<string, string>} requestedColumnTypes */
+function readPostgresTemporalMetadata(result, requestedColumnTypes) {
+  const output = new Map();
+  if (!isValidQueryResult(result, TEMPORAL_METADATA_MAX_ROWS)
+    || !POSTGRES_DB_TYPES.has(result.dbType.toLowerCase())) return output;
+
+  const columnIndexes = new Map();
+  for (const [index, column] of result.columns.entries()) {
+    if (isRecord(column) && typeof column.name === "string") columnIndexes.set(column.name.toLowerCase(), index);
+  }
+  const indexes = ["column_name", "data_type", "datetime_precision"].map((name) => columnIndexes.get(name));
+  if (indexes.some((index) => !Number.isSafeInteger(index))) return output;
+
+  const allowed = new Set(Object.keys(requestedColumnTypes));
+  const seen = new Set();
+  for (const row of result.rows) {
+    if (!Array.isArray(row) || row.length <= Math.max(...indexes)) return new Map();
+    const [columnName, dataType, rawPrecision] = indexes.map((index) => row[index]);
+    if (typeof columnName !== "string" || !allowed.has(columnName) || seen.has(columnName)) continue;
+    seen.add(columnName);
+    const expectedType = requestedColumnTypes[columnName];
+    const precision = parseMetadataPrecision(rawPrecision);
+    if (!expectedType || typeof dataType !== "string" || dataType.trim().toLowerCase() !== expectedType || precision === null) continue;
+    output.set(columnName, precision);
+  }
+  return output;
+}
+
+/** @param {Map<string, number>} values @param {string} provenance */
+function toSystemMetadata(values, provenance) {
+  return Object.fromEntries([...values].map(([column, value]) => [column, {
+    state: "known",
+    value,
+    source: "system_metadata",
+    provenance,
+  }]));
+}
 
 /** @param {unknown} value */
 function parseMetadataPrecision(value) {

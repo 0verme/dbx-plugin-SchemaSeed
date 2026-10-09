@@ -7,6 +7,7 @@ import { interpretColumnType, parseDeclaredTemporalPrecision } from "../src/sche
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import {
   buildMySqlTemporalMetadataQuery,
+  buildPostgresTemporalMetadataQuery,
   resolveDbxTemporalMetadata,
   TEMPORAL_METADATA_MAX_ROWS,
   TEMPORAL_METADATA_TIMEOUT_MS,
@@ -84,6 +85,7 @@ describe("temporal precision resolution", () => {
       ["timestamp(6)", 6, false],
       ["timestamp(3)", 3, false],
       ["datetime(6)", 6, false],
+      ["datetime(3)", 3, false],
       ["timestamp(0)", 0, false],
       ["timestamp(6) without time zone", 6, false],
       ["timestamp(6) with time zone", 6, true],
@@ -147,13 +149,14 @@ describe("temporal precision resolution", () => {
   });
 
   it("leaves unqualified PostgreSQL/SQLite temporal declarations unknown and preserves timezone semantics", () => {
-    for (const dataType of ["TIMESTAMP", "DATETIME", "timestamp without time zone", "timestamptz"]) {
+    for (const dataType of ["TIMESTAMP", "DATETIME", "timestamp without time zone", "timestamp with time zone", "timestamptz"]) {
       const plan = planFor(dataType);
       assert.equal(columnPlan(plan).temporalPrecision.declaration.state, "unknown", dataType);
       assert.equal(columnPlan(plan).temporalPrecision.generation.value, 3, dataType);
       assert.equal(warningFor(plan)?.code, "timestamp_precision_unknown", dataType);
     }
     assert.equal(columnPlan(planFor("TIMESTAMP WITHOUT TIME ZONE")).rule.parameters.timezoneAware, false);
+    assert.equal(columnPlan(planFor("TIMESTAMP WITH TIME ZONE")).rule.parameters.timezoneAware, true);
     assert.equal(columnPlan(planFor("TIMESTAMPTZ")).rule.parameters.timezoneAware, true);
     assert.equal(columnPlan(planFor("DATETIME")).rule.parameters.precision, 3, "SQLite-style loose declarations do not imply precision zero");
   });
@@ -188,6 +191,28 @@ describe("temporal precision resolution", () => {
     const fallback = planFor("timestamp");
     assert.deepEqual(columnPlan(fallback).temporalPrecision.generation, { value: 3, source: "schema_seed_fallback" });
     assert.ok(generateRows(fallback).rows.every((row) => /\.\d{3}$/u.test(row.checked_at)));
+  });
+
+  it("keeps one non-blocking unknown-precision warning for an explicit timestamp range", () => {
+    const schema = schemaFor("timestamp", { state: "unavailable" }, "range_at");
+    const plan = buildGenerationPlan(schema, {
+      rowCount: 4,
+      seed: "explicit-range-unknown-precision",
+      rules: {
+        range_at: {
+          kind: "timestamp_range",
+          start: "2024-01-01 00:00:00.000",
+          end: "2024-01-02 00:00:00.000",
+        },
+      },
+    });
+    const warnings = plan.diagnostics.filter((entry) => entry.code === "timestamp_precision_unknown");
+    assert.equal(warnings.length, 1, "the rule validator warning is not duplicated by Plan validation");
+    assert.equal(warnings[0].blocking, false);
+    assert.equal(warnings[0].severity, "warning");
+    assert.equal(warnings[0].rule, "rule:timestamp_range");
+    assert.deepEqual(columnPlan(plan).temporalPrecision.generation, { value: 3, source: "schema_seed_fallback" });
+    assert.equal(columnPlan(plan).rule.parameters.precision, 3);
   });
 
   it("resolves authorized, target-scoped MySQL metadata after dialect discovery", async () => {
@@ -248,12 +273,123 @@ describe("temporal precision resolution", () => {
     assert.equal(zeroMetadata.checked_at.value, 0);
   });
 
+  it("uses precision zero reported by MySQL system metadata for unqualified DATETIME", async () => {
+    const metadata = await resolveDbxTemporalMetadata(dataApiHost((_request, index) => index === 1
+      ? discoveryResult()
+      : metadataResult({ dataType: "datetime", columnType: "datetime", precision: 0 })), context, schemaFor("datetime"));
+    assert.equal(metadata.checked_at.value, 0);
+    assert.equal(metadata.checked_at.source, "system_metadata");
+
+    const plan = buildGenerationPlan(schemaFor("datetime"), {
+      rowCount: 4,
+      seed: "mysql-datetime-zero-precision",
+      temporalPrecisionMetadata: metadata,
+    });
+    assert.equal(columnPlan(plan).temporalPrecision.declaration.source, "system_metadata");
+    assert.deepEqual(columnPlan(plan).temporalPrecision.generation, { value: 0, source: "system_metadata" });
+    assert.equal(warningFor(plan), undefined);
+    assert.ok(generateRows(plan).rows.every((row) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(row.checked_at)));
+  });
+
+  it("uses target-scoped PostgreSQL catalog precision for unqualified timestamp defaults", async () => {
+    const schema = normalizeTableSchema({
+      tableIdentity: "dbx:postgres-test",
+      columns: [
+        { name: "naive_at", dataType: "timestamp without time zone", nullable: false, precision: { state: "unavailable" } },
+        { name: "aware_at", dataType: "timestamptz", nullable: false, precision: { state: "unavailable" } },
+      ],
+    }).schema;
+    const postgresContext = { ...context, schema: "public" };
+    const calls = [];
+    const postgresResult = {
+      dbType: "postgres",
+      columns: [{ name: "column_name" }, { name: "data_type" }, { name: "datetime_precision" }],
+      rows: [
+        ["naive_at", "timestamp without time zone", 6],
+        ["aware_at", "timestamp with time zone", 6],
+      ],
+      truncated: false,
+    };
+    const metadata = await resolveDbxTemporalMetadata(dataApiHost((_request, index) => index === 1
+      ? discoveryResult("postgres")
+      : postgresResult, calls), postgresContext, schema);
+
+    assert.deepEqual(Object.fromEntries(Object.entries(metadata).map(([name, fact]) => [name, [fact.value, fact.source, fact.provenance]])), {
+      naive_at: [6, "system_metadata", "DBX Host Data API 1.4 PostgreSQL information_schema.columns.datetime_precision"],
+      aware_at: [6, "system_metadata", "DBX Host Data API 1.4 PostgreSQL information_schema.columns.datetime_precision"],
+    });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].database, context.database);
+    assert.equal(calls[1].schema, "public");
+    assert.equal(calls[1].maxRows, TEMPORAL_METADATA_MAX_ROWS);
+    assert.equal(calls[1].timeoutMs, TEMPORAL_METADATA_TIMEOUT_MS);
+    assert.match(calls[1].sql, /^SELECT /u);
+    assert.doesNotMatch(calls[1].sql, /\b(?:INSERT|UPDATE|DELETE|DROP|ALTER)\b/iu);
+    assert.match(calls[1].sql, /FROM information_schema\.columns/u);
+    assert.match(calls[1].sql, /table_catalog = 'bilibili'/u);
+    assert.match(calls[1].sql, /table_schema = 'public'/u);
+    assert.match(calls[1].sql, /table_name = 'coupon_claims'/u);
+    assert.match(calls[1].sql, /datetime_precision/u);
+    assert.match(calls[1].sql, /LIMIT 8$/u);
+    assert.deepEqual(buildPostgresTemporalMetadataQuery(postgresContext, schema.columns)?.columnTypes, {
+      naive_at: "timestamp without time zone",
+      aware_at: "timestamp with time zone",
+    });
+    assert.equal(buildPostgresTemporalMetadataQuery({ ...postgresContext, schema: "public' OR 1=1 --" }, schema.columns), null);
+
+    const plan = buildGenerationPlan(schema, { rowCount: 5, seed: "postgres-system-metadata", temporalPrecisionMetadata: metadata });
+    assert.ok(plan.columns.every((column) => column.schema.precision.state === "unavailable"));
+    assert.deepEqual(plan.columns.map((column) => column.temporalPrecision.generation), [
+      { value: 6, source: "system_metadata" },
+      { value: 6, source: "system_metadata" },
+    ]);
+    assert.equal(plan.diagnostics.some((entry) => entry.code === "timestamp_precision_unknown"), false);
+    const rows = generateRows(plan).rows;
+    assert.ok(rows.every((row) => /\.\d{6}$/u.test(row.naive_at)));
+    assert.ok(rows.every((row) => /\.\d{6}Z$/u.test(row.aware_at)));
+
+    const mismatchedType = await resolveDbxTemporalMetadata(dataApiHost((_request, index) => index === 1
+      ? discoveryResult("postgres")
+      : { ...postgresResult, rows: [["naive_at", "time without time zone", 6]] }), postgresContext, schema);
+    assert.deepEqual(mismatchedType, {}, "a catalog row for another type cannot become temporal precision");
+  });
+
   it("does not query when structured or declared precision is already sufficient", async () => {
     let calls = 0;
     const host = dataApiHost(async () => { calls += 1; throw new Error("should not query"); });
     assert.deepEqual(await resolveDbxTemporalMetadata(host, context, schemaFor("timestamp(6)")), {});
     assert.deepEqual(await resolveDbxTemporalMetadata(host, context, schemaFor("timestamp", { state: "known", value: 0 })), {});
     assert.equal(calls, 0);
+  });
+
+  it("uses differing sample precision only as observed output format for the same unknown schema", () => {
+    const schema = schemaFor("timestamp", { state: "unavailable" });
+    const profile = (precision) => ({
+      column: "checked_at",
+      kind: "temporal_range",
+      temporalKind: "timestamp",
+      sampleCount: 4,
+      nullCount: 0,
+      nullRate: 0,
+      observedCount: 4,
+      observedMin: precision === 0 ? "2024-01-01 00:00:00" : "2024-01-01 00:00:00.123456",
+      observedMax: precision === 0 ? "2024-01-02 00:00:00" : "2024-01-02 00:00:00.654321",
+      precision,
+      timezoneAware: false,
+    });
+
+    for (const precision of [0, 6]) {
+      const options = { rowCount: 6, seed: "same-unknown-schema", sampleEvidence: [profile(precision)] };
+      const plan = buildGenerationPlan(schema, options);
+      const column = columnPlan(plan);
+      assert.equal(column.temporalPrecision.declaration.state, "unknown");
+      assert.deepEqual(column.temporalPrecision.generation, { value: precision, source: "sample_observation" });
+      assert.equal(warningFor(plan)?.blocking, false, "a sample never proves the declared precision");
+      const first = generateRows(plan).rows;
+      const replay = generateRows(buildGenerationPlan(schema, options)).rows;
+      assert.deepEqual(first, replay, "same schema/sample/seed remains deterministic");
+      assert.ok(first.every((row) => precision === 0 ? !/\.\d/u.test(row.checked_at) : /\.\d{6}$/u.test(row.checked_at)));
+    }
   });
 
   it("fails closed for missing Data API, unsafe names, ambiguous scope, and unknown dialects", async () => {
@@ -263,7 +399,7 @@ describe("temporal precision resolution", () => {
     assert.deepEqual(await resolveDbxTemporalMetadata(host, { ...context, schema: "public" }, schemaFor("timestamp")), {});
     assert.deepEqual(await resolveDbxTemporalMetadata(host, context, schemaFor("timestamp", undefined, "checked_at; DROP TABLE x")), {});
     assert.deepEqual(await resolveDbxTemporalMetadata(host, context, schemaFor("timestamp")), {});
-    assert.equal(calls, 1, "only the dialect-discovery SELECT is attempted for PostgreSQL; MySQL SQL is never sent blindly");
+    assert.equal(calls, 3, "scoped PostgreSQL may query its catalog; missing schema falls back after discovery, and MySQL SQL is never sent blindly");
 
     assert.equal(buildMySqlTemporalMetadataQuery({ ...context, table: "coupon_claims' OR 1=1 --" }, [{ name: "checked_at", dataType: { state: "known", value: "timestamp" } }]), null);
     assert.equal(buildMySqlTemporalMetadataQuery({ ...context, database: "bilibili\\\\evil" }, [{ name: "checked_at", dataType: { state: "known", value: "timestamp" } }]), null);

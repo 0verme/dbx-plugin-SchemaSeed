@@ -15,7 +15,7 @@
 
 1. **P1 — 结构化 Host precision**：最高优先级，保留原 SchemaFact 和 Host provenance；`precision = 0` 有效，类型文本、系统 Metadata 和样本均不能覆盖它。非法结构化值按原校验失败，不由低优先级来源掩盖。
 2. **P2 — 显式 temporal type declaration**：只识别 `timestamp(p)`（可带 `with/without time zone`）、`datetime(p)`、`timestamptz(p)`，且只接受单一整数 `0..6`；不会将不兼容类型的时区后缀互相套用。不会解析 NUMERIC/DECIMAL precision、length、复合 typmod 或无括号默认值。来源以 `declared_type` 独立记录，原 Host precision fact 不修改。
-3. **P3 — 经 DBX Data API 授权的 MySQL system metadata**：仅当 P1/P2 未知时触发。首先通过有界 `SELECT 1` 从公开 Data API result 读取 `dbType`；只在返回 `mysql` 且 database/table/column scope 可安全验证时，查询 `information_schema.COLUMNS` 的目标列。只保留类型和 precision 摘要，不保留原始行。
+3. **P3 — 经 DBX Data API 授权的 system metadata**：仅当 P1/P2 未知时触发。首先通过有界 `SELECT 1` 从公开 Data API result 读取 `dbType`；返回 `mysql` 且 database/table/column scope 安全时，查 MySQL `information_schema.COLUMNS`；返回 `postgres` / `postgresql` 且 database/schema/table/column scope 明确时，查 PostgreSQL `information_schema.columns`。仅接受与目标列 temporal 类型/时区类别一致的 `DATETIME_PRECISION` / `datetime_precision`，只保留 precision 摘要，不保留原始行。
 4. **P4 — 样本观测**：只作为输出格式辅助；不能改变声明状态。敏感 temporal profile 继续不保存真实时间值或范围。
 5. **P5 — 安全 fallback**：仍未知时保留 `timestamp_precision_unknown`，Plan 明确记录 `schema_seed_fallback` 的实际 3 位精度，不声称数据库保证。
 
@@ -25,15 +25,15 @@ GenerationPlan 和 Workbench view model 分别呈现声明 resolution 与最终�
 
 公开 Host API 1.4 `queryData({ connectionId, database?, schema?, sql, maxRows?, timeoutMs? })` 可执行单条经 Host 只读分类器验证的 SQL；公开 result 包含 `dbType`。DBX 源码 `crates/dbx-core/src/query/plugin_data.rs` 证明 permission、用户 grant、开放连接、单条只读语句及行数/超时边界由 Host 执行。公开 request shape 只有 `sql`，没有 bind-parameter 字段；已审计契约没有 `information_schema` 专门拒绝规则，但数据库 catalog 权限和运行时仍可能拒绝。
 
-Resolver 使用 DBX 原生 `host.data:read`、`capabilities.dataApi` 和 `queryData()`；不增加授权 UI，不访问凭据，不自建连接，不用 DBX 私有接口。为避免缺少绑定参数导致 SQL 注入，仅接受 `[A-Za-z0-9_]` 范围内的 database/table/column 名；scope 不明确或名称不安全时不查询。最多 2 次 queryData 调用（方言发现 + 精度查询），后者 `LIMIT 8` / `maxRows: 8`；每次 `timeoutMs <= 3000`。Workbench session 以 LRU 最多缓存 32 组摘要结果。拒绝、超时、缺少 capability、未知/非 MySQL 方言、结果异常都降级到 P5。
+Resolver 使用 DBX 原生 `host.data:read`、`capabilities.dataApi` 和 `queryData()`；不增加授权 UI，不访问凭据，不自建连接，不用 DBX 私有接口。为避免缺少绑定参数导致 SQL 注入，仅接受 `[A-Za-z0-9_]` 范围内的 database/schema/table/column 名；PostgreSQL 必须有明确 schema，MySQL schema 若提供须与 database 一致；scope 不明确或名称不安全时不发 metadata query。最多 2 次 queryData 调用（方言发现 + 精度查询），后者 `LIMIT 8` / `maxRows: 8`；每次 `timeoutMs <= 3000`。Workbench session 以 LRU 最多缓存 32 组摘要结果。拒绝、超时、缺少 capability、未知/不支持方言、结果异常都降级到 P5。
 
-没有发现 DBX Host 上游 API 问题：Host API 1.3 没有在 `getTableMetadata()` 中提供数据库类型或 structured precision 值时，SchemaSeed 可通过现有公开 API 安全采取独立来源的补全策略。具体真实连接/catalog 权限行为仍需 Windows Runtime 验收。
+没有发现 DBX Host 上游 API 问题：Host API 1.3 没有在 `getTableMetadata()` 中提供数据库类型或 structured precision 值时，SchemaSeed 可通过现有公开 Data API 采取独立来源的补全策略。具体真实连接、consent 和 catalog 权限行为仍需 Runtime 验收。
 
 ## 自动化证据
 
-合成 Host Fixture 覆盖：Host precision 0 和冲突优先级；`timestamp(0/3/6)`、`datetime(6)`、`timestamptz` 与时区语义；unqualified 类型、SQLite-style loose declaration、非法 typmod、numeric precision 隔离；MySQL dialect discovery、目标 scope、safe SQL、Data API 缺失/授权拒绝/错误/timeout/异常结果/precision 0；系统 metadata provenance；sample-only precision 与未知 warning；固定 seed；Preview / CSV / JSON / INSERT SQL 共用 dataset。
+合成 Host Fixture 覆盖：Host precision 0 和冲突优先级；`timestamp(0/3/6)`、`datetime(3/6)`、`timestamptz` 与时区语义；unqualified 类型、SQLite-style loose declaration、非法 typmod、numeric precision 隔离；MySQL / PostgreSQL dialect discovery、目标 scope、safe SQL、Data API 缺失/授权拒绝/错误/timeout/异常结果、system metadata precision 0/6 与 type verification；sample-only precision 与未知 warning；固定 seed；Preview / CSV / JSON / INSERT SQL 共用 dataset。PostgreSQL 增补由 Issue #120 P0 完成，Fixture 仍不代表真实 DBX PostgreSQL Runtime。
 
-Fake Host 测试只证明插件消费契约和本地 fallback，不代表真实 DBX consent dialog、MySQL catalog 权限或 `bilibili.coupon_claims.checked_at` 的运行结果。
+Fake Host 测试只证明插件消费契约和本地 fallback，不代表真实 DBX consent dialog、MySQL/PostgreSQL catalog 权限或 `bilibili.coupon_claims.checked_at` 的运行结果。
 
 ## Windows DBX Runtime 验收清单
 

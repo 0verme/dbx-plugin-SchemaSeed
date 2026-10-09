@@ -56,6 +56,10 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
     column: column.schema.name,
     schemaType: formatSchemaType(column.schema, t),
     schemaFamily: interpretColumnType(column.schema)?.kind ?? null,
+    schemaFacts: {
+      dataType: { ...column.schema.dataType },
+      precision: { ...column.schema.precision },
+    },
     detected: detectedLabel(detectedInput, t),
     detectedKey,
     detectedType: inference.semanticType,

@@ -14,24 +14,24 @@ import { semanticLabel } from "./labels.mjs";
  * *what to do next* in the current UI language.
  */
 
-export const DIAGNOSTIC_LEVELS = Object.freeze(["blocking", "warning", "error", "unsupported", "needs_confirmation"]);
+export const DIAGNOSTIC_LEVELS = Object.freeze(["blocking", "warning", "error", "info", "unsupported", "needs_confirmation"]);
 
-const SEVERITY_LEVELS = Object.freeze({ warning: "warning", error: "error", unsupported: "unsupported" });
+const SEVERITY_LEVELS = Object.freeze({ warning: "warning", error: "error", info: "info", unsupported: "unsupported" });
 
 /**
- * Which word heads the localized diagnostic. A catalog may override the level
- * for a code (for example a non-blocking warning that is really a confirmation
- * request); otherwise the Core severity / blocking flag decides.
+ * Which word heads the localized diagnostic. A Core blocking flag always wins;
+ * a catalog may refine only a non-blocking presentation (for example a warning
+ * that is really a confirmation request) and can neither add nor erase blocking.
  * @param {Record<string, unknown>} diagnostic
  * @param {import("./index.mjs").Translator} t
  */
 export function diagnosticLevel(diagnostic, t) {
-  const code = typeof diagnostic?.code === "string" ? diagnostic.code : "unknown";
-  const override = t(`diagnostic.${code}.level`);
-  if (DIAGNOSTIC_LEVELS.includes(override)) return override;
   if (diagnostic?.blocking === true) return "blocking";
   const severity = String(diagnostic?.severity ?? "");
-  return SEVERITY_LEVELS[severity] ?? "error";
+  if (severity !== "warning") return SEVERITY_LEVELS[severity] ?? "error";
+  const code = typeof diagnostic?.code === "string" ? diagnostic.code : "unknown";
+  const override = t(`diagnostic.${code}.level`);
+  return override === "needs_confirmation" && DIAGNOSTIC_LEVELS.includes(override) ? override : "warning";
 }
 
 /**
@@ -97,23 +97,125 @@ export function describeDiagnostics(diagnostics, t) {
 }
 
 /**
- * Raw technical rows for the collapsible detail section. Values are never
- * translated; only the row labels are.
- * @param {ReturnType<typeof describeDiagnostic>} description
+ * Group only diagnostics that have a concrete table and field and share the
+ * same code, raw cause, localized suggestion, severity and blocking decision.
+ * Each group retains every original diagnostic and its full presentation.
+ * @param {Record<string, unknown>[]} diagnostics
  * @param {import("./index.mjs").Translator} t
  */
-export function diagnosticTechnicalRows(description, t) {
+export function describeDiagnosticGroups(diagnostics, t) {
+  const groups = new Map();
+  for (const [index, diagnostic] of (Array.isArray(diagnostics) ? diagnostics : []).entries()) {
+    const description = describeDiagnostic(diagnostic, t);
+    const groupable = typeof diagnostic?.table === "string" && diagnostic.table !== ""
+      && typeof diagnostic?.column === "string" && diagnostic.column !== ""
+      && typeof diagnostic?.code === "string" && diagnostic.code !== "";
+    const key = groupable
+      ? JSON.stringify([
+        diagnostic.table,
+        description.code,
+        typeof diagnostic.reason === "string" ? diagnostic.reason : null,
+        diagnostic.severity ?? null,
+        diagnostic.blocking === true,
+        description.action,
+        semanticTypeFromRule(diagnostic.rule),
+      ])
+      : Symbol(`single-diagnostic-${index}`);
+    const entry = Object.freeze({ diagnostic, description });
+    if (groups.has(key)) groups.get(key).push(entry);
+    else groups.set(key, [entry]);
+  }
+
+  return [...groups.values()].map((entries) => {
+    const first = entries[0].description;
+    const count = entries.length;
+    if (count === 1) return Object.freeze({ ...first, grouped: false, count, entries });
+    const title = t("diagnostics.group.title", { count, title: first.title });
+    const groupDescriptionKey = `diagnostic.${first.code}.groupDescription`;
+    const description = t.has(groupDescriptionKey)
+      ? t(groupDescriptionKey, { count })
+      : t("diagnostics.group.description", { count });
+    return Object.freeze({
+      ...first,
+      title,
+      description,
+      headline: t("diagnostics.headline", { level: first.levelLabel, title }),
+      grouped: true,
+      count,
+      entries,
+    });
+  });
+}
+
+/**
+ * Raw technical rows for the collapsible detail section. Values are never
+ * translated; only the row labels are. `table` may replace or hide the raw
+ * Core table identity when the UI has a safe TableContext label.
+ * @param {ReturnType<typeof describeDiagnostic>} description
+ * @param {import("./index.mjs").Translator} t
+ * @param {{ table?: string | null, metadataRows?: Array<[string, string]> }} [options]
+ */
+export function diagnosticTechnicalRows(description, t, options = {}) {
   const technical = description.technical;
   const rows = [
     [t("diagnostics.technical.code"), technical.code],
     [t("diagnostics.technical.severity"), String(technical.severity ?? "")],
     [t("diagnostics.technical.blocking"), technical.blocking ? t("diagnostics.technical.yes") : t("diagnostics.technical.no")],
   ];
-  if (technical.table) rows.push([t("diagnostics.technical.table"), technical.table]);
+  const table = Object.hasOwn(options, "table") ? options.table : technical.table;
+  if (typeof table === "string" && table !== "") rows.push([t("diagnostics.technical.table"), table]);
   if (technical.column) rows.push([t("diagnostics.technical.column"), technical.column]);
   if (technical.rule) rows.push([t("diagnostics.technical.rule"), technical.rule]);
+  if (Array.isArray(options.metadataRows)) rows.push(...options.metadataRows);
   if (technical.reason) rows.push([t("diagnostics.technical.reason"), technical.reason]);
   return rows;
+}
+
+/**
+ * Safe, value-minimized schema/provenance rows for one column. No sample value,
+ * observed range, or generation output is read by this presenter.
+ * @param {Record<string, any> | undefined} column
+ * @param {import("./index.mjs").Translator} t
+ */
+export function diagnosticColumnTechnicalRows(column, t) {
+  if (!column || typeof column !== "object") return [];
+  const rows = [];
+  if (column.schemaFacts?.dataType) {
+    rows.push([t("diagnostics.technical.dataType"), formatFact(column.schemaFacts.dataType)]);
+  }
+  if (column.schemaFacts?.precision) {
+    rows.push([t("diagnostics.technical.precisionFact"), formatFact(column.schemaFacts.precision)]);
+  }
+  if (column.temporalPrecision?.declaration) {
+    rows.push([t("diagnostics.technical.precisionResolution"), formatPrecisionResolution(column.temporalPrecision.declaration)]);
+  }
+  if (column.temporalPrecision?.generation) {
+    rows.push([t("diagnostics.technical.generationPrecision"), formatPrecisionResolution(column.temporalPrecision.generation)]);
+  }
+  if (typeof column.rule?.source === "string") {
+    rows.push([t("diagnostics.technical.ruleSource"), column.rule.source]);
+  }
+  return rows;
+}
+
+/** @param {Record<string, any>} fact */
+function formatFact(fact) {
+  const parts = [typeof fact.state === "string" ? fact.state : "unknown"];
+  if (parts[0] === "known" && ["string", "number", "boolean"].includes(typeof fact.value)) parts.push(String(fact.value));
+  if (typeof fact.provenance === "string" && fact.provenance !== "") parts.push(fact.provenance);
+  if (typeof fact.reason === "string" && fact.reason !== "") parts.push(fact.reason);
+  return parts.join(" · ");
+}
+
+/** @param {Record<string, any>} precision */
+function formatPrecisionResolution(precision) {
+  const parts = [];
+  if (typeof precision.state === "string") parts.push(precision.state);
+  if (Number.isSafeInteger(precision.value)) parts.push(String(precision.value));
+  if (typeof precision.source === "string") parts.push(precision.source);
+  if (typeof precision.provenance === "string" && precision.provenance !== "") parts.push(precision.provenance);
+  if (typeof precision.reason === "string" && precision.reason !== "") parts.push(precision.reason);
+  return parts.join(" · ");
 }
 
 /** @param {string} code @param {import("./index.mjs").Translator} t @param {Record<string, unknown>} params */
