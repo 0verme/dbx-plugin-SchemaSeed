@@ -638,6 +638,184 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.export.enabled, true);
   });
 
+  it("saves valid advanced settings atomically, preserves a stale preview, and never auto-generates", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "generate" });
+    const originalRows = structuredClone(view.preview.rows);
+    const originalGenerationCount = generationCalls(calls).length;
+    const contextKey = JSON.stringify(view.context);
+
+    view = await controller.dispatch({
+      type: "save-settings",
+      contextKey,
+      rules: { customer_id: { kind: "sequence", start: 40, step: 2 } },
+      constraints: [],
+    });
+    assert.equal(view.settingsSaveResult.ok, true);
+    assert.equal(view.settingsSaveResult.changed, true);
+    assert.equal(view.status, "dirty");
+    assert.equal(view.lastSuccessfulParametersCurrent, false);
+    assert.deepEqual(view.preview.rows, originalRows, "old rows remain visible for reference");
+    assert.equal(view.export.enabled, false, "stale data is never exportable as current");
+    assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_no_dataset");
+    assert.equal(generationCalls(calls).length, originalGenerationCount, "saving only runs validation-only Core work");
+    assert.equal(calls.at(-1).options.validateOnly, true);
+    assert.deepEqual(controller.rules.customer_id, { kind: "sequence", start: 40, step: 2 });
+
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "warning");
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
+    assert.equal(view.preview.rows.length, 50);
+    assert.deepEqual(view.preview.rows.map((row) => row.customer_id), Array.from({ length: 50 }, (_value, index) => 40 + index * 2));
+    assert.equal(generationCalls(calls).length, originalGenerationCount + 1, "only the explicit Generate action invokes the Generator");
+  });
+
+  it("ignores an in-flight old-settings generation that completes after settings are saved", async () => {
+    const generationResult = deferred();
+    const generationStarted = deferred();
+    let deferNextGeneration = false;
+    let pendingOptions;
+    const core = previewCore();
+    const controller = createController({
+      preview: async (schema, options) => {
+        if (!options.validateOnly && deferNextGeneration) {
+          deferNextGeneration = false;
+          pendingOptions = structuredClone(options);
+          generationStarted.resolve();
+          return generationResult.promise;
+        }
+        return core(schema, options);
+      },
+    });
+    let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "generate" });
+    const originalRows = structuredClone(view.preview.rows);
+    deferNextGeneration = true;
+    const generationTask = controller.dispatch({ type: "generate" });
+    await generationStarted.promise;
+
+    await controller.saveSettings({
+      type: "save-settings",
+      contextKey: JSON.stringify(view.context),
+      rules: { customer_id: { kind: "sequence", start: 80, step: 2 } },
+      constraints: [],
+    });
+    view = controller.getViewModel();
+    assert.equal(view.status, "dirty");
+    generationResult.resolve(await core(controller.schema, pendingOptions));
+    view = await generationTask;
+    assert.equal(view.status, "dirty");
+    assert.equal(view.lastSuccessfulParametersCurrent, false);
+    assert.deepEqual(view.preview.rows, originalRows);
+    assert.equal(view.export.enabled, false);
+  });
+
+  it("keeps the old preview visibly stale if regeneration after a settings save fails", async () => {
+    let failNextGeneration = false;
+    const controller = createController({
+      preview: async (schema, options) => {
+        if (!options.validateOnly && failNextGeneration) {
+          failNextGeneration = false;
+          throw new Error("temporary generation failure");
+        }
+        return previewCore()(schema, options);
+      },
+    });
+    let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "generate" });
+    const oldRows = structuredClone(view.preview.rows);
+    view = await controller.dispatch({
+      type: "save-settings",
+      contextKey: JSON.stringify(view.context),
+      rules: { customer_id: { kind: "sequence", start: 70, step: 3 } },
+      constraints: [],
+    });
+    assert.equal(view.status, "dirty");
+    failNextGeneration = true;
+
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "error");
+    assert.equal(view.lastSuccessfulParametersCurrent, false);
+    assert.deepEqual(view.preview.rows, oldRows, "failure does not erase or certify the previous rows");
+    assert.equal(view.export.enabled, false);
+
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "warning");
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
+    assert.notDeepEqual(view.preview.rows, oldRows);
+    assert.deepEqual(view.preview.rows.map((row) => row.customer_id), Array.from({ length: 50 }, (_value, index) => 70 + index * 3));
+  });
+
+  it("rejects invalid advanced settings without changing effective config or the current preview", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "generate" });
+    const originalRows = structuredClone(view.preview.rows);
+    const originalDataset = controller.currentDataset;
+    const generationCount = generationCalls(calls).length;
+
+    view = await controller.dispatch({
+      type: "save-settings",
+      contextKey: JSON.stringify(view.context),
+      rules: { customer_id: { kind: "random_integer", min: 0, max: Number.MAX_SAFE_INTEGER } },
+      constraints: [],
+    });
+    assert.equal(view.settingsSaveResult.ok, false);
+    assert.ok(view.settingsSaveResult.diagnostics.some((entry) => entry.code === "generation_rule_incompatible"));
+    assert.deepEqual(controller.rules, {}, "failed draft never replaces the effective configuration");
+    assert.equal(controller.currentDataset, originalDataset);
+    assert.equal(view.status, "warning");
+    assert.deepEqual(view.preview.rows, originalRows);
+    assert.equal(view.export.enabled, true);
+    assert.equal(generationCalls(calls).length, generationCount, "invalid settings are checked without generation");
+  });
+
+  it("does not invalidate a preview when advanced settings are saved without actual changes", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    let view = await controller.setContext(BASE_CONTEXT);
+    view = await controller.dispatch({ type: "generate" });
+    const originalRows = structuredClone(view.preview.rows);
+    const originalDataset = controller.currentDataset;
+    const callCount = calls.length;
+
+    view = await controller.dispatch({
+      type: "save-settings",
+      contextKey: JSON.stringify(view.context),
+      rules: {},
+      constraints: [],
+    });
+    assert.equal(view.settingsSaveResult.ok, true);
+    assert.equal(view.settingsSaveResult.changed, false);
+    assert.equal(view.status, "warning");
+    assert.equal(view.lastSuccessfulParametersCurrent, true);
+    assert.deepEqual(view.preview.rows, originalRows);
+    assert.equal(controller.currentDataset, originalDataset);
+    assert.equal(view.export.enabled, true);
+    assert.equal(calls.length, callCount, "an unchanged valid draft needs no extra Core or Generator work");
+  });
+
+  it("binds an advanced-settings draft to its originating table context", async () => {
+    const controller = createController();
+    await controller.setContext({ connectionId: "conn", table: "alpha" });
+    const contextKeyA = JSON.stringify(controller.getViewModel().context);
+    await controller.setContext({ connectionId: "conn", table: "beta" });
+
+    const view = await controller.dispatch({
+      type: "save-settings",
+      contextKey: contextKeyA,
+      rules: { alpha_id: { kind: "sequence", start: 4, step: 3 } },
+      constraints: [],
+    });
+    assert.match(view.actionError, /table changed/u);
+    assert.deepEqual(controller.rules, {});
+    assert.equal(view.context.table, "beta");
+    assert.equal(view.columns[0].column, "beta_id");
+  });
+
   it("clears table-session rules and constraints on context refresh", async () => {
     const controller = createController();
     await controller.setContext({ connectionId: "conn", table: "alpha" });

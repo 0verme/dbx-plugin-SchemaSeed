@@ -13,9 +13,9 @@ const FOCUSABLE_SELECTOR = [
  * is locked without changing its position, and keyboard focus stays in the
  * dialog until it closes.
  *
- * @param {{ overlay: HTMLElement, dialog: HTMLElement, background: HTMLElement, initialFocus: HTMLElement | (() => HTMLElement), document?: Document, onClose?: () => void }} options
+ * @param {{ overlay: HTMLElement, dialog: HTMLElement, background: HTMLElement, initialFocus: HTMLElement | (() => HTMLElement), document?: Document, onClose?: () => void, onRequestClose?: (reason: string) => boolean | void }} options
  */
-export function createModalDialogController({ overlay, dialog, background, initialFocus, document: ownerDocument = globalThis.document, onClose = () => {} }) {
+export function createModalDialogController({ overlay, dialog, background, initialFocus, document: ownerDocument = globalThis.document, onClose = () => {}, onRequestClose = () => true }) {
   let opened = false;
   let returnFocusTo = null;
   let previousBackgroundInert = false;
@@ -62,18 +62,25 @@ export function createModalDialogController({ overlay, dialog, background, initi
     return true;
   }
 
+  function requestClose(reason = "user") {
+    if (!opened || onRequestClose(reason) === false) return false;
+    return close();
+  }
+
   function onKeyDown(event) {
     if (!opened) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation?.();
-      close();
+      requestClose("escape");
       return;
     }
     if (event.key !== "Tab") return;
 
     const focusable = [...dialog.querySelectorAll(FOCUSABLE_SELECTOR)].filter((element) =>
-      !element.disabled && !element.hidden && element.getAttribute("aria-hidden") !== "true");
+      !element.disabled && !element.hidden && element.getAttribute("aria-hidden") !== "true"
+      && element.getAttribute("tabindex") !== "-1"
+      && !element.closest?.("[hidden]") && !element.closest?.('[aria-hidden="true"]'));
     if (focusable.length === 0) {
       event.preventDefault();
       dialog.focus?.();
@@ -93,6 +100,7 @@ export function createModalDialogController({ overlay, dialog, background, initi
   return Object.freeze({
     open,
     close,
+    requestClose,
     get isOpen() { return opened; },
   });
 }

@@ -204,128 +204,118 @@ describe("Workbench section summaries", () => {
   });
 });
 
-describe("Workbench markup disclosure contract", () => {
-  it("orders context, preview, columns, constraints and diagnostics", async () => {
-    const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
-    assert.ok(markup.length > 0, "the Workbench markup is declared");
-    const orderedIds = ["sswb-context-title", "sswb-preview-title", "sswb-columns-title", "sswb-constraints-title", "sswb-diagnostics-title"];
-    const positions = orderedIds.map((id) => markup.indexOf(`id="${id}"`));
-    for (const [index, position] of positions.entries()) {
-      assert.ok(position >= 0, `${orderedIds[index]} is declared`);
-      if (index > 0) assert.ok(position > positions[index - 1], `${orderedIds[index]} comes after ${orderedIds[index - 1]}`);
+describe("Advanced settings Modal and Workbench markup contract", () => {
+  it("keeps the main page focused on table context, controls, preview, and export", async () => {
+    const source = await readFile(UI_SOURCE, "utf8");
+    const markup = markupOf(source);
+    const advancedStart = markup.indexOf('<div id="sswb-advanced-modal"');
+    const mainMarkup = markup.slice(0, advancedStart);
+    assert.ok(advancedStart > 0, "the Advanced settings dialog follows the main Workbench");
+    assert.ok(mainMarkup.indexOf('id="sswb-context-title"') < mainMarkup.indexOf('id="sswb-preview-title"'));
+    assert.doesNotMatch(mainMarkup, /sswb-columns-details|sswb-constraints-details|sswb-diagnostics-details|<details\b/u);
+    assert.match(mainMarkup, /data-advanced-open/u);
+    assert.match(mainMarkup, /data-i18n="controls\.dataAccessNotice"/u, "the DBX authorization notice stays visible on the main page");
+    assert.match(mainMarkup, /data-sswb-action="preview"/u);
+    for (const id of ["sswb-database", "sswb-schema", "sswb-table", "sswb-rows", "sswb-seed", "sswb-locale", "sswb-preview-sql", "sswb-export-csv", "sswb-export-json", "sswb-export-sql"]) {
+      assert.match(mainMarkup, new RegExp(`id="${id}"`), `${id} stays on the main page`);
     }
   });
 
-  it("keeps advanced sections as disclosures and renders SQL preview in a separate Modal", async () => {
+  it("provides the three accessible tabs and moves all former panels into the dialog", async () => {
     const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
-    assert.equal((markup.match(/<details\b/g) ?? []).length, 3, "only the three advanced sections remain disclosures");
-    assert.match(markup, /<div id="sswb-sql-modal" class="sswb-modal" hidden>/, "the SQL Modal starts hidden");
-    assert.match(markup, /role="dialog" aria-modal="true" aria-labelledby="sswb-sql-modal-title"/, "the Modal is announced as a modal dialog");
-    assert.match(markup, /<pre id="sswb-sql-code-scroll"[^>]*tabindex="0"[^>]*><code id="sswb-sql-code"><\/code><\/pre>/, "SQL is rendered in a focusable, read-only code region");
-    assert.doesNotMatch(markup, /sswb-sql-details|sswb-sql-content|sswb-sql-preview-error/, "the former bottom disclosure and textarea are removed");
-    for (const [section, detailsId, titleId] of [
-      ["columns", "sswb-columns-details", "sswb-columns-title"],
-      ["constraints", "sswb-constraints-details", "sswb-constraints-title"],
-      ["diagnostics", "sswb-diagnostics-details", "sswb-diagnostics-title"],
-    ]) {
-      assert.match(markup, new RegExp(`<details[^>]*id="${detailsId}"[^>]*>`), `${section} is a details element`);
-      assert.doesNotMatch(markup, new RegExp(`<details[^>]*id="${detailsId}"[^>]*\\bopen\\b`), `${section} starts collapsed`);
-      assert.match(
-        markup,
-        new RegExp(`<summary[^>]*>(?:(?!</summary>)[\\s\\S])*id="${titleId}"`),
-        `${titleId} is inside the summary so the whole header row toggles the section`,
-      );
-      assert.match(markup, new RegExp(`id="${detailsId.replace("-details", "-summary")}"`), `${section} exposes a collapsed summary slot`);
+    assert.match(markup, /<div id="sswb-advanced-modal" class="sswb-modal" hidden>/u);
+    assert.match(markup, /class="sswb-advanced-dialog" role="dialog" aria-modal="true"/u);
+    const tabs = [...markup.matchAll(/role="tab"[^>]*data-advanced-tab="(columns|constraints|diagnostics)"/gu)].map((match) => match[1]);
+    assert.deepEqual(tabs, ["columns", "constraints", "diagnostics"]);
+    assert.match(markup, /role="tab"[^>]*aria-selected="true"[^>]*tabindex="0"[^>]*data-advanced-tab="columns"/u, "the field strategy tab is selected by default");
+    for (const id of ["sswb-columns", "sswb-rule-state", "sswb-constraints-body", "sswb-constraint-state", "sswb-diagnostics"]) {
+      assert.match(markup.slice(markup.indexOf('<div id="sswb-advanced-modal"')), new RegExp(`id="${id}"`));
     }
-    assert.doesNotMatch(markup, /<summary[^>]*>(?:(?!<\/summary>)[\s\S])*id="sswb-preview-title"/, "Preview is not a disclosure");
-    assert.match(markup, /<section class="sswb-panel" aria-labelledby="sswb-preview-title">/u, "Preview remains a visible section rather than a disclosure");
+    const source = await readFile(UI_SOURCE, "utf8");
+    assert.match(source, /openAdvancedSettings\(target, "columns"\)/u);
+    assert.match(source, /openAdvancedSettings\(target, "diagnostics"\)/u);
+    assert.match(source, /advancedDialog\.open\(trigger\)/u);
+    assert.match(source, /event\.key === "ArrowRight"[\s\S]*setAdvancedTab/u, "tabs support keyboard navigation");
   });
 
-  it("keeps the field strategy editor and both editor state slots inside their sections", async () => {
+  it("keeps modal controls, close confirmation and responsive scroll surfaces available", async () => {
     const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
-    assert.match(
-      markup,
-      /<details[^>]*id="sswb-columns-details"[\s\S]*<tbody id="sswb-columns"><\/tbody>[\s\S]*id="sswb-rule-state"[\s\S]*<\/details>/,
-      "the columns table and rule editor state stay in the columns section body",
-    );
-    assert.match(
-      markup,
-      /<details[^>]*id="sswb-constraints-details"[\s\S]*data-constraint-add[\s\S]*<tbody id="sswb-constraints-body"><\/tbody>[\s\S]*id="sswb-constraint-state"[\s\S]*<\/details>/,
-      "add-constraint, the constraint table and state stay in the constraints section body",
-    );
-    const source = await readFile(UI_SOURCE, "utf8");
-    assert.match(source, /data-rule-selector/, "the field rule selector is still rendered after expanding");
-    assert.match(source, /data-rule-field/, "the field rule editor fields are still rendered after expanding");
-  });
-
-  it("renders a low-interference sample hint with localized lifecycle copy", async () => {
-    const source = await readFile(UI_SOURCE, "utf8");
-    const markup = markupOf(source);
-    assert.match(markup, /<span id="sswb-sample-hint" class="sswb-section-hint"><\/span>/);
-    assert.match(source, /viewModel\.sampleStatus\?\.state[\s\S]*columns\.sampleHint\./);
-    assert.match(source, /fieldStatus\.state !== "skipped" \|\| needsSemanticConfirmation/);
-    assert.match(source, /summaryKind === "chinese_name_pattern"[\s\S]*namePatternInsufficient/);
-    assert.match(source, /semantic_confirmation_required[\s\S]*sampleFieldStatusText/);
-
-    const zh = createI18n("zh-CN");
-    const en = createI18n("en-US");
-    assert.match(zh("columns.sampleHint.pending"), /DBX Host 授权/u);
-    assert.match(zh("columns.sampleHint.pending"), /最多读取 100 行/u);
-    assert.match(zh("columns.sampleHint.sampled"), /部分字段已分析/u);
-    assert.match(zh("columns.sampleHint.permission_denied"), /未授权/u);
-    assert.match(en("columns.sampleHint.pending"), /DBX Host authorization/u);
-    assert.match(en("columns.sampleHint.pending"), /limit of 100 rows/u);
-    assert.match(en("columns.sampleHint.sampled"), /some fields/u);
-    assert.match(en("columns.sampleHint.permission_denied"), /did not authorize/u);
-    assert.match(zh("columns.sampleFieldStatus.namePatternUsed", { matchedCount: 4, sampleCount: 4 }), /格式无法区分实名、昵称/u);
-    assert.match(en("columns.sampleFieldStatus.namePatternUsed", { matchedCount: 4, sampleCount: 4 }), /cannot distinguish a real name, nickname/u);
-
-    const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
-    assert.match(stylesheet, /\.sswb-section-hint/);
-    assert.doesNotMatch(stylesheet.match(/\.sswb-section-hint[^}]*}/)?.[0] ?? "", /warning|#[89a-f][0-9a-f]{5}/i);
-  });
-
-  it("shows a localized empty preview until the explicit Generate action runs", async () => {
-    const source = await readFile(UI_SOURCE, "utf8");
-    const markup = markupOf(source);
-    assert.match(markup, /<button[^>]*data-sswb-action="preview"[^>]*><\/button>/u);
-    assert.match(markup, /<div id="sswb-preview-empty" class="sswb-preview-empty" hidden>[\s\S]*data-i18n="preview\.empty\.title"[\s\S]*data-i18n="preview\.empty\.helper"[\s\S]*<\/div>/u);
-    assert.match(source, /const showEmptyState = pendingEnumDraft \|\| Boolean\(viewModel\.context && hasPreparedPlan\s+&& \["idle", "dirty", "error"\]\.includes\(viewModel\.status\)\)/u);
-    assert.match(source, /previewButton\.disabled = pendingEnumDraft \|\| viewModel\.previewAction\.disabled/u);
-    assert.match(source, /previewButton\.textContent = t\(viewModel\.previewAction\.labelKey\)/u);
-    assert.match(source, /previewButton\.setAttribute\("aria-busy", "true"\)/u);
-    assert.doesNotMatch(source, /data-sswb-action="new-seed"/u);
-    assert.equal(createI18n("zh-CN")("preview.empty.title"), "尚未生成预览数据");
-    assert.equal(createI18n("en-US")("preview.empty.title"), "Preview not generated yet");
-    assert.match(createI18n("zh-CN")("preview.empty.helper"), /点击上方主按钮/u);
-    assert.match(createI18n("en-US")("preview.empty.helper"), /primary button above/u);
-  });
-
-  it("keeps narrow-screen context and parameters compact without removing controls", async () => {
-    const source = await readFile(UI_SOURCE, "utf8");
-    const markup = markupOf(source);
-    const contextPanel = /<section class="sswb-panel" aria-labelledby="sswb-context-title">([\s\S]*?)<\/section>/u.exec(markup)?.[1] ?? "";
-    assert.ok(contextPanel.length > 0, "the current table context panel is present");
-    for (const id of ["sswb-database", "sswb-schema", "sswb-table", "sswb-rows", "sswb-seed", "sswb-locale"]) {
-      assert.match(contextPanel, new RegExp(`id="${id}"`), `${id} remains available in the context/control panel`);
+    const modal = markup.slice(markup.indexOf('<div id="sswb-advanced-modal"'));
+    for (const selector of ["data-advanced-close", "data-advanced-save", "data-advanced-cancel", "data-advanced-discard", "data-advanced-continue"]) {
+      assert.match(modal, new RegExp(selector));
     }
-    assert.match(contextPanel, /class="sswb-button sswb-primary"[^>]*data-sswb-action="preview"/u, "one state-driven preview action remains primary");
-    assert.match(contextPanel, /id="sswb-seed"[^>]*type="text"/u, "the editable random Seed remains available");
-    assert.equal((contextPanel.match(/<button[^>]*data-sswb-action=/gu) ?? []).length, 1, "the preview action area contains exactly one button");
-    assert.doesNotMatch(contextPanel, /sswb-data-access|dataAccess\.|了解详情|Learn more/u);
-    assert.doesNotMatch(markup, /sswb-safe-notice|safety\.notice/u, "the full-row data-access and green safety callouts are removed");
-
-    const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
-    assert.match(stylesheet, /@media \(max-width: 640px\)[\s\S]*?\.sswb-context-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/u, "the three context facts stay in a compact row on narrow screens");
-    assert.match(stylesheet, /\.sswb-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.7fr\)\s+minmax\(0,\s*1\.4fr\)\s+minmax\(0,\s*\.8fr\)/u, "row count, seed and data locale share a compact parameter row");
-    assert.match(stylesheet, /\.sswb-actions\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/u, "the single preview action uses the full narrow-screen row");
-    assert.match(stylesheet, /\.sswb-preview-scroll\s*\{[^}]*max-height:\s*min\(55vh,\s*620px\)/u, "the preview table has a bounded viewport for long datasets");
+    assert.match(modal, /id="sswb-advanced-confirm"[^>]*role="alertdialog"[^>]*hidden/u);
+    const source = await readFile(UI_SOURCE, "utf8");
+    assert.match(source, /onRequestClose: \(\) => requestAdvancedClose\(\)/u);
+    assert.match(source, /settingsDraftChanged\(settingsDraft\)[\s\S]*advanced-*/u);
+    assert.match(source, /advancedDialog\.requestClose\("backdrop"\)/u);
+    assert.match(source, /advancedDialog\.requestClose\("cancel-button"\)/u);
+    assert.match(source, /if \(enumEditorDirty\(\) \|\| \(settingsDraft && settingsDraftChanged\(settingsDraft\)\)\)[\s\S]*element\("sswb-advanced-confirm"\)\.hidden = false/u);
+    const css = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
+    assert.match(css, /\.sswb-advanced-dialog\s*\{[^}]*width:\s*min\(1180px,/u);
+    assert.match(css, /\.sswb-advanced-dialog\s*\{[^}]*max-height:\s*min\(90vh,/u);
+    assert.match(css, /\.sswb-advanced-content\s*\{[^}]*overflow:\s*auto/u);
+    assert.match(css, /\.sswb-advanced-dialog-footer\s*\{[^}]*flex:\s*0 0 auto/u);
+    assert.match(css, /\.sswb-advanced-tabs\s*\{[^}]*overflow-x:\s*auto/u);
+    assert.match(css, /@media \(max-width: 640px\)[\s\S]*?\.sswb-advanced-dialog\s*\{[^}]*width:\s*calc\(100vw - 20px\)/u);
   });
 
-  it("keeps disclosure state in the page session only", async () => {
+  it("keeps rule editing in a page-local draft and routes only explicit Save through validation", async () => {
     const source = await readFile(UI_SOURCE, "utf8");
-    assert.match(source, /renderSectionSummaries/);
-    assert.match(source, /shouldAutoExpandDiagnostics/);
-    assert.doesNotMatch(source, /localStorage|sessionStorage/, "no additional persistence mechanism is introduced");
+    assert.match(source, /settingsDraft\.rules\[column\.column\] = structuredClone\(choice\.draft\)/u);
+    assert.match(source, /settingsDraft\.rules\[column\.column\] = \{ kind: "enum", values: structuredClone/u, "enum tag and JSON edits stay inside the modal draft");
+    assert.match(source, /advancedSaving \|\| unavailable \|\| enumEditorDirty\(\)/u);
+    assert.match(source, /settingsDraft\.constraints = settingsDraft\.constraints\.map/u);
+    assert.match(source, /type: "save-settings"[\s\S]*contextKey: submittedDraft\.contextKey/u);
+    assert.match(source, /advancedSaving \|\| viewModel\.status === "loading"/u, "the modal cannot save while an older generation is in flight");
+    assert.doesNotMatch(source, /dispatch\(\{ type: "update-rule"/u);
+    assert.doesNotMatch(source, /dispatch\(\{ type: "update-constraint"/u);
+    const controller = await readFile(path.join(root, "src/workbench/dbx-generation-workbench-controller.mjs"), "utf8");
+    assert.match(controller, /this\.generationOptions\(true\)[\s\S]*rules: candidate\.rules[\s\S]*constraints: candidate\.constraints/u);
+    assert.match(controller, /this\.rules = candidate\.rules[\s\S]*this\.constraints = candidate\.constraints[\s\S]*this\.status = "dirty"/u);
+    assert.match(controller, /if \(response\.plan\.status === "blocked" \|\| response\.generated\.status === "blocked"\)[\s\S]*settingsSaveResult = \{ ok: false/u);
+  });
+
+  it("keeps sample safety details in the field tab and localizes diagnostics and empty states", async () => {
+    const source = await readFile(UI_SOURCE, "utf8");
+    const markup = markupOf(source);
+    assert.match(markup, /id="sswb-sample-hint"/u);
+    assert.match(source, /viewModel\.sampleStatus\?\.state[\s\S]*columns\.sampleHint\./u);
+    assert.match(source, /fieldStatus\.state !== "skipped" \|\| needsSemanticConfirmation/u);
+    assert.match(source, /summaryKind === "chinese_name_pattern"[\s\S]*namePatternInsufficient/u);
+    assert.match(source, /semantic_confirmation_required[\s\S]*sampleFieldStatusText/u);
+    assert.match(source, /t\("advanced\.diagnostics\.none"\)/u);
+    assert.match(source, /diagnosticCount === 0/u);
+    assert.match(source, /openAdvancedSettings\(target, "diagnostics"\)/u);
+    assert.equal(createI18n("zh-CN")("advanced.diagnostics.none"), "未发现问题");
+    assert.equal(createI18n("en-US")("advanced.diagnostics.none"), "No issues found.");
+    assert.match(createI18n("zh-CN")("actions.diagnosticsLink", { count: 3 }), /发现 3 项问题 · 查看诊断/u);
+    assert.match(createI18n("en-US")("actions.diagnosticsLink", { count: 3 }), /3 issue\(s\) found · View diagnostics/u);
+    assert.match(createI18n("zh-CN")("advanced.previewStale"), /配置已更新，请重新生成预览/u);
+    assert.doesNotMatch(createI18n("en-US")("advanced.title"), /[\u3400-\u9fff]/u);
+  });
+
+  it("shows stale datasets without enabling export and keeps explicit generation as the recovery", async () => {
+    const source = await readFile(UI_SOURCE, "utf8");
+    const markup = markupOf(source);
+    assert.match(markup, /id="sswb-preview-stale"[^>]*role="status"[^>]*hidden/u);
+    assert.match(source, /viewModel\.preview\.rows\.length > 0 && !viewModel\.lastSuccessfulParametersCurrent/u);
+    assert.match(source, /element\("sswb-preview-stale"\)\.hidden = !previewIsStale/u);
+    assert.match(source, /const showEmptyState = pendingEnumDraft \|\| Boolean\(viewModel\.context && hasPreparedPlan && !hasRows/u);
+    assert.match(source, /exportDisabled = pendingEnumDraft \|\| !viewModel\.export\.enabled/u);
+    const controller = await readFile(path.join(root, "src/workbench/dbx-generation-workbench-controller.mjs"), "utf8");
+    assert.match(controller, /Keep the old immutable snapshot visible for reference/u);
+  });
+
+  it("keeps SQL preview and CSV / JSON / INSERT SQL export contracts unchanged", async () => {
+    const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
+    assert.match(markup, /<div id="sswb-sql-modal" class="sswb-modal" hidden>/u);
+    assert.match(markup, /<section class="sswb-sql-dialog" role="dialog" aria-modal="true"/u);
+    assert.match(markup, /<pre id="sswb-sql-code-scroll"[^>]*tabindex="0"[^>]*><code id="sswb-sql-code"><\/code><\/pre>/u);
+    for (const format of ["csv", "json", "sql"]) assert.match(markup, new RegExp(`data-sswb-export="${format}"`));
+    assert.match(markup, /data-sswb-preview-sql/u);
+    const source = await readFile(UI_SOURCE, "utf8");
+    assert.match(source, /controller\.prepareExport\(format\)/u);
+    assert.match(source, /controller\.prepareExport\("sql"\)/u);
   });
 });

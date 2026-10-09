@@ -37,6 +37,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "controls.seed": "Seed",
   "controls.dataLocale": "Data language",
   "controls.dataLocaleHelp": "Shapes generated values only; it does not change the interface language.",
+  "controls.dataAccessNotice": "Up to 100 real sample rows are requested only when you explicitly generate a preview and DBX Host authorizes access; opening a table does not read data.",
   "controls.uiLocale": "UI language",
 
   // Primary actions.
@@ -47,6 +48,31 @@ export const EN_US_MESSAGES = Object.freeze({
   "actions.retryGeneration": "Retry Generation",
   "actions.retry": "Retry",
   "actions.previewSql": "Preview INSERT SQL",
+  "actions.advancedSettings": "Advanced settings",
+  "actions.diagnosticsLink": "{count} issue(s) found · View diagnostics",
+
+  // Advanced settings dialog.
+  "advanced.title": "Advanced settings",
+  "advanced.tab.columns": "Columns and generation strategy",
+  "advanced.tab.constraints": "Generation constraints",
+  "advanced.tab.diagnostics": "Diagnostics",
+  "advanced.tabs.label": "Advanced settings tabs",
+  "advanced.close": "Close",
+  "advanced.save": "Save settings",
+  "advanced.cancel": "Cancel",
+  "advanced.search.label": "Search fields",
+  "advanced.search.placeholder": "Enter a field name or type",
+  "advanced.search.empty": "No matching fields.",
+  "advanced.draft.changed": "You have unsaved changes. Save to apply them; generate a new preview afterward.",
+  "advanced.draft.saving": "Validating and saving settings…",
+  "advanced.draft.validationFailed": "Settings were not saved because configuration issues block them. Review Diagnostics.",
+  "advanced.draft.saveFailed": "Settings could not be saved. Check the table context and try again.",
+  "advanced.confirm.title": "Unsaved changes",
+  "advanced.confirm.message": "Closing will discard your changes. Do you want to discard them?",
+  "advanced.confirm.discard": "Discard changes",
+  "advanced.confirm.continue": "Continue editing",
+  "advanced.diagnostics.none": "No issues found.",
+  "advanced.previewStale": "Settings changed. Generate a new preview.",
 
   // Column / strategy table.
   "columns.title": "Columns and generation strategy",

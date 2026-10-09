@@ -5,7 +5,8 @@ import { renderWorkbenchContextVisibility } from "./visibility.mjs";
 import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
 import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
-import { constraintKindOptions, constraintPlanLabel } from "../src/i18n/labels.mjs";
+import { constraintKindOptions, constraintPlanLabel, ruleFieldLabel } from "../src/i18n/labels.mjs";
+import { getGenerationRuleEditorFields } from "../src/generation/generation-rules.mjs";
 import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "../src/i18n/ui-locale.mjs";
 import { createModalDialogController } from "./modal-dialog.mjs";
 import { copyTextToClipboard } from "./clipboard.mjs";
@@ -22,7 +23,8 @@ import {
   stateMessage,
   statusLabel,
 } from "../src/i18n/workbench-messages.mjs";
-import { initialSectionExpansion, sectionSummaries, shouldAutoExpandDiagnostics } from "../src/workbench/workbench-sections.mjs";
+import { diagnosticSummaryCounts } from "../src/workbench/workbench-sections.mjs";
+import { createSettingsDraft, settingsDraftChanged } from "../src/workbench/settings-draft.mjs";
 import { saveExportWithHost } from "./export-save.mjs";
 import { paginatePreviewRows } from "../src/workbench/preview-pagination.mjs";
 import { validateGenerationRule } from "../src/generation/generation-rules.mjs";
@@ -65,14 +67,23 @@ const WORKBENCH_MARKUP = `
           <label><span data-i18n="controls.rows"></span><input id="sswb-rows" name="rowCount" type="number" min="1" max="1000" step="1" value="50" required></label>
           <label><span data-i18n="controls.seed"></span><input id="sswb-seed" name="seed" type="text" value="demo" maxlength="128"></label>
           <label><span data-i18n="controls.dataLocale"></span><select id="sswb-locale" name="locale" data-i18n-title="controls.dataLocaleHelp"><option value="zh-CN">zh-CN</option><option value="en">en</option></select></label>
-          <div class="sswb-actions"><button class="sswb-button sswb-primary" type="button" data-sswb-action="preview"></button></div>
+          <div class="sswb-actions">
+            <button class="sswb-button" type="button" data-advanced-open>
+              <svg class="sswb-button-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 5h12M4 10h12M4 15h12"></path><circle cx="8" cy="5" r="1.5"></circle><circle cx="12" cy="10" r="1.5"></circle><circle cx="7" cy="15" r="1.5"></circle></svg>
+              <span data-i18n="actions.advancedSettings"></span>
+            </button>
+            <button id="sswb-diagnostics-link" class="sswb-button sswb-diagnostics-link" type="button" data-advanced-diagnostics hidden></button>
+            <button class="sswb-button sswb-primary" type="button" data-sswb-action="preview"></button>
+          </div>
         </form>
+        <p class="sswb-data-access-notice" data-i18n="controls.dataAccessNotice"></p>
         <p id="sswb-action-error" class="sswb-inline-error" role="alert" hidden></p>
       </section>
 
       <section class="sswb-panel" aria-labelledby="sswb-preview-title">
         <div class="sswb-heading"><div><h2 id="sswb-preview-title" data-i18n="preview.title"></h2><p id="sswb-preview-summary" class="sswb-caption"></p></div><span class="sswb-readonly" data-i18n="preview.readonly"></span></div>
         <p id="sswb-state-message" class="sswb-state-message" role="status"></p>
+        <p id="sswb-preview-stale" class="sswb-preview-stale" role="status" hidden></p>
         <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button><button id="sswb-preview-sql" class="sswb-button" type="button" data-sswb-preview-sql data-i18n="actions.previewSql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
         <div id="sswb-preview-empty" class="sswb-preview-empty" hidden><strong data-i18n="preview.empty.title"></strong><p data-i18n="preview.empty.helper"></p></div>
         <div id="sswb-preview-scroll" class="sswb-scroll sswb-preview-scroll" hidden><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
@@ -83,51 +94,50 @@ const WORKBENCH_MARKUP = `
         </nav>
       </section>
 
-      <section class="sswb-panel sswb-section" aria-labelledby="sswb-columns-title">
-        <details id="sswb-columns-details">
-          <summary class="sswb-section-header">
-            <span class="sswb-section-toggle" aria-hidden="true"></span>
-            <h2 id="sswb-columns-title" data-i18n="columns.title"></h2>
-            <span id="sswb-columns-summary" class="sswb-section-summary"></span>
-            <span id="sswb-sample-hint" class="sswb-section-hint"></span>
-          </summary>
-          <div class="sswb-section-body">
-            <div class="sswb-scroll"><table class="sswb-mapping"><thead><tr><th data-i18n="columns.header.column"></th><th data-i18n="columns.header.schemaType"></th><th data-i18n="columns.header.strategy"></th><th data-i18n="columns.header.mappingStatus"></th><th data-i18n="columns.header.rules"></th></tr></thead><tbody id="sswb-columns"></tbody></table></div>
-            <div id="sswb-rule-state" class="sswb-rule-slot" role="status"></div>
-          </div>
-        </details>
-      </section>
-
-      <section class="sswb-panel sswb-section" aria-labelledby="sswb-constraints-title">
-        <details id="sswb-constraints-details">
-          <summary class="sswb-section-header">
-            <span class="sswb-section-toggle" aria-hidden="true"></span>
-            <h2 id="sswb-constraints-title" data-i18n="constraints.title"></h2>
-            <span id="sswb-constraints-summary" class="sswb-section-summary"></span>
-          </summary>
-          <div class="sswb-section-body">
-            <div class="sswb-heading"><p class="sswb-caption" data-i18n="constraints.caption"></p><button class="sswb-button" type="button" data-constraint-add data-i18n="constraints.add"></button></div>
-            <div class="sswb-scroll"><table class="sswb-constraints"><thead><tr><th data-i18n="constraints.header.kind"></th><th data-i18n="constraints.header.columns"></th><th data-i18n="constraints.header.plan"></th><th></th></tr></thead><tbody id="sswb-constraints-body"></tbody></table></div>
-            <div id="sswb-constraint-state" class="sswb-rule-slot" role="status"></div>
-          </div>
-        </details>
-      </section>
-
-      <section class="sswb-panel sswb-section" aria-labelledby="sswb-diagnostics-title">
-        <details id="sswb-diagnostics-details">
-          <summary class="sswb-section-header">
-            <span class="sswb-section-toggle" aria-hidden="true"></span>
-            <h2 id="sswb-diagnostics-title" data-i18n="diagnostics.title"></h2>
-            <span id="sswb-diagnostics-summary" class="sswb-section-summary"></span>
-          </summary>
-          <div class="sswb-section-body">
-            <p class="sswb-caption" data-i18n="diagnostics.caption"></p>
-            <div id="sswb-diagnostics" class="sswb-diagnostics"></div>
-          </div>
-        </details>
-      </section>
       </div>
     </main>
+  </div>
+  <div id="sswb-advanced-modal" class="sswb-modal" hidden>
+    <section class="sswb-advanced-dialog" role="dialog" aria-modal="true" aria-labelledby="sswb-advanced-title" tabindex="-1">
+      <header class="sswb-advanced-dialog-header">
+        <h2 id="sswb-advanced-title" data-i18n="advanced.title"></h2>
+        <button class="sswb-icon-button" type="button" data-advanced-close data-i18n-aria-label="advanced.close" data-i18n-title="advanced.close"><span aria-hidden="true">×</span></button>
+      </header>
+      <nav class="sswb-advanced-tabs" role="tablist" data-i18n-aria-label="advanced.tabs.label">
+        <button id="sswb-advanced-tab-columns" class="sswb-advanced-tab" type="button" role="tab" aria-controls="sswb-advanced-panel-columns" aria-selected="true" tabindex="0" data-advanced-tab="columns" data-i18n="advanced.tab.columns"></button>
+        <button id="sswb-advanced-tab-constraints" class="sswb-advanced-tab" type="button" role="tab" aria-controls="sswb-advanced-panel-constraints" aria-selected="false" tabindex="-1" data-advanced-tab="constraints" data-i18n="advanced.tab.constraints"></button>
+        <button id="sswb-advanced-tab-diagnostics" class="sswb-advanced-tab" type="button" role="tab" aria-controls="sswb-advanced-panel-diagnostics" aria-selected="false" tabindex="-1" data-advanced-tab="diagnostics" data-i18n="advanced.tab.diagnostics"></button>
+      </nav>
+      <div class="sswb-advanced-content">
+        <section id="sswb-advanced-panel-columns" class="sswb-advanced-panel" role="tabpanel" aria-labelledby="sswb-advanced-tab-columns">
+          <div class="sswb-advanced-toolbar">
+            <div><h3 data-i18n="columns.title"></h3><p id="sswb-sample-hint" class="sswb-caption"></p></div>
+            <label class="sswb-column-search"><span data-i18n="advanced.search.label"></span><input id="sswb-column-search-input" type="search" data-i18n-placeholder="advanced.search.placeholder"></label>
+          </div>
+          <p id="sswb-column-search-empty" class="sswb-caption sswb-search-empty" data-i18n="advanced.search.empty" hidden></p>
+          <div class="sswb-scroll"><table class="sswb-mapping"><thead><tr><th data-i18n="columns.header.column"></th><th data-i18n="columns.header.schemaType"></th><th data-i18n="columns.header.strategy"></th><th data-i18n="columns.header.mappingStatus"></th><th data-i18n="columns.header.rules"></th></tr></thead><tbody id="sswb-columns"></tbody></table></div>
+          <div id="sswb-rule-state" class="sswb-rule-slot" role="status"></div>
+        </section>
+        <section id="sswb-advanced-panel-constraints" class="sswb-advanced-panel" role="tabpanel" aria-labelledby="sswb-advanced-tab-constraints" hidden>
+          <div class="sswb-heading"><div><h3 data-i18n="constraints.title"></h3><p class="sswb-caption" data-i18n="constraints.caption"></p></div><button class="sswb-button" type="button" data-constraint-add data-i18n="constraints.add"></button></div>
+          <div class="sswb-scroll"><table class="sswb-constraints"><thead><tr><th data-i18n="constraints.header.kind"></th><th data-i18n="constraints.header.columns"></th><th data-i18n="constraints.header.plan"></th><th data-i18n="constraints.header.actions"></th></tr></thead><tbody id="sswb-constraints-body"></tbody></table></div>
+          <div id="sswb-constraint-state" class="sswb-rule-slot" role="status"></div>
+        </section>
+        <section id="sswb-advanced-panel-diagnostics" class="sswb-advanced-panel" role="tabpanel" aria-labelledby="sswb-advanced-tab-diagnostics" hidden>
+          <h3 data-i18n="diagnostics.title"></h3>
+          <p class="sswb-caption" data-i18n="diagnostics.caption"></p>
+          <div id="sswb-diagnostics" class="sswb-diagnostics"></div>
+        </section>
+      </div>
+      <div id="sswb-advanced-confirm" class="sswb-advanced-confirm" role="alertdialog" aria-labelledby="sswb-advanced-confirm-title" hidden>
+        <div><strong id="sswb-advanced-confirm-title" data-i18n="advanced.confirm.title"></strong><p data-i18n="advanced.confirm.message"></p></div>
+        <div><button class="sswb-button" type="button" data-advanced-discard data-i18n="advanced.confirm.discard"></button><button class="sswb-button" type="button" data-advanced-continue data-i18n="advanced.confirm.continue"></button></div>
+      </div>
+      <footer class="sswb-advanced-dialog-footer">
+        <p id="sswb-advanced-status" role="status" aria-live="polite"></p>
+        <div><button class="sswb-button" type="button" data-advanced-cancel data-i18n="advanced.cancel"></button><button class="sswb-button sswb-primary" type="button" data-advanced-save data-i18n="advanced.save"></button></div>
+      </footer>
+    </section>
   </div>
   <div id="sswb-sql-modal" class="sswb-modal" hidden>
     <section class="sswb-sql-dialog" role="dialog" aria-modal="true" aria-labelledby="sswb-sql-modal-title" aria-describedby="sswb-sql-modal-meta">
@@ -178,6 +188,11 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   const enumEditorStates = new Map();
   let enumContextKey = null;
   let enumDraftGateActive = false;
+  let settingsDraft = null;
+  let activeAdvancedTab = "columns";
+  let advancedSaving = false;
+  let advancedValidationDiagnostics = null;
+  let advancedSaveErrorKey = null;
   const sqlDialog = createModalDialogController({
     overlay: element("sswb-sql-modal"),
     dialog: element("sswb-sql-modal").querySelector(".sswb-sql-dialog"),
@@ -192,8 +207,28 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       renderSqlPreviewModal(controller.getViewModel(), localeStore.getTranslator());
     },
   });
+  const advancedDialog = createModalDialogController({
+    overlay: element("sswb-advanced-modal"),
+    dialog: element("sswb-advanced-modal").querySelector(".sswb-advanced-dialog"),
+    background: root.querySelector(".sswb"),
+    initialFocus: () => element("sswb-advanced-modal").querySelector("[data-advanced-close]"),
+    onRequestClose: () => requestAdvancedClose(),
+    onClose: () => {
+      const hadPendingEnumDraft = enumDraftPending();
+      settingsDraft = null;
+      enumEditorStates.clear();
+      enumDraftGateActive = false;
+      advancedSaving = false;
+      advancedValidationDiagnostics = null;
+      advancedSaveErrorKey = null;
+      element("sswb-advanced-confirm").hidden = true;
+      if (hadPendingEnumDraft) render(controller.getViewModel());
+    },
+  });
   const unsubscribeContext = host.onContext((context) => {
-    // A new table context invalidates the dataset and all page-local editor drafts.
+    // A table switch discards the old table's in-memory draft before loading the new table.
+    if (advancedDialog.isOpen && settingsDraft
+      && tableContextKey(context) !== settingsDraft.contextKey) advancedDialog.close();
     exportSaveState = null;
     previewPage = 0;
     const nextKey = enumContextIdentity(context);
@@ -203,11 +238,10 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     }
     void controller.setContext(context);
   });
-  // Disclosure is page-session state only: it starts collapsed on every open,
-  // survives re-renders, and never touches browser storage.
-  const sectionState = { initialized: false, blockingCount: 0 };
   root.addEventListener("change", onControlsChange);
+  root.addEventListener("input", onInput);
   root.addEventListener("input", onEnumInput);
+  root.addEventListener("keydown", onKeyDown);
   root.addEventListener("keydown", onEnumKeydown);
   root.addEventListener("paste", onEnumPaste);
   root.addEventListener("click", onClick);
@@ -226,6 +260,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     for (const node of root.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
     for (const node of root.querySelectorAll("[data-i18n-title]")) node.title = t(node.dataset.i18nTitle);
     for (const node of root.querySelectorAll("[data-i18n-aria-label]")) node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
+    for (const node of root.querySelectorAll("[data-i18n-placeholder]")) node.placeholder = t(node.dataset.i18nPlaceholder);
     document.documentElement.lang = t.locale;
     renderUiLocaleOptions();
   }
@@ -243,16 +278,21 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     select.value = localeStore.getLocale();
   }
 
+  function enumBaseValues(column) {
+    const rule = settingsDraft?.rules[column.column] ?? column.generationRule;
+    return Array.isArray(rule?.values) ? rule.values : [];
+  }
+
   function enumEditorState(column) {
     let state = enumEditorStates.get(column.column);
     if (state) return state;
-    const values = Array.isArray(column.generationRule?.values) ? column.generationRule.values : null;
+    const values = enumBaseValues(column);
     const validation = values ? validateEnumCandidates(column, values) : { ok: false, errorKey: "enumInput.invalid" };
     const canUseTags = column.schemaFamily === "varchar" && values?.every((value) => typeof value === "string") === true;
     state = {
       mode: canUseTags ? "tags" : "json",
       tagDraft: "",
-      jsonDraft: canUseTags ? null : JSON.stringify(Array.isArray(values) ? values : column.generationRule?.values ?? [], null, 2),
+      jsonDraft: canUseTags ? null : JSON.stringify(values, null, 2),
       draftValues: null,
       errorKey: validation.ok ? null : validation.errorKey,
       pasteOptions: null,
@@ -285,11 +325,15 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
 
   function enumValuesFor(column, state) {
     if (Array.isArray(state.draftValues)) return state.draftValues;
-    return Array.isArray(column.generationRule?.values) ? column.generationRule.values : [];
+    return enumBaseValues(column);
   }
 
   function enumDraftPending() {
     return [...enumEditorStates.values()].some((state) => state.pending);
+  }
+
+  function enumEditorDirty() {
+    return [...enumEditorStates.values()].some((state) => state.pending || state.tagDraft.length > 0);
   }
 
   function updateEnumEditorFeedback(target, column, state) {
@@ -352,11 +396,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       const validation = validateEnumCandidates(column, target.value.length > 0
         ? appendCandidateValues(values, [target.value]) : values);
       const draftBaseChanged = Array.isArray(state.draftValues)
-        && !candidateValuesEqual(state.draftValues, column.generationRule?.values);
+        && !candidateValuesEqual(state.draftValues, enumBaseValues(column));
       state.errorKey = validation.ok ? null : validation.errorKey;
       state.pending = draftBaseChanged || (target.value.length > 0 && !validation.ok);
       updateEnumEditorFeedback(target, column, state);
       applyEnumDraftGate();
+      renderAdvancedStatus(controller.getViewModel(), localeStore.getTranslator());
       return;
     }
     if (!target.matches("[data-enum-json]")) return;
@@ -373,35 +418,28 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       state.draftValues = parsed.values;
       const validation = validateEnumCandidates(column, parsed.values);
       state.errorKey = validation.ok ? null : validation.errorKey;
-      state.pending = !validation.ok || !candidateValuesEqual(parsed.values, column.generationRule?.values);
+      state.pending = !validation.ok || !candidateValuesEqual(parsed.values, enumBaseValues(column));
     }
     updateEnumEditorFeedback(target, column, state);
     applyEnumDraftGate();
+    renderAdvancedStatus(controller.getViewModel(), localeStore.getTranslator());
   }
 
   async function commitEnumValues(column, state, values, options = {}) {
     const validation = validateEnumCandidates(column, values);
     state.draftValues = [...values];
     state.errorKey = validation.ok ? null : validation.errorKey;
-    state.pending = !validation.ok || !candidateValuesEqual(values, column.generationRule?.values);
+    state.pending = !validation.ok;
     state.pasteOptions = null;
     state.confirmClear = false;
-    if (!validation.ok) {
+    if (!validation.ok || !settingsDraft) {
       render(controller.getViewModel());
       focusEnumTagInput(column, state, options.focusTagInput === true);
       return false;
     }
-    if (!state.pending) {
-      state.draftValues = null;
-      state.jsonDraft = null;
-      if (options.clearTagDraft) state.tagDraft = "";
-      state.errorKey = null;
-      render(controller.getViewModel());
-      focusEnumTagInput(column, state, options.focusTagInput === true);
-      return true;
-    }
-    exportSaveState = null;
-    await controller.dispatch({ type: "update-rule", column: column.column, rule: { kind: "enum", values: validation.values ?? values } });
+
+    settingsDraft.rules[column.column] = { kind: "enum", values: structuredClone(validation.values ?? values) };
+    clearAdvancedValidation();
     state.draftValues = null;
     state.jsonDraft = null;
     if (options.clearTagDraft) state.tagDraft = "";
@@ -432,7 +470,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const validation = validateEnumCandidates(column, parsed.values);
     state.draftValues = parsed.values;
     state.errorKey = validation.ok ? null : validation.errorKey;
-    state.pending = !validation.ok || !candidateValuesEqual(parsed.values, column.generationRule?.values);
+    state.pending = !validation.ok || !candidateValuesEqual(parsed.values, enumBaseValues(column));
     if (!validation.ok) {
       render(controller.getViewModel());
       return;
@@ -514,9 +552,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   function onControlsChange(event) {
     const target = event.target;
     if (target.matches("#sswb-ui-locale")) {
-      // Interface language only: this branch never dispatches a controller
-      // action, so it cannot change the generation locale, the plan or the
-      // dataset. Re-rendering keeps a finished save message localized.
+      // Interface language is presentation-only; it never changes the draft or generation settings.
       const translator = localeStore.setLocale(target.value);
       applyStaticMessages();
       controller.setTranslator(translator);
@@ -545,22 +581,27 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (target.matches("[data-rule-selector]")) {
       const column = viewColumn(target.dataset.ruleColumn, controller);
       const choice = column?.ruleChoices.find((entry) => entry.kind === target.value);
-      if (column && choice) {
-        if (choice.kind !== "enum") enumEditorStates.delete(column.column);
-        void controller.dispatch({ type: "update-rule", column: column.column, rule: choice.draft });
+      if (column && choice && settingsDraft) {
+        enumEditorStates.delete(column.column);
+        settingsDraft.rules[column.column] = structuredClone(choice.draft);
+        clearAdvancedValidation();
+        renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
       }
       return;
     }
     if (target.matches("[data-rule-field]")) {
       const column = viewColumn(target.dataset.ruleColumn, controller);
-      if (!column) return;
-      const rule = structuredClone(column.generationRule);
+      if (!column || !settingsDraft) return;
+      const rule = structuredClone(settingsDraft.rules[column.column] ?? editableRule(column.generationRule));
       rule[target.dataset.ruleField] = readRuleField(target);
-      void controller.dispatch({ type: "update-rule", column: column.column, rule });
+      settingsDraft.rules[column.column] = rule;
+      clearAdvancedValidation();
+      renderAdvancedStatus(controller.getViewModel(), localeStore.getTranslator());
       return;
     }
     if (target.matches("[data-constraint-kind], [data-constraint-column], [data-constraint-columns]")) {
-      const constraint = controller.constraints.find((entry) => entry.id === target.dataset.constraintId);
+      if (!settingsDraft) return;
+      const constraint = settingsDraft.constraints.find((entry) => entry.id === target.dataset.constraintId);
       if (!constraint) return;
       const updated = structuredClone(constraint);
       if (target.matches("[data-constraint-kind]")) {
@@ -576,15 +617,74 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       } else {
         try { updated.columns = JSON.parse(target.value); } catch { updated.columns = target.value; }
       }
-      void controller.dispatch({ type: "update-constraint", constraint: updated });
+      settingsDraft.constraints = settingsDraft.constraints.map((entry) => entry.id === updated.id ? updated : entry);
+      clearAdvancedValidation();
+      renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
+      return;
     }
   }
 
+  function onInput(event) {
+    if (event.target.matches("#sswb-column-search-input")) filterColumnRows();
+  }
+
+  function onKeyDown(event) {
+    if (!event.target.matches('[role="tab"][data-advanced-tab]')) return;
+    const tabs = [...element("sswb-advanced-modal").querySelectorAll('[role="tab"][data-advanced-tab]')];
+    const index = tabs.indexOf(event.target);
+    let next = index;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    setAdvancedTab(tabs[next].dataset.advancedTab);
+    tabs[next].focus();
+  }
+
   function onClick(event) {
-    const target = event.target.closest("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice], [data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete], [data-preview-page]");
+    if (event.target === element("sswb-advanced-modal")) {
+      advancedDialog.requestClose("backdrop");
+      return;
+    }
+    const target = event.target.closest("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice], [data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete], [data-preview-page], [data-advanced-open], [data-advanced-diagnostics], [data-advanced-close], [data-advanced-cancel], [data-advanced-save], [data-advanced-discard], [data-advanced-continue], [data-advanced-tab]");
     if (!target) return;
     if (target.matches("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice]")) {
       void onEnumEditorClick(target);
+      return;
+    }
+    if (target.matches("[data-advanced-open]")) {
+      openAdvancedSettings(target, "columns");
+      return;
+    }
+    if (target.matches("[data-advanced-diagnostics]")) {
+      openAdvancedSettings(target, "diagnostics");
+      return;
+    }
+    if (target.matches("[data-advanced-tab]")) {
+      setAdvancedTab(target.dataset.advancedTab);
+      return;
+    }
+    if (target.matches("[data-advanced-close]")) {
+      advancedDialog.requestClose("close-button");
+      return;
+    }
+    if (target.matches("[data-advanced-cancel]")) {
+      advancedDialog.requestClose("cancel-button");
+      return;
+    }
+    if (target.matches("[data-advanced-save]")) {
+      void saveAdvancedSettings();
+      return;
+    }
+    if (target.matches("[data-advanced-discard]")) {
+      advancedDialog.close();
+      return;
+    }
+    if (target.matches("[data-advanced-continue]")) {
+      element("sswb-advanced-confirm").hidden = true;
+      element("sswb-advanced-modal").querySelector("[data-advanced-close]").focus();
       return;
     }
     if (target.dataset.previewPage) {
@@ -617,11 +717,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     exportSaveState = null;
     previewPage = 0;
     if (target.matches("[data-constraint-add]")) {
-      void controller.dispatch({ type: "add-constraint", kind: "unique" });
+      addDraftConstraint(controller.getViewModel());
       return;
     }
     if (target.matches("[data-constraint-delete]")) {
-      void controller.dispatch({ type: "delete-constraint", id: target.dataset.constraintId });
+      if (!settingsDraft) return;
+      settingsDraft.constraints = settingsDraft.constraints.filter((entry) => entry.id !== target.dataset.constraintId);
+      clearAdvancedValidation();
+      renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
       return;
     }
     if (target.dataset.sswbAction === "preview") {
@@ -693,7 +796,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       state.draftValues = returnValues;
       const validation = validateEnumCandidates(column, returnValues);
       state.errorKey = validation.ok ? null : validation.errorKey;
-      state.pending = !validation.ok || !candidateValuesEqual(returnValues, column.generationRule?.values);
+      state.pending = !validation.ok || !candidateValuesEqual(returnValues, enumBaseValues(column));
       if (!validation.ok) {
         render(controller.getViewModel());
         focusEnumTagInput(column, state, true);
@@ -701,6 +804,171 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       }
       await commitEnumValues(column, state, returnValues, { focusTagInput: true });
     }
+  }
+
+  function openAdvancedSettings(trigger, tab) {
+    const viewModel = controller.getViewModel();
+    if (!viewModel.context || !controller.schema) return;
+    settingsDraft = createSettingsDraft(controller.rules, controller.constraints, tableContextKey(viewModel.context));
+    activeAdvancedTab = tab;
+    advancedSaving = false;
+    advancedValidationDiagnostics = null;
+    advancedSaveErrorKey = null;
+    element("sswb-column-search-input").value = "";
+    setAdvancedTab(tab);
+    if (advancedDialog.open(trigger)) renderAdvancedSettings(viewModel, localeStore.getTranslator());
+  }
+
+  function requestAdvancedClose() {
+    if (advancedSaving) return false;
+    if (enumEditorDirty() || (settingsDraft && settingsDraftChanged(settingsDraft))) {
+      element("sswb-advanced-confirm").hidden = false;
+      element("sswb-advanced-modal").querySelector("[data-advanced-discard]").focus();
+      return false;
+    }
+    return true;
+  }
+
+  async function saveAdvancedSettings() {
+    if (!settingsDraft || advancedSaving || enumEditorDirty()) return;
+    const submittedDraft = settingsDraft;
+    advancedSaving = true;
+    advancedValidationDiagnostics = null;
+    advancedSaveErrorKey = null;
+    exportSaveState = null;
+    previewPage = 0;
+    renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
+    const result = await controller.dispatch({
+      type: "save-settings",
+      contextKey: submittedDraft.contextKey,
+      rules: structuredClone(submittedDraft.rules),
+      constraints: structuredClone(submittedDraft.constraints),
+    });
+    if (!advancedDialog.isOpen || settingsDraft !== submittedDraft) return;
+    advancedSaving = false;
+    const saveResult = result.settingsSaveResult;
+    if (saveResult?.ok) {
+      advancedDialog.close();
+      return;
+    }
+    advancedValidationDiagnostics = saveResult?.diagnostics ?? [];
+    advancedSaveErrorKey = result.actionError ? "advanced.draft.saveFailed" : "advanced.draft.validationFailed";
+    renderAdvancedSettings(result, localeStore.getTranslator());
+  }
+
+  function clearAdvancedValidation() {
+    advancedValidationDiagnostics = null;
+    advancedSaveErrorKey = null;
+  }
+
+  function setAdvancedTab(tab) {
+    if (!["columns", "constraints", "diagnostics"].includes(tab)) return;
+    activeAdvancedTab = tab;
+    const modal = element("sswb-advanced-modal");
+    for (const button of modal.querySelectorAll("[data-advanced-tab]")) {
+      const selected = button.dataset.advancedTab === tab;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of modal.querySelectorAll("[role=tabpanel]")) {
+      panel.hidden = panel.id !== `sswb-advanced-panel-${tab}`;
+    }
+  }
+
+  function renderAdvancedSettings(viewModel, t) {
+    if (!settingsDraft) return;
+    const modal = element("sswb-advanced-modal");
+    const focusState = captureAdvancedEditorFocus();
+    setAdvancedTab(activeAdvancedTab);
+    const changed = settingsDraftChanged(settingsDraft);
+    const settingsViewModel = {
+      ...viewModel,
+      constraints: structuredClone(settingsDraft.constraints),
+      constraintPlan: changed ? null : viewModel.constraintPlan,
+      diagnostics: advancedValidationDiagnostics ?? viewModel.diagnostics,
+    };
+    const sampleState = viewModel.sampleStatus?.state
+      ?? (viewModel.sampleUsed === true ? "sampled" : "not_attempted");
+    const sampleHintKey = `columns.sampleHint.${sampleState}`;
+    element("sswb-sample-hint").textContent = t(t.has(sampleHintKey) ? sampleHintKey : "columns.sampleHint.unknown");
+    renderColumns(settingsViewModel, t);
+    renderConstraints(settingsViewModel, t);
+    renderDiagnostics(settingsViewModel, t);
+    element("sswb-rule-state").textContent = changed ? t("advanced.draft.changed") : ruleEditorStateMessage(viewModel, t);
+    element("sswb-constraint-state").textContent = changed ? t("advanced.draft.changed") : constraintEditorStateMessage(viewModel, t);
+    const editingDisabled = !controller.schema || advancedSaving || viewModel.status === "loading";
+    for (const control of modal.querySelectorAll("[data-rule-selector], [data-rule-field], [data-constraint-kind], [data-constraint-column], [data-constraint-columns], [data-constraint-add], [data-constraint-delete], [data-enum-tag-input], [data-enum-json], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-mode], [data-enum-paste-choice], #sswb-column-search-input")) {
+      control.disabled = editingDisabled;
+    }
+    renderAdvancedStatus(viewModel, t);
+    restoreAdvancedEditorFocus(focusState);
+  }
+
+  function renderAdvancedStatus(viewModel, t) {
+    const changed = (settingsDraft && settingsDraftChanged(settingsDraft)) || enumEditorDirty();
+    const status = element("sswb-advanced-status");
+    status.textContent = advancedSaving ? t("advanced.draft.saving")
+      : advancedSaveErrorKey ? t(advancedSaveErrorKey)
+        : changed ? t("advanced.draft.changed") : "";
+    if (advancedSaveErrorKey) status.dataset.state = "error";
+    else delete status.dataset.state;
+    const unavailable = !controller.schema || !viewModel.context;
+    element("sswb-advanced-modal").querySelector("[data-advanced-save]").disabled = advancedSaving || unavailable || enumEditorDirty() || viewModel.status === "loading";
+    element("sswb-advanced-modal").querySelector("[data-advanced-cancel]").disabled = advancedSaving;
+  }
+
+  function addDraftConstraint(viewModel) {
+    if (!settingsDraft || !controller.schema) return;
+    let suffix = 1;
+    while (settingsDraft.constraints.some((entry) => entry.id === `manual-${suffix}`)) suffix += 1;
+    const firstColumn = viewModel.columns[0]?.column ?? "";
+    settingsDraft.constraints.push({ id: `manual-${suffix}`, kind: "unique", column: firstColumn });
+    clearAdvancedValidation();
+    renderAdvancedSettings(viewModel, localeStore.getTranslator());
+  }
+
+  function captureAdvancedEditorFocus() {
+    const active = document.activeElement;
+    if (!active || !element("sswb-advanced-modal").contains(active)) return null;
+    for (const [selector, keys] of [
+      ["[data-rule-selector]", ["ruleColumn"]],
+      ["[data-rule-field]", ["ruleColumn", "ruleField"]],
+      ["[data-constraint-kind]", ["constraintId"]],
+      ["[data-constraint-column]", ["constraintId"]],
+      ["[data-constraint-columns]", ["constraintId"]],
+    ]) {
+      if (active.matches(selector)) return { selector, values: Object.fromEntries(keys.map((key) => [key, active.dataset[key]])) };
+    }
+    return null;
+  }
+
+  function restoreAdvancedEditorFocus(state) {
+    if (!state) return;
+    const match = [...element("sswb-advanced-modal").querySelectorAll(state.selector)].find((node) =>
+      Object.entries(state.values).every(([key, value]) => node.dataset[key] === value));
+    match?.focus();
+  }
+
+  function filterColumnRows() {
+    const query = element("sswb-column-search-input").value.trim().toLocaleLowerCase();
+    const rows = [...element("sswb-columns").querySelectorAll("tr[data-column-search]")];
+    let visible = 0;
+    for (const row of rows) {
+      const matches = !query || row.dataset.columnSearch.includes(query);
+      row.hidden = !matches;
+      if (matches) visible += 1;
+    }
+    element("sswb-column-search-empty").hidden = query === "" || visible > 0;
+  }
+
+  function tableContextKey(context) {
+    if (!context || typeof context !== "object" || Array.isArray(context)) return `invalid:${String(context)}`;
+    const normalized = { connectionId: typeof context.connectionId === "string" ? context.connectionId.trim() : "" };
+    for (const key of ["database", "schema"]) {
+      if (typeof context[key] === "string" && context[key].trim()) normalized[key] = context[key].trim();
+    }
+    normalized.table = typeof context.table === "string" ? context.table.trim() : "";
+    return JSON.stringify(normalized);
   }
 
   /**
@@ -757,6 +1025,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     element("sswb-state-message").dataset.status = pendingEnumDraft ? "dirty" : viewModel.status;
     element("sswb-state-message").hidden = !pendingEnumDraft && Boolean(viewModel.context && viewModel.plan
       && ["idle", "dirty"].includes(viewModel.status));
+    const previewIsStale = viewModel.preview.rows.length > 0 && !viewModel.lastSuccessfulParametersCurrent;
+    element("sswb-preview-stale").textContent = previewIsStale ? t("advanced.previewStale") : "";
+    element("sswb-preview-stale").hidden = !previewIsStale;
+    const diagnosticCounts = diagnosticSummaryCounts(viewModel, t);
+    const diagnosticCount = diagnosticCounts.blocking + diagnosticCounts.pending + diagnosticCounts.issues;
+    const diagnosticLink = element("sswb-diagnostics-link");
+    diagnosticLink.hidden = diagnosticCount === 0;
+    diagnosticLink.textContent = diagnosticCount > 0 ? t("actions.diagnosticsLink", { count: diagnosticCount }) : "";
     element("sswb-action-error").textContent = viewModel.actionError ? actionErrorMessage(viewModel.actionError, t) : "";
     element("sswb-action-error").hidden = !viewModel.actionError;
     const rowInput = element("sswb-rows");
@@ -771,23 +1047,13 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     previewButton.dataset.previewState = viewModel.previewAction.state.toLowerCase();
     if (viewModel.previewAction.busy) previewButton.setAttribute("aria-busy", "true");
     else previewButton.removeAttribute("aria-busy");
-    element("sswb-rule-state").textContent = ruleEditorStateMessage(viewModel, t);
-    element("sswb-constraint-state").textContent = constraintEditorStateMessage(viewModel, t);
-    renderSectionSummaries(viewModel, t);
-    const sampleState = viewModel.sampleStatus?.state
-      ?? (viewModel.sampleUsed === true ? "sampled" : "not_attempted");
-    const sampleHintKey = `columns.sampleHint.${sampleState}`;
-    element("sswb-sample-hint").textContent = t(t.has(sampleHintKey) ? sampleHintKey : "columns.sampleHint.unknown");
-    renderColumns(viewModel.columns, viewModel.sampleStatus, viewModel.status, t);
     for (const control of root.querySelector(".sswb").querySelectorAll("button, input, select, textarea")) {
       if (control.id === "sswb-ui-locale") continue;
-      if (control.matches('[data-sswb-action="preview"], [data-enum-clear], [data-enum-mode]')) continue;
       control.disabled = viewModel.status === "loading";
     }
-    renderConstraints(viewModel, t);
-    renderDiagnostics(viewModel, t);
     renderPreview(viewModel, t, pendingEnumDraft);
     renderSqlPreview(viewModel, t, pendingEnumDraft);
+    renderAdvancedSettings(viewModel, t);
     const exportBusy = exportSaveState?.status === "saving" || exportSaveState?.status === "waiting";
     const exportDisabled = pendingEnumDraft || !viewModel.export.enabled || viewModel.status === "loading" || exportBusy;
     const exportHint = pendingEnumDraft ? t("enumInput.fixFirst")
@@ -801,51 +1067,22 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     element("sswb-export-message").textContent = exportMessage ?? "";
   }
 
-  /**
-   * Collapsed headers keep the important state visible (field count,
-   * confirmation count, constraint count, diagnostic severity) without leaking
-   * Core enums. Expansion is DOM state, so a re-render never resets a user's
-   * choice; only a newly appeared blocking error forces Diagnostics open.
-   */
-  function renderSectionSummaries(viewModel, t) {
-    const summaries = sectionSummaries(viewModel, t);
-    setSectionSummary("sswb-columns-summary", summaries.columns);
-    setSectionSummary("sswb-constraints-summary", summaries.constraints);
-    setSectionSummary("sswb-diagnostics-summary", summaries.diagnostics);
-    const diagnostics = element("sswb-diagnostics-details");
-    if (!sectionState.initialized) {
-      sectionState.initialized = true;
-      const expansion = initialSectionExpansion(viewModel, t);
-      element("sswb-columns-details").open = expansion.columns;
-      element("sswb-constraints-details").open = expansion.constraints;
-      diagnostics.open = expansion.diagnostics;
-    } else if (shouldAutoExpandDiagnostics(sectionState.blockingCount, summaries.blockingCount)) {
-      diagnostics.open = true;
-    }
-    sectionState.blockingCount = summaries.blockingCount;
-  }
-
-  function setSectionSummary(id, summary) {
-    const node = element(id);
-    node.textContent = summary.text;
-    if (summary.severity === "none") delete node.dataset.severity;
-    else node.dataset.severity = summary.severity;
-  }
-
-  function renderColumns(columns, sampleStatus, status, t) {
+  function renderColumns(viewModel, t) {
     const body = element("sswb-columns");
     body.replaceChildren();
+    const columns = viewModel.columns.map((column) => draftColumnViewModel(column, t));
     if (columns.length === 0) {
       const row = document.createElement("tr");
       const cell = document.createElement("td");
       cell.colSpan = 5;
-      cell.textContent = status === "loading" ? t("columns.empty.loading") : t("columns.empty.none");
+      cell.textContent = viewModel.status === "loading" ? t("columns.empty.loading") : t("columns.empty.none");
       row.append(cell);
       body.append(row);
       return;
     }
     for (const column of columns) {
       const row = document.createElement("tr");
+      row.dataset.columnSearch = `${column.column} ${column.schemaType}`.toLocaleLowerCase();
       row.append(textCell(column.column, "sswb-column-name"));
       row.append(textCell(column.schemaType, "sswb-mono"));
       const strategy = document.createElement("td");
@@ -891,7 +1128,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
         details.append(summary, list);
         detailsCell.append(details);
       } else if (column.ruleDiagnostics.length === 0) detailsCell.append(document.createTextNode(t("columns.none")));
-      const fieldStatus = sampleStatus?.fields?.find((entry) => entry.column === column.column);
+      const fieldStatus = viewModel.sampleStatus?.fields?.find((entry) => entry.column === column.column);
       const needsSemanticConfirmation = column.ruleDiagnostics.some((entry) => entry.code === "semantic_confirmation_required");
       if (fieldStatus && (fieldStatus.state !== "skipped" || needsSemanticConfirmation)) {
         const sampleNote = document.createElement("small");
@@ -902,6 +1139,21 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       row.append(detailsCell);
       body.append(row);
     }
+    filterColumnRows();
+  }
+
+  function draftColumnViewModel(column, t) {
+    if (!settingsDraft) return column;
+    const rule = editableRule(settingsDraft.rules[column.column] ?? column.generationRule);
+    const schemaColumn = controller.schema?.columns.find((entry) => entry.name === column.column);
+    const fields = schemaColumn
+      ? getGenerationRuleEditorFields(schemaColumn, rule).map((field) => ({ ...field, label: ruleFieldLabel(field, rule.kind, t) }))
+      : column.ruleFields;
+    const selectedMapping = rule.kind === "auto" ? column.selectedMapping
+      : rule.kind === "semantic"
+        ? (t.has(`semantic.${rule.semanticType}`) ? t(`semantic.${rule.semanticType}`) : String(rule.semanticType ?? ""))
+        : (t.has(`ruleKind.${rule.kind}`) ? t(`ruleKind.${rule.kind}`) : rule.kind);
+    return { ...column, generationRule: rule, ruleFields: fields, selectedMapping };
   }
 
   function renderConstraints(viewModel, t) {
@@ -979,7 +1231,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     container.replaceChildren();
     if (viewModel.diagnostics.length === 0) {
       const empty = document.createElement("p");
-      empty.textContent = diagnosticsEmptyMessage(viewModel, t);
+      empty.textContent = ["loading", "blocked", "error"].includes(viewModel.status)
+        ? diagnosticsEmptyMessage(viewModel, t) : t("advanced.diagnostics.none");
       container.append(empty);
       return;
     }
@@ -1215,7 +1468,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const rows = pendingEnumDraft ? [] : viewModel.preview.rows;
     const hasRows = rows.length > 0;
     const hasPreparedPlan = Boolean(viewModel.plan);
-    const showEmptyState = pendingEnumDraft || Boolean(viewModel.context && hasPreparedPlan
+    const showEmptyState = pendingEnumDraft || Boolean(viewModel.context && hasPreparedPlan && !hasRows
       && ["idle", "dirty", "error"].includes(viewModel.status));
     const empty = element("sswb-preview-empty");
     empty.hidden = !showEmptyState;
@@ -1268,11 +1521,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   }
 
   return () => {
+    if (advancedDialog.isOpen) advancedDialog.close();
     if (sqlDialog.isOpen) sqlDialog.close();
     unsubscribeRender();
     unsubscribeContext();
     root.removeEventListener("change", onControlsChange);
+    root.removeEventListener("input", onInput);
     root.removeEventListener("input", onEnumInput);
+    root.removeEventListener("keydown", onKeyDown);
     root.removeEventListener("keydown", onEnumKeydown);
     root.removeEventListener("paste", onEnumPaste);
     root.removeEventListener("click", onClick);
@@ -1508,6 +1764,12 @@ function enumContextIdentity(context) {
 
 function viewColumn(name, controller) {
   return controller.getViewModel().columns.find((column) => column.column === name);
+}
+
+function editableRule(rule) {
+  const editable = structuredClone(rule ?? { kind: "auto" });
+  delete editable.identity;
+  return editable;
 }
 
 function readRuleField(input) {

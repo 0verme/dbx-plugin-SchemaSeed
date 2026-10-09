@@ -30,9 +30,14 @@ class FakeElement {
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
   querySelectorAll() { return this.focusableElements ?? []; }
+  closest(selector) {
+    if (selector === "[hidden]" && this.hiddenByAncestor) return {};
+    if (selector === '[aria-hidden="true"]' && this.ariaHiddenByAncestor) return {};
+    return null;
+  }
 }
 
-function modalFixture() {
+function modalFixture(onRequestClose = () => true) {
   const document = {
     activeElement: null,
     body: { style: { overflow: "clip" } },
@@ -62,7 +67,11 @@ function modalFixture() {
   const copy = make("copy");
   const save = make("export");
   const closeFooter = make("footer close");
-  dialog.focusableElements = [closeHeader, code, copy, save, closeFooter];
+  const hiddenTabControl = make("control in inactive tab");
+  hiddenTabControl.hiddenByAncestor = true;
+  const inactiveTab = make("inactive tab button");
+  inactiveTab.setAttribute("tabindex", "-1");
+  dialog.focusableElements = [closeHeader, code, copy, save, closeFooter, hiddenTabControl, inactiveTab];
   document.activeElement = trigger;
   let closed = 0;
   const controller = createModalDialogController({
@@ -71,9 +80,10 @@ function modalFixture() {
     background,
     initialFocus: code,
     document,
+    onRequestClose,
     onClose: () => { closed += 1; },
   });
-  return { document, overlay, background, dialog, trigger, closeHeader, code, copy, save, closeFooter, controller, get closed() { return closed; } };
+  return { document, overlay, background, dialog, trigger, closeHeader, code, copy, save, closeFooter, hiddenTabControl, inactiveTab, controller, get closed() { return closed; } };
 }
 
 describe("SQL preview Modal keyboard and focus behavior", () => {
@@ -108,6 +118,34 @@ describe("SQL preview Modal keyboard and focus behavior", () => {
     assert.equal(controller.close(), true);
   });
 
+  it("allows a dirty-dialog close request to be rejected until its owner confirms discard", () => {
+    let canClose = false;
+    const reasons = [];
+    const fixture = modalFixture((reason) => {
+      reasons.push(reason);
+      return canClose;
+    });
+    fixture.controller.open(fixture.trigger);
+
+    assert.equal(fixture.controller.requestClose("backdrop"), false);
+    assert.equal(fixture.controller.isOpen, true, "a denied request leaves the dialog and its draft intact");
+    assert.deepEqual(reasons, ["backdrop"]);
+
+    let prevented = false;
+    fixture.document.dispatch("keydown", {
+      key: "Escape",
+      preventDefault() { prevented = true; },
+      stopPropagation() {},
+    });
+    assert.equal(prevented, true);
+    assert.equal(fixture.controller.isOpen, true, "Escape is subject to the same confirmation gate");
+    assert.deepEqual(reasons, ["backdrop", "escape"]);
+
+    canClose = true;
+    assert.equal(fixture.controller.requestClose("discard-confirmed"), true);
+    assert.equal(fixture.controller.isOpen, false);
+  });
+
   it("closes on Escape and wraps Tab focus in both directions", () => {
     const fixture = modalFixture();
     const { controller, document, trigger, closeHeader, code, closeFooter, overlay } = fixture;
@@ -123,6 +161,12 @@ describe("SQL preview Modal keyboard and focus behavior", () => {
     document.dispatch("keydown", { key: "Tab", shiftKey: false, preventDefault() { prevented = true; } });
     assert.equal(prevented, true);
     assert.equal(document.activeElement, closeHeader, "Tab wraps to the first control");
+
+    document.activeElement = closeFooter;
+    prevented = false;
+    document.dispatch("keydown", { key: "Tab", shiftKey: false, preventDefault() { prevented = true; } });
+    assert.equal(prevented, true, "hidden panel controls and tabindex=-1 tabs are not in the dialog tab order");
+    assert.equal(document.activeElement, closeHeader);
 
     document.activeElement = fixture.background;
     prevented = false;
@@ -205,7 +249,7 @@ describe("SQL preview Modal markup and layout contract", () => {
     const markup = /const WORKBENCH_MARKUP = `([\s\S]*?)`;/u.exec(source)?.[1] ?? "";
     assert.match(markup, /data-sswb-preview-sql/u, "the existing top-level preview entry remains");
     assert.match(markup, /id="sswb-sql-modal"[^>]*hidden/u);
-    assert.equal((markup.match(/role="dialog"/gu) ?? []).length, 1, "only one SQL Modal is rendered");
+    assert.equal((markup.match(/class="sswb-sql-dialog" role="dialog"/gu) ?? []).length, 1, "the SQL preview retains its existing Modal implementation");
     for (const action of ["close", "copy", "export"]) assert.match(markup, new RegExp(`data-sswb-sql-modal-${action}`));
     assert.match(markup, /data-sswb-export="sql"/u, "the existing top-level SQL export remains");
     assert.doesNotMatch(markup, /sswb-sql-details|sswb-sql-content/u);
@@ -215,5 +259,6 @@ describe("SQL preview Modal markup and layout contract", () => {
     assert.match(css, /\.sswb-sql-dialog\s*\{[^}]*max-height:\s*min\(80vh,/u);
     assert.match(css, /\.sswb-sql-code-scroll\s*\{[^}]*overflow:\s*auto/u, "SQL scrolls inside the Modal");
     assert.match(css, /\.sswb-sql-code-scroll code\s*\{[^}]*width:\s*max-content/u, "long SQL lines can scroll horizontally");
+    assert.match(css, /\.sswb-advanced-dialog\s*\{[^}]*width:\s*min\(1180px,/u, "advanced settings has enough responsive width for rule editing");
   });
 });
