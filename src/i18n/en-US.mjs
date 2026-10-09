@@ -53,7 +53,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "columns.title": "Columns and generation strategy",
   "columns.summary": "{count} fields",
   "columns.summaryPending": "{count} fields · {pending} to confirm",
-  "columns.sampleHint.pending": "Sampling status will appear after you click Generate; opening a table does not read real samples.",
+  "columns.sampleHint.pending": "Sampling status will appear after you click Generate Preview or Generate New Data; opening a table does not read real samples.",
   "columns.sampleHint.not_attempted": "No real-data sampling was performed; recognition uses schema metadata and column names.",
   "columns.sampleHint.unavailable": "This DBX host does not provide data-read capability; no real data was queried.",
   "columns.sampleHint.permission_denied": "DBX did not authorize this read; no real samples were used.",

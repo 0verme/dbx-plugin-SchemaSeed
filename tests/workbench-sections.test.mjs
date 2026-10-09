@@ -269,10 +269,10 @@ describe("Workbench markup disclosure contract", () => {
 
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    assert.match(zh("columns.sampleHint.pending"), /打开表时不会读取真实样本/u);
+    assert.match(zh("columns.sampleHint.pending"), /点击“生成预览”或“换一批数据”后/u);
     assert.match(zh("columns.sampleHint.sampled"), /部分字段已分析/u);
     assert.match(zh("columns.sampleHint.permission_denied"), /未授权/u);
-    assert.match(en("columns.sampleHint.pending"), /opening a table does not read real samples/u);
+    assert.match(en("columns.sampleHint.pending"), /after you click Generate Preview or Generate New Data/u);
     assert.match(en("columns.sampleHint.sampled"), /some fields/u);
     assert.match(en("columns.sampleHint.permission_denied"), /did not authorize/u);
     assert.match(zh("columns.sampleFieldStatus.namePatternUsed", { matchedCount: 4, sampleCount: 4 }), /格式无法区分实名、昵称/u);
