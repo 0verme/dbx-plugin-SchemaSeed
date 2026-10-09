@@ -80,15 +80,78 @@ export function interpretColumnType(column) {
   }
   if (/^(boolean|bool)$/.test(base)) return { kind: "boolean", parameters: {} };
   if (/^date$/.test(base)) return { kind: "date", parameters: {} };
-  const timestampType = base.match(/^(timestamp|datetime|timestamptz)(?:\s*\(\s*\d+\s*\))?(?:\s+(with|without) time zone)?$/);
+  const timestampType = base.match(/^(timestamp|datetime|timestamptz)(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?(?:\s+(with|without) time zone)?$/);
   if (timestampType) {
     const [, name, zoneQualifier] = timestampType;
+    if (zoneQualifier && name !== "timestamp") return null;
     return {
       kind: "timestamp",
       parameters: { timezoneAware: name === "timestamptz" || zoneQualifier === "with" },
     };
   }
   return null;
+}
+
+const MAX_DECLARED_TEMPORAL_PRECISION = 6;
+
+/**
+ * Resolve database-level temporal precision without changing the original
+ * SchemaFact. Structured precision wins (including zero), followed by an
+ * explicitly supported temporal type declaration, then an independently
+ * authorized system-metadata result. Sample observations are deliberately
+ * not accepted here.
+ *
+ * @param {import("./schema-model.mjs").ColumnSchema} column
+ * @param {{ state?: string, value?: unknown, source?: string, provenance?: string } | undefined} systemMetadata
+ * @returns {{ state: "known", value: number, source: string, provenance: string } | { state: "unknown", reason: string }}
+ */
+export function resolveTemporalPrecision(column, systemMetadata) {
+  if (column?.precision?.state === "known") {
+    return {
+      state: "known",
+      value: column.precision.value,
+      source: "structured",
+      provenance: column.precision.provenance ?? "structured precision SchemaFact",
+    };
+  }
+
+  const declared = parseDeclaredTemporalPrecision(column);
+  if (declared) return declared;
+
+  if (systemMetadata?.state === "known" && systemMetadata.source === "system_metadata"
+    && Number.isSafeInteger(systemMetadata.value)
+    && systemMetadata.value >= 0 && systemMetadata.value <= MAX_DECLARED_TEMPORAL_PRECISION
+    && typeof systemMetadata.provenance === "string") {
+    return {
+      state: "known",
+      value: systemMetadata.value,
+      source: "system_metadata",
+      provenance: systemMetadata.provenance,
+    };
+  }
+
+  return {
+    state: "unknown",
+    reason: "No valid structured precision, supported explicit temporal declaration, or authorized system-metadata precision is available",
+  };
+}
+
+/** @param {import("./schema-model.mjs").ColumnSchema} column */
+export function parseDeclaredTemporalPrecision(column) {
+  if (column?.dataType?.state !== "known" || typeof column.dataType.value !== "string") return null;
+  const declared = column.dataType.value.trim().toLowerCase().replace(/\s+/g, " ");
+  const match = declared.match(/^(timestamp|datetime|timestamptz)\s*\(\s*(\d+)\s*\)(?:\s+(with|without)\s+time\s+zone)?$/);
+  if (!match) return null;
+
+  if (match[3] && match[1] !== "timestamp") return null;
+  const value = Number(match[2]);
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_DECLARED_TEMPORAL_PRECISION) return null;
+  return {
+    state: "known",
+    value,
+    source: "declared_type",
+    provenance: `Declared temporal type precision: ${declared}`,
+  };
 }
 
 /**

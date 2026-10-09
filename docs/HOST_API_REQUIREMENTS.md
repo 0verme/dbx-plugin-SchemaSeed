@@ -164,7 +164,7 @@ interface ColumnMetadata {
 
 ### SQLite
 
-- DBX Host API 1.3 返回窄化的 column metadata；optional numeric fields 仍可能省略或为 `null`，`fieldCapabilities` 提供 upstream provenance，不能从 declared type string 自行推断数值。
+- DBX Host API 1.3 返回窄化的 column metadata；optional numeric fields 仍可能省略或为 `null`，`fieldCapabilities` 提供 upstream provenance。Provider 不会把类型文本写回 structured SchemaFact；Issue #82 的 GenerationPlan 可将符合严格语法的显式 temporal precision 独立记录为 `declared_type`，SQLite 无括号的宽松时间声明仍保持 unknown。
 - SQLite 不提供与 PostgreSQL 相同的 server database/schema 语义；这些 context 维度可能 legitimately not applicable 或 unavailable。
 - PR #28 已在 DBX v0.6.21 Windows Desktop 的 SQLite smoke 中验证实际 metadata response 与 provenance。
 
@@ -188,6 +188,18 @@ SchemaSeed 至少需要区分以下五类 consumer 语义。这里将实际 Host
 - Host API 1.3 已定义 optional values 与 `fieldCapabilities`。Probe 保留 DTO 的 omitted/null；#30 adapter 映射 `supported + value → known`、`supported + null → absent`、`supported + omitted → unavailable`、`unknown → unknown`、`unsupported → unsupported`，并在 domain fact 上保留 capability provenance。`unknown` 下的显式非空值仍保留为 known，同时记录 unknown provenance；不会凭 omission 推断 `not_applicable`。
 - Host 调用失败仍以 Promise rejection 暴露，没有独立结构化 error-code enum；#30 将其转换为带 actionable diagnostic 的 provider error，不返回空 schema 或 fixture。
 - Required fields (`connectionId`、`table`、column `name` / `dataType` / `nullable`) 如果无法提供，必须进入可识别的 invalid/unavailable/failure 语义，不能静默使用 display label、默认值或推断值。
+
+## Issue #82 — temporal precision priority and provenance
+
+时间精度补全不改变 DBX `getTableMetadata()` 原始响应，也不改写原始 `column.precision` SchemaFact。GenerationPlan 单独保存 declaration resolution 和最终生成 precision/source；优先级如下：
+
+1. **P1 structured Host precision**：合法结构化值最高优先级，`0` 合法；即使与 `dataType` 中声明文本冲突也不覆盖。非法结构化值按既有校验报错，不借其它来源掩盖。
+2. **P2 explicit temporal declaration**：只解析 `timestamp(p)`（可带 `with/without time zone`）、`datetime(p)`、`timestamptz(p)`；仅接受 `0 <= p <= 6` 的单一整数 typmod，且不将时区后缀套用于不兼容类型。不会把 NUMERIC/DECIMAL precision、字符串长度、多段 typmod、时区文本或其他类型参数混为时间精度。派生 provenance 是 `declared_type`，不是 DBX 结构化字段；无括号类型不推断为 0 或 3。该值是声明文本证据，不声称每种数据库都强制执行它。
+3. **P3 authorized system metadata**：仅在 P1/P2 unknown 时，使用公开 Host API 1.4 `queryData()`。当前公开请求只有 `sql`，未定义 bind-parameter 字段；resolver 先用有界 `SELECT 1` 读取 query result 的公开 `dbType`，只对确认的 MySQL 使用严格校验的 ASCII scope/name 值查询单一当前表的 `information_schema.COLUMNS`。查询每列只保留 `DATA_TYPE`、`COLUMN_TYPE`、`DATETIME_PRECISION` 与列名；`maxRows <= 8`、`LIMIT 8`、`timeoutMs <= 3000`，一次 dialect discovery 加一次 metadata SELECT。无安全 scope、未知/非 MySQL 方言、权限拒绝、catalog 不可见、超时或异常结果均回退为 unknown。此路径仍完全受 `host.data:read`、`dataApi` 和 DBX 每插件/连接 consent 控制。
+4. **P4 sample observation**：合法样本的小数位只作为格式/生成辅助，不能成为声明精度；敏感 temporal profile 仍不保留真实时间值。
+5. **P5 fallback**：无法确认时保留 `timestamp_precision_unknown`，记录 `schema_seed_fallback` 实际使用的 3 位精度，不宣称数据库保证，并允许其他安全字段继续生成。
+
+DBX 公开契约证据：`queryData()` 返回 `{ dbType, columns, rows, ... }` 且请求只有一个只读 SQL statement；Host 使用共享只读风险分类器、开放连接和逐插件/连接授权。该公开实现没有声明参数绑定机制，也没有列出 `information_schema` 的专门拒绝规则；数据库/catalog 权限和 runtime 行为仍可能拒绝查询。源码与合成 Host fixture 足以验证调用边界及 fallback，但没有替代真实 DBX Host / MySQL 验收。
 
 ## Future Capabilities
 
@@ -247,7 +259,7 @@ TableContext
 
 - 复用 DBX 已有 connection/session、schema core 和 driver path，不把 Tauri command、HTTP schema route、Object Browser state 或 private frontend module 作为插件 API。
 - response 通过 `fieldCapabilities` 与 omitted/null 表达 optional-field provenance；call/session failures 以 Promise rejection 返回。#30 将上述状态保留在 SchemaSeed facts 与 provider diagnostic 中，不伪造数字、布尔值或空文本。
-- 插件不得建立自己的 PostgreSQL、MySQL 或 SQLite connection，也不得执行 `information_schema`、`pg_catalog`、`PRAGMA` 等 workaround。
+- 插件不得建立自己的 PostgreSQL、MySQL 或 SQLite connection。一般业务采样 Probe 不得变成任意 SQL 工具；Issue #82 的 temporal resolver 是独立的、只读、目标列范围受限的 MySQL system-metadata path，并且仅经授权的公开 `queryData()` 执行。
 - 正式 permission、capability、request/response 和版本策略见 [Phase 0 report](PHASE0_FEASIBILITY_REPORT.md#host-api-13-contract)。
 
 ### #30 adapter mapping status
@@ -271,7 +283,7 @@ Host/API failure                                → typed provider error + block
 - Generator、Faker、Semantic Inference、SchemaModel、Constraint Engine、Relation Planner。
 - SQL / CSV / JSON exporter、正式/fixture-driven Workbench、Direct Insert、Rust sidecar 或 AI；Phase 0 Probe UI 仅作为历史运行验收证据记录，不再作为生产入口。
 - 数据库 direct connection、第二套连接体系、credential 读取。
-- `information_schema`、`pg_catalog`、`PRAGMA`、`SHOW CREATE TABLE` 等数据库 introspection workaround。
+- 通用或未知方言的 `information_schema`、`pg_catalog`、`PRAGMA`、`SHOW CREATE TABLE` 查询器；Issue #82 仅实现上述有严格 dialect/scope/row/time cap 的 MySQL temporal metadata 例外。
 - DBX private store、private frontend module、未公开 Tauri/HTTP API 或 Object Browser state。
 - 在本契约中定义 production adapter / Host-backed Generation、future constraint consumption，以及正式/fixture Workbench packaging；production adapter / Core contract path 由 #30 实现，正式 Workbench/package 实现由 #31 交付（参见 [Phase 1E](PHASE1E_PRODUCTION_WORKBENCH.md)）。
 

@@ -2,7 +2,7 @@ import { generateRows } from "./generation-engine.mjs";
 import { buildGenerationPlan } from "./generation-plan.mjs";
 
 const MAX_PREVIEW_ROWS = 100;
-const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings", "sampleEvidence"]);
+const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings", "sampleEvidence", "temporalPrecisionMetadata"]);
 const SAMPLE_EVIDENCE_FIELDS = new Set([
   "column", "kind", "sampleCount", "matchedCount", "distinctCount", "min", "max", "zeroCount", "candidates", "suffixes",
   "temporalKind", "nullCount", "nullRate", "observedCount", "observedMin", "observedMax", "precision", "timezoneAware",
@@ -47,6 +47,9 @@ function validateParams(params) {
     throw new TypeError("validateOnly must be a boolean when provided");
   }
   if (params.options.sampleEvidence !== undefined) validateSampleEvidencePayload(params.options.sampleEvidence);
+  if (params.options.temporalPrecisionMetadata !== undefined) {
+    validateTemporalPrecisionMetadata(params.options.temporalPrecisionMetadata, params.schema);
+  }
   if (params.options.locale !== "zh-CN" && params.options.locale !== "en") {
     throw new RangeError("Workbench preview locale must be zh-CN or en");
   }
@@ -67,6 +70,18 @@ function validateSampleEvidencePayload(value) {
 }
 
 /** @param {unknown} value */
+function validateTemporalPrecisionMetadata(value, schema) {
+  if (!isRecord(value)) throw new TypeError("temporalPrecisionMetadata must be a per-column metadata object");
+  const columns = new Set(schema.columns.map((column) => column.name));
+  for (const [name, entry] of Object.entries(value)) {
+    if (!columns.has(name) || !isRecord(entry) || entry.state !== "known"
+      || entry.source !== "system_metadata" || !Number.isSafeInteger(entry.value)
+      || entry.value < 0 || entry.value > 6 || typeof entry.provenance !== "string") {
+      throw new TypeError("temporalPrecisionMetadata may contain only validated system metadata precision facts for current columns");
+    }
+  }
+}
+
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

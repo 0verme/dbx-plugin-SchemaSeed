@@ -1,5 +1,5 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
-import { interpretColumnType, interpretStringCapacity } from "../schema/schema-interpreter.mjs";
+import { interpretColumnType, interpretStringCapacity, resolveTemporalPrecision } from "../schema/schema-interpreter.mjs";
 import { formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import {
   createGenerationRuleDraft,
@@ -47,6 +47,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * @property {{ kind: string, [key: string]: unknown }} generationRule
  * @property {string | null} personGroupIdentity
  * @property {number} nullProbability
+ * @property {{ declaration: Record<string, unknown>, generation: { value: number, source: string } } | undefined} temporalPrecision
  * @typedef {Object} GenerationPlan
  * @property {import("../schema/schema-model.mjs").TableSchema} table
  * @property {ColumnGenerationPlan[]} columns
@@ -65,7 +66,7 @@ const MAX_DECIMAL_PRECISION = 1_000;
  * Convert normalized schema facts, semantic mappings, groups, and user rules
  * into an inspectable plan. No provider, UI, Faker, or database is called.
  * @param {unknown} tableInput
- * @param {{ seed?: string | number, rowCount?: number, rules?: Record<string, unknown>, constraints?: unknown, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, sampleEvidence?: unknown, locale?: string, mode?: string }} options
+ * @param {{ seed?: string | number, rowCount?: number, rules?: Record<string, unknown>, constraints?: unknown, overrides?: Record<string, unknown>, semanticOverrides?: Record<string, string>, semanticMappings?: Record<string, string>, personGroups?: Array<{ id: string, columns: string[] }>, sampleEvidence?: unknown, temporalPrecisionMetadata?: Record<string, unknown>, locale?: string, mode?: string }} options
  * @returns {GenerationPlan}
  */
 export function buildGenerationPlan(tableInput, options = {}) {
@@ -102,11 +103,13 @@ export function buildGenerationPlan(tableInput, options = {}) {
     }
     seenColumns.add(column.name);
     const inference = inferSemanticType(column, locale, sampleEvidence.get(column.name) ?? null);
+    const temporalPrecision = resolveTemporalPrecision(column, metadataForColumn(options.temporalPrecisionMetadata, column.name));
     const hasRule = rawRules.has(column.name);
     const rawRule = rawRules.get(column.name);
     const validation = validateGenerationRule(column, hasRule ? rawRule : { kind: "auto" }, {
       tableIdentity: schema.tableIdentity,
       rowCount,
+      temporalPrecision,
     });
     diagnostics.push(...validation.diagnostics);
     let generationRule = validation.rule ?? {
@@ -151,7 +154,7 @@ export function buildGenerationPlan(tableInput, options = {}) {
       locale,
       diagnostics,
     );
-    const planned = planColumn(schema.tableIdentity, column, overrides.get(column.name), semanticMapping, inference, sampleEvidence.get(column.name) ?? null, locale, mode, diagnostics, generationRule, displayGenerationRule, validation.diagnostics, rowCount);
+    const planned = planColumn(schema.tableIdentity, column, overrides.get(column.name), semanticMapping, inference, sampleEvidence.get(column.name) ?? null, locale, mode, diagnostics, generationRule, displayGenerationRule, validation.diagnostics, rowCount, temporalPrecision);
     const ruleKinds = getCompatibleGenerationRules(column);
     if (!ruleKinds.includes(displayGenerationRule.kind)) ruleKinds.push(displayGenerationRule.kind);
     return {
@@ -189,6 +192,10 @@ export function buildGenerationPlan(tableInput, options = {}) {
     semanticMapping: Object.freeze({ ...column.semanticMapping, evidence: Object.freeze([...column.semanticMapping.evidence]) }),
     inference: Object.freeze({ ...column.inference, evidence: Object.freeze([...column.inference.evidence]), candidates: Object.freeze([...column.inference.candidates]) }),
     rule: Object.freeze({ ...column.rule, parameters: Object.freeze({ ...column.rule.parameters }) }),
+    ...(column.temporalPrecision ? { temporalPrecision: Object.freeze({
+      declaration: Object.freeze({ ...column.temporalPrecision.declaration }),
+      generation: Object.freeze({ ...column.temporalPrecision.generation }),
+    }) } : {}),
     generationRule: Object.freeze({ ...column.generationRule, ...(Array.isArray(column.generationRule.values) ? { values: Object.freeze([...column.generationRule.values]) } : {}) }),
     ruleChoices: Object.freeze(column.ruleChoices.map((choice) => Object.freeze({
       ...choice,
@@ -375,7 +382,7 @@ function mappingFromInference(inference, status, selected) {
   };
 }
 
-function planColumn(tableIdentity, column, override, semanticMapping, inference, sampleProfile, locale, mode, diagnostics, generationRule, displayGenerationRule, ruleDiagnostics, rowCount) {
+function planColumn(tableIdentity, column, override, semanticMapping, inference, sampleProfile, locale, mode, diagnostics, generationRule, displayGenerationRule, ruleDiagnostics, rowCount, temporalPrecisionResolution) {
   const interpreted = interpretColumnType(column);
   const schemaRuleId = `schema:${column.name}`;
   if (!interpreted && isUuidType(column)
@@ -424,10 +431,14 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
     baseParameters.defaultMin = Math.max(0, baseParameters.schemaMin);
     baseParameters.defaultMax = Math.max(baseParameters.defaultMin, Math.min(baseParameters.schemaMax, 1_000_000));
   }
-  validateTypeMetadata(tableIdentity, column, ruleKind, baseParameters, schemaRuleId, diagnostics, generationRule.kind, ruleDiagnostics);
-  let nullProbability = defaultNullProbability(column, tableIdentity, diagnostics);
   const hasExplicitRule = generationRule.kind !== "auto" || override !== undefined;
   const sampleInferenceEligible = !hasExplicitRule && !semanticMapping.selected && inference.status === "unknown";
+  const temporalSample = sampleInferenceEligible ? sampleProfile : null;
+  const temporalGeneration = ruleKind === "timestamp"
+    ? temporalPrecisionForPlan(temporalPrecisionResolution, baseParameters, temporalSample)
+    : null;
+  validateTypeMetadata(tableIdentity, column, ruleKind, baseParameters, schemaRuleId, diagnostics, generationRule.kind, ruleDiagnostics, temporalPrecisionResolution);
+  let nullProbability = defaultNullProbability(column, tableIdentity, diagnostics);
   const temporalProfileMatches = ["temporal_range", "temporal_shape"].includes(sampleProfile?.kind)
     && sampleProfile.temporalKind === ruleKind
     && (ruleKind !== "timestamp" || sampleProfile.timezoneAware === (baseParameters.timezoneAware === true));
@@ -441,7 +452,7 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
   if (generationRule.kind === "invalid") {
     rule = { identity: generationRule.identity, kind: "unsupported", source: "explicit_user_rule", parameters: {} };
   } else if (generationRule.kind !== "auto") {
-    const explicit = resolveExplicitGenerationRule(generationRule, column, ruleKind, baseParameters, semanticMapping, locale, mode, diagnostics);
+    const explicit = resolveExplicitGenerationRule(generationRule, column, ruleKind, baseParameters, semanticMapping, locale, mode, temporalPrecisionResolution);
     if (explicit) {
       rule = explicit.rule;
       nullProbability = explicit.nullProbability;
@@ -450,7 +461,7 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
       }
     }
   } else if (override !== undefined) {
-    const valid = validateOverride(tableIdentity, column, ruleKind, override, baseParameters, nullProbability, diagnostics);
+    const valid = validateOverride(tableIdentity, column, ruleKind, override, baseParameters, nullProbability, diagnostics, temporalPrecisionResolution);
     if (valid) {
       nullProbability = valid.nullProbability;
       rule = { identity: valid.identity, kind: ruleKind, source: "explicit_user_rule", parameters: { ...valid.parameters, nullProbability } };
@@ -472,7 +483,7 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
     nullProbability = 0;
   }
   if (!rule && sampleInferenceEligible) {
-    rule = sampleGenerationRule(column, interpreted, sampleProfile, rowCount);
+    rule = sampleGenerationRule(column, interpreted, sampleProfile, rowCount, temporalPrecisionResolution);
   }
   if (!rule) {
     rule = {
@@ -487,7 +498,7 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
       ...rule,
       parameters: {
         ...rule.parameters,
-        precision: temporalPrecisionForPlan(column, baseParameters, sampleInferenceEligible ? sampleProfile : null),
+        precision: temporalGeneration.value,
       },
     };
   }
@@ -504,10 +515,16 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
     generationRule: displayGenerationRule,
     nullProbability,
     personGroupIdentity: null,
+    ...(temporalGeneration ? { temporalPrecision: {
+      declaration: temporalPrecisionResolution.state === "known"
+        ? { state: "known", value: temporalPrecisionResolution.value, source: temporalPrecisionResolution.source, provenance: temporalPrecisionResolution.provenance }
+        : { state: "unknown", reason: temporalPrecisionResolution.reason },
+      generation: temporalGeneration,
+    } } : {}),
   };
 }
 
-function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
+function sampleGenerationRule(column, interpreted, sampleProfile, rowCount, temporalPrecisionResolution) {
   if (!sampleProfile || (sampleProfile.kind !== "filename_pattern" && isSensitiveSampleColumn(column.name)
     && sampleProfile.kind !== "temporal_shape")
     || (sampleProfile.kind === "temporal_shape" && !isSensitiveSampleColumn(column.name))) return null;
@@ -516,7 +533,7 @@ function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
     && schemaKind === sampleProfile.temporalKind) {
     const timezoneAware = interpreted.parameters.timezoneAware === true;
     if (sampleProfile.timezoneAware !== timezoneAware) return null;
-    const precision = column.precision.state === "known" ? column.precision.value : sampleProfile.precision;
+    const precision = temporalPrecisionResolution.state === "known" ? temporalPrecisionResolution.value : sampleProfile.precision;
     if (!Number.isSafeInteger(precision) || precision < 0 || precision > 9) return null;
     return {
       identity: "sample:temporal-shape:v1",
@@ -542,8 +559,8 @@ function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
     if (sampleProfile.timezoneAware !== timezoneAware) return null;
     const minimum = parseTimestamp(sampleProfile.observedMin, { timezoneAware });
     const maximum = parseTimestamp(sampleProfile.observedMax, { timezoneAware });
-    const schemaPrecisionKnown = column.precision.state === "known";
-    const schemaPrecision = column.precision.value;
+    const schemaPrecisionKnown = temporalPrecisionResolution.state === "known";
+    const schemaPrecision = temporalPrecisionResolution.value;
     const samplePrecision = sampleProfile.precision;
     if (!minimum || !maximum
       || (schemaPrecisionKnown && (!Number.isSafeInteger(schemaPrecision) || schemaPrecision < 0 || schemaPrecision > 9))
@@ -633,14 +650,16 @@ function sampleGenerationRule(column, interpreted, sampleProfile, rowCount) {
   return null;
 }
 
-function temporalPrecisionForPlan(column, parameters, sampleProfile) {
-  if (column.precision.state === "known") return column.precision.value;
+function temporalPrecisionForPlan(resolution, parameters, sampleProfile) {
+  if (resolution.state === "known") return { value: resolution.value, source: resolution.source };
   if (["temporal_range", "temporal_shape"].includes(sampleProfile?.kind)
     && sampleProfile.temporalKind === "timestamp"
     && sampleProfile.timezoneAware === (parameters.timezoneAware === true)
     && Number.isSafeInteger(sampleProfile.precision)
-    && sampleProfile.precision >= 0 && sampleProfile.precision <= 9) return sampleProfile.precision;
-  return 3;
+    && sampleProfile.precision >= 0 && sampleProfile.precision <= 9) {
+    return { value: sampleProfile.precision, source: "sample_observation" };
+  }
+  return { value: 3, source: "schema_seed_fallback" };
 }
 
 function ceilTimestampToPrecision(nanoseconds, quantum) {
@@ -661,7 +680,7 @@ function nearestTimestampToPrecision(nanoseconds, quantum) {
   return nanoseconds - floor <= ceil - nanoseconds ? floor : ceil;
 }
 
-function resolveExplicitGenerationRule(selection, column, schemaKind, baseParameters, semanticMapping, locale, mode) {
+function resolveExplicitGenerationRule(selection, column, schemaKind, baseParameters, semanticMapping, locale, mode, temporalPrecisionResolution) {
   const source = "explicit_user_rule";
   const explicit = (kind, parameters = {}) => ({
     rule: { identity: selection.identity, kind, source, parameters },
@@ -704,7 +723,7 @@ function resolveExplicitGenerationRule(selection, column, schemaKind, baseParame
       return explicit("timestamp_range", {
         start: selection.start,
         end: selection.end,
-        precision: column.precision.state === "known" ? column.precision.value : 3,
+        precision: temporalPrecisionResolution.state === "known" ? temporalPrecisionResolution.value : 3,
         timezoneAware: baseParameters.timezoneAware === true,
       });
     case "uuid":
@@ -734,7 +753,7 @@ function resolveExplicitGenerationRule(selection, column, schemaKind, baseParame
   }
 }
 
-function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdentity, diagnostics, selectedRuleKind, ruleDiagnostics) {
+function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdentity, diagnostics, selectedRuleKind, ruleDiagnostics, temporalPrecisionResolution) {
   if (kind === "varchar") {
     const capacity = interpretStringCapacity(column);
     if (capacity?.model === "bounded") {
@@ -799,8 +818,8 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
     }
   }
 
-  if (kind === "timestamp" && column.precision.state === "known"
-    && (!Number.isSafeInteger(column.precision.value) || column.precision.value < 0 || column.precision.value > 9)) {
+  if (kind === "timestamp" && temporalPrecisionResolution.state === "known"
+    && (!Number.isSafeInteger(temporalPrecisionResolution.value) || temporalPrecisionResolution.value < 0 || temporalPrecisionResolution.value > 9)) {
     if (ruleDiagnostics.some((entry) => entry.code === "invalid_precision_scale")) return;
     diagnostics.push(makeDiagnostic({
       severity: "error",
@@ -808,16 +827,16 @@ function validateTypeMetadata(tableIdentity, column, kind, parameters, ruleIdent
       table: tableIdentity,
       column: column.name,
       rule: ruleIdentity,
-      reason: `timestamp fractional precision must be an integer from 0 through 9; received ${String(column.precision.value)}`,
+      reason: `timestamp fractional precision must be an integer from 0 through 9; received ${String(temporalPrecisionResolution.value)}`,
     }));
-  } else if (kind === "timestamp" && column.precision.state !== "known" && selectedRuleKind !== "timestamp_range") {
+  } else if (kind === "timestamp" && temporalPrecisionResolution.state !== "known" && selectedRuleKind !== "timestamp_range") {
     diagnostics.push(makeDiagnostic({
       severity: "warning",
       code: "timestamp_precision_unknown",
       table: tableIdentity,
       column: column.name,
       rule: ruleIdentity,
-      reason: `Timestamp precision is ${column.precision.state}; preview uses a matching legal sample precision when available, otherwise millisecond precision, and does not claim a database precision guarantee`,
+      reason: `Declared timestamp precision is unknown; preview uses a matching legal sample precision when available, otherwise a 3-digit fallback, without claiming a database precision guarantee`,
       blocking: false,
     }));
   }
@@ -852,7 +871,7 @@ function defaultNullProbability(column, tableIdentity, diagnostics) {
   return 0;
 }
 
-function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParameters, defaultNull, diagnostics) {
+function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParameters, defaultNull, diagnostics, temporalPrecisionResolution) {
   const ruleLabel = isRecord(raw) && typeof raw.id === "string" && raw.id.trim() ? raw.id : "explicit-user-rule";
   const reject = (reason) => {
     diagnostics.push(makeDiagnostic({
@@ -919,7 +938,7 @@ function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParame
     parameters.maxLength = maxLength;
   } else if ((schemaKind === "date" || schemaKind === "timestamp") && (raw.min !== undefined || raw.max !== undefined)) {
     const timezoneAware = schemaKind === "timestamp" && fallbackParameters.timezoneAware === true;
-    const timestampPrecision = column.precision.state === "known" ? column.precision.value : 3;
+    const timestampPrecision = temporalPrecisionResolution.state === "known" ? temporalPrecisionResolution.value : 3;
     if (schemaKind === "timestamp" && (!Number.isSafeInteger(timestampPrecision) || timestampPrecision < 0 || timestampPrecision > 9)) {
       return reject(`timestamp fractional precision must be an integer from 0 through 9; received ${String(timestampPrecision)}`);
     }
@@ -1082,6 +1101,10 @@ function normalizeOverrides(input, tableIdentity, diagnostics) {
     return new Map();
   }
   return new Map(Object.entries(input));
+}
+
+function metadataForColumn(metadata, columnName) {
+  return isRecord(metadata) && Object.hasOwn(metadata, columnName) ? metadata[columnName] : undefined;
 }
 
 function isRecord(value) {

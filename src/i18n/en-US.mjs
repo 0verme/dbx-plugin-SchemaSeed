@@ -35,7 +35,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "empty.menuAction": "Generate test data",
   "empty.helper": "SchemaSeed reads the selected table structure automatically; you do not need to enter a database or table name.",
   "dataAccess.title": "Data access",
-  "dataAccess.description": "Only after DBX Host obtains your consent for this plugin and connection may SchemaSeed sample up to 8 rows from candidate columns through the read-only Host Data API. Sensitive raw values are processed briefly in memory only to derive safe features, then discarded; they are never displayed or persisted.",
+  "dataAccess.description": "Only after DBX Host obtains your consent for this plugin and connection may SchemaSeed read target MySQL timestamp precision metadata when schema facts are insufficient, and sample up to 8 rows from eligible columns through the read-only Host Data API. Sensitive raw values are processed briefly in memory only to derive safe features, then discarded; they are never displayed or persisted.",
 
   // Dataset controls.
   "controls.rows": "Rows",
@@ -433,9 +433,9 @@ export const EN_US_DIAGNOSTICS = Object.freeze({
     action: "Provide precision and scale, or re-read metadata once DBX returns complete column facts.",
   },
   timestamp_precision_unknown: {
-    title: "The timestamp precision is unknown",
-    description: "DBX did not return fractional-second precision for column {column}, so SchemaSeed cannot prove that generated timestamps fit the column.",
-    action: "Re-read metadata once DBX returns precision for this column, or choose a generation rule that does not depend on it.",
+    title: "The declared timestamp precision is unknown",
+    description: "Neither structured metadata, an explicit supported temporal type declaration, nor authorized system metadata confirmed fractional-second precision for column {column}. The preview may use a sample-derived format or a 3-digit fallback; neither claims the database declaration.",
+    action: "Use a DBX Host that exposes the relevant metadata, or keep the warning and verify the target column before applying generated data.",
   },
   invalid_length: {
     title: "The configured length is not a usable value",

@@ -73,6 +73,10 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
     mappingValue: isSelectedSemantic || rejectedMapping ? semanticMapping.semanticType : "auto",
     canConfirm: !isSelectedSemantic && inference.status === "candidate" && SEMANTIC_TYPES.includes(inference.semanticType),
     rule: { kind: column.rule.kind, source: column.rule.source, sourceLabel: ruleSourceLabel(column.rule.source, t) },
+    temporalPrecision: column.temporalPrecision ? {
+      declaration: { ...column.temporalPrecision.declaration },
+      generation: { ...column.temporalPrecision.generation },
+    } : null,
     generationRule: { ...generationRule, ...(Array.isArray(generationRule.values) ? { values: [...generationRule.values] } : {}) },
     ruleChoices: column.ruleChoices?.map((choice) => ({
       kind: choice.kind,
