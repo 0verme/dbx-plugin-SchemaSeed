@@ -274,6 +274,27 @@ describe("Workbench markup disclosure contract", () => {
     assert.doesNotMatch(stylesheet.match(/\.sswb-section-hint[^}]*}/)?.[0] ?? "", /warning|#[89a-f][0-9a-f]{5}/i);
   });
 
+  it("keeps narrow-screen context and parameters compact without removing controls", async () => {
+    const source = await readFile(UI_SOURCE, "utf8");
+    const markup = markupOf(source);
+    const contextPanel = /<section class="sswb-panel" aria-labelledby="sswb-context-title">([\s\S]*?)<\/section>/u.exec(markup)?.[1] ?? "";
+    assert.ok(contextPanel.length > 0, "the current table context panel is present");
+    for (const id of ["sswb-database", "sswb-schema", "sswb-table", "sswb-rows", "sswb-seed", "sswb-locale"]) {
+      assert.match(contextPanel, new RegExp(`id="${id}"`), `${id} remains available in the context/control panel`);
+    }
+    for (const action of ["generate", "regenerate-same-seed", "new-seed"]) {
+      assert.match(contextPanel, new RegExp(`data-sswb-action="${action}"`), `${action} remains available`);
+    }
+    assert.match(contextPanel, /class="sswb-button sswb-primary"[^>]*data-sswb-action="generate"/u, "Generate remains the primary action");
+    assert.match(contextPanel, /class="sswb-data-access" role="note"/u, "the data access and safety explanation stays visible");
+
+    const stylesheet = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
+    assert.match(stylesheet, /@media \(max-width: 640px\)[\s\S]*?\.sswb-context-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/u, "the three context facts stay in a compact row on narrow screens");
+    assert.match(stylesheet, /\.sswb-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.7fr\)\s+minmax\(0,\s*1\.4fr\)\s+minmax\(0,\s*\.8fr\)/u, "row count, seed and data locale share a compact parameter row");
+    assert.match(stylesheet, /\.sswb-actions\s+\[data-sswb-action="generate"\]\s*\{\s*grid-column:\s*1\s*\/\s*-1;/u, "the primary Generate action receives the full narrow-screen row");
+    assert.doesNotMatch(stylesheet, /\.sswb-preview-scroll\s*\{[^}]*\b(?:height|max-height):/u, "Preview keeps natural vertical growth instead of adding a nested vertical viewport");
+  });
+
   it("keeps disclosure state in the page session only", async () => {
     const source = await readFile(UI_SOURCE, "utf8");
     assert.match(source, /renderSectionSummaries/);
