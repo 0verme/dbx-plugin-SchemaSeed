@@ -30,9 +30,12 @@ import { paginatePreviewRows } from "../src/workbench/preview-pagination.mjs";
 import { validateGenerationRule } from "../src/generation/generation-rules.mjs";
 import {
   appendCandidateValues,
+  canEditEnumCandidatesAsTags,
   candidateValuesEqual,
   parseCandidateJson,
   parseCandidatePaste,
+  parseCandidateText,
+  parseCandidateValues,
   removeCandidateValue,
   shouldAddCandidateOnEnter,
   shouldRemoveLastCandidateOnBackspace,
@@ -288,7 +291,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (state) return state;
     const values = enumBaseValues(column);
     const validation = values ? validateEnumCandidates(column, values) : { ok: false, errorKey: "enumInput.invalid" };
-    const canUseTags = column.schemaFamily === "varchar" && values?.every((value) => typeof value === "string") === true;
+    const canUseTags = canEditEnumCandidatesAsTags(column.schemaFamily, values);
     state = {
       mode: canUseTags ? "tags" : "json",
       tagDraft: "",
@@ -313,14 +316,49 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     });
     if (validation.valid) return { ok: true, values: validation.rule.values };
     const diagnostic = validation.diagnostics[0];
-    if (diagnostic?.code === "generation_rule_incompatible") return { ok: false, errorKey: "enumInput.incompatible", diagnostic };
+    if (diagnostic?.code === "generation_rule_incompatible") {
+      const reason = diagnostic.reason ?? "";
+      if (column.schemaFamily === "integer" && /safe integer|exceeds schema bounds/iu.test(reason)) {
+        const isBigint = /\b(bigint|int8|bigserial)\b/iu.test(column.schemaType);
+        return { ok: false, errorKey: isBigint ? "enumInput.bigintRange" : "enumInput.integerRange", diagnostic };
+      }
+      if (column.schemaFamily === "decimal" && /Decimal value (?:must be|exceeds)/u.test(reason)) {
+        return { ok: false, errorKey: "enumInput.decimalPrecision", diagnostic };
+      }
+      if (column.schemaFamily === "date" && /Date value must be/iu.test(reason)) {
+        return { ok: false, errorKey: "enumInput.invalidDate", diagnostic };
+      }
+      if (column.schemaFamily === "timestamp" && /Timestamp value must be/iu.test(reason)) {
+        return { ok: false, errorKey: "enumInput.invalidTimestamp", diagnostic };
+      }
+      if (column.schemaFamily === "timestamp" && /fractional digits exceed schema precision/iu.test(reason)) {
+        return { ok: false, errorKey: "enumInput.timestampPrecision", diagnostic };
+      }
+      return { ok: false, errorKey: "enumInput.incompatible", diagnostic };
+    }
     if (diagnostic?.code === "generation_rule_invalid" && /at least one candidate/iu.test(diagnostic.reason)) {
       return { ok: false, errorKey: "enumInput.empty", diagnostic };
     }
     if (diagnostic?.code === "generation_rule_invalid" && /must be unique/iu.test(diagnostic.reason)) {
       return { ok: false, errorKey: "enumInput.duplicate", diagnostic };
     }
+    if (diagnostic?.code === "decimal_precision_scale_unknown") {
+      return { ok: false, errorKey: "enumInput.decimalMetadataUnknown", diagnostic };
+    }
     return { ok: false, errorKey: "enumInput.invalid", diagnostic };
+  }
+
+  function enumCandidateInputError(column, reason) {
+    switch (reason) {
+      case "invalid-integer": return "enumInput.invalidInteger";
+      case "integer-range":
+        return /\b(bigint|int8|bigserial)\b/iu.test(column.schemaType)
+          ? "enumInput.bigintRange" : "enumInput.integerRange";
+      case "invalid-decimal": return "enumInput.invalidDecimal";
+      case "decimal-json-number": return "enumInput.decimalJsonNumber";
+      case "invalid-boolean": return "enumInput.invalidBoolean";
+      default: return "enumInput.incompatible";
+    }
   }
 
   function enumValuesFor(column, state) {
@@ -393,12 +431,23 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       const state = enumEditorState(column);
       state.tagDraft = target.value;
       const values = enumValuesFor(column, state);
-      const validation = validateEnumCandidates(column, target.value.length > 0
-        ? appendCandidateValues(values, [target.value]) : values);
+      let errorKey = null;
+      if (target.value.length > 0) {
+        const candidate = parseCandidateText(column.schemaFamily, target.value);
+        if (!candidate.ok) {
+          errorKey = enumCandidateInputError(column, candidate.reason);
+        } else {
+          const validation = validateEnumCandidates(column, appendCandidateValues(values, [candidate.value]));
+          if (!validation.ok) errorKey = validation.errorKey;
+        }
+      } else {
+        const validation = validateEnumCandidates(column, values);
+        if (!validation.ok) errorKey = validation.errorKey;
+      }
       const draftBaseChanged = Array.isArray(state.draftValues)
         && !candidateValuesEqual(state.draftValues, enumBaseValues(column));
-      state.errorKey = validation.ok ? null : validation.errorKey;
-      state.pending = draftBaseChanged || (target.value.length > 0 && !validation.ok);
+      state.errorKey = errorKey;
+      state.pending = draftBaseChanged || (target.value.length > 0 && errorKey !== null);
       updateEnumEditorFeedback(target, column, state);
       applyEnumDraftGate();
       renderAdvancedStatus(controller.getViewModel(), localeStore.getTranslator());
@@ -409,10 +458,11 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (!column) return;
     const state = enumEditorState(column);
     state.jsonDraft = target.value;
-    const parsed = parseCandidateJson(target.value);
+    const parsed = parseCandidateJson(target.value, column.schemaFamily);
     if (!parsed.ok) {
       state.draftValues = null;
-      state.errorKey = "enumInput.invalidJson";
+      state.errorKey = parsed.reason === "invalid-json" || parsed.reason === "not-array"
+        ? "enumInput.invalidJson" : enumCandidateInputError(column, parsed.reason);
       state.pending = true;
     } else {
       state.draftValues = parsed.values;
@@ -460,9 +510,10 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
 
   async function commitEnumJsonDraft(column, state) {
     if (typeof state.jsonDraft !== "string") return;
-    const parsed = parseCandidateJson(state.jsonDraft);
+    const parsed = parseCandidateJson(state.jsonDraft, column.schemaFamily);
     if (!parsed.ok) {
-      state.errorKey = "enumInput.invalidJson";
+      state.errorKey = parsed.reason === "invalid-json" || parsed.reason === "not-array"
+        ? "enumInput.invalidJson" : enumCandidateInputError(column, parsed.reason);
       state.pending = true;
       render(controller.getViewModel());
       return;
@@ -489,16 +540,24 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       event.preventDefault();
       if (target.value.length === 0) return;
       state.tagDraft = target.value;
-      const candidate = target.value;
-      if (values.includes(candidate)) {
+      const parsed = parseCandidateText(column.schemaFamily, target.value);
+      if (!parsed.ok) {
+        state.errorKey = enumCandidateInputError(column, parsed.reason);
+        state.pending = true;
+        updateEnumEditorFeedback(target, column, state);
+        applyEnumDraftGate();
+        renderAdvancedStatus(controller.getViewModel(), localeStore.getTranslator());
+        return;
+      }
+      if (values.includes(parsed.value)) {
         state.errorKey = "enumInput.duplicate";
         state.pending = true;
         updateEnumEditorFeedback(target, column, state);
         applyEnumDraftGate();
+        renderAdvancedStatus(controller.getViewModel(), localeStore.getTranslator());
         return;
       }
-      state.tagDraft = "";
-      void commitEnumValues(column, state, appendCandidateValues(values, [candidate]), { focusTagInput: true, clearTagDraft: true });
+      void commitEnumValues(column, state, appendCandidateValues(values, [parsed.value]), { focusTagInput: true, clearTagDraft: true });
       return;
     }
     if (shouldRemoveLastCandidateOnBackspace({
@@ -524,11 +583,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const end = Number.isSafeInteger(target.selectionEnd) ? target.selectionEnd : start;
     const pasteText = `${target.value.slice(0, start)}${text}${target.value.slice(end)}`;
     const state = enumEditorState(column);
-    const parsed = parseCandidatePaste(pasteText);
+    const parsed = parseCandidatePaste(pasteText, column.schemaFamily);
     if (parsed.kind === "empty") return;
     if (parsed.kind === "error") {
       state.tagDraft = pasteText;
-      state.errorKey = "enumInput.invalidJson";
+      state.errorKey = parsed.reason === "json-array" || parsed.reason === "invalid-json"
+        ? "enumInput.invalidJson" : enumCandidateInputError(column, parsed.reason);
       state.pending = true;
       state.pasteOptions = null;
       render(controller.getViewModel());
@@ -544,9 +604,18 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       focusEnumTagInput(column, state, true);
       return;
     }
+    const parsedValues = parseCandidateValues(column.schemaFamily, parsed.values);
+    if (!parsedValues.ok) {
+      state.tagDraft = pasteText;
+      state.errorKey = enumCandidateInputError(column, parsedValues.reason);
+      state.pending = true;
+      state.pasteOptions = null;
+      render(controller.getViewModel());
+      focusEnumTagInput(column, state, true);
+      return;
+    }
     const values = enumValuesFor(column, state);
-    state.tagDraft = "";
-    void commitEnumValues(column, state, appendCandidateValues(values, parsed.values), { focusTagInput: true, clearTagDraft: true });
+    void commitEnumValues(column, state, appendCandidateValues(values, parsedValues.values), { focusTagInput: true, clearTagDraft: true });
   }
 
   function onControlsChange(event) {
@@ -770,8 +839,16 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       const additions = choice === "split" ? state.pasteOptions?.splitValues
         : choice === "single" ? [state.pasteOptions?.singleValue] : null;
       if (!Array.isArray(additions)) return;
-      state.tagDraft = "";
-      void commitEnumValues(column, state, appendCandidateValues(values, additions), { focusTagInput: true, clearTagDraft: true });
+      const parsedValues = parseCandidateValues(column.schemaFamily, additions);
+      if (!parsedValues.ok) {
+        state.errorKey = enumCandidateInputError(column, parsedValues.reason);
+        state.pending = true;
+        state.pasteOptions = null;
+        render(controller.getViewModel());
+        focusEnumTagInput(column, state, true);
+        return;
+      }
+      void commitEnumValues(column, state, appendCandidateValues(values, parsedValues.values), { focusTagInput: true, clearTagDraft: true });
       return;
     }
     if (target.dataset.enumMode === "json") {
@@ -784,9 +861,9 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       return;
     }
     if (target.dataset.enumMode === "tags") {
-      const parsed = typeof state.jsonDraft === "string" ? parseCandidateJson(state.jsonDraft) : null;
+      const parsed = typeof state.jsonDraft === "string" ? parseCandidateJson(state.jsonDraft, column.schemaFamily) : null;
       const returnValues = parsed ? (parsed.ok ? parsed.values : null) : values;
-      if (!Array.isArray(returnValues) || !returnValues.every((value) => typeof value === "string")) {
+      if (!canEditEnumCandidatesAsTags(column.schemaFamily, returnValues)) {
         state.errorKey = "enumInput.returnNotLossless";
         state.pending = true;
         render(controller.getViewModel());
@@ -1698,10 +1775,10 @@ function renderEnumEditor(column, state, t) {
       clear.dataset.ruleColumn = column.column;
       footer.append(clear);
     }
-  } else if (column.schemaFamily === "varchar") {
-    const parsed = typeof state.jsonDraft === "string" ? parseCandidateJson(state.jsonDraft) : null;
+  } else if (canEditEnumCandidatesAsTags(column.schemaFamily, [])) {
+    const parsed = typeof state.jsonDraft === "string" ? parseCandidateJson(state.jsonDraft, column.schemaFamily) : null;
     const returnValues = parsed ? (parsed.ok ? parsed.values : null) : values;
-    const canReturn = Array.isArray(returnValues) && returnValues.every((value) => typeof value === "string");
+    const canReturn = canEditEnumCandidatesAsTags(column.schemaFamily, returnValues);
     const back = document.createElement("button");
     back.type = "button";
     back.className = "sswb-enum-link";
