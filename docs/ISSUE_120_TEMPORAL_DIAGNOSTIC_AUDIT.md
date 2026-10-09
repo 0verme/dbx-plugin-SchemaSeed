@@ -1,6 +1,6 @@
 # Issue #120 — 时间精度数据流与诊断呈现审计
 
-审计基线：`origin/main` `651fb5af8dc75c4b7f3724475ace133665d12361`。本记录区分已由源码/Fixture 证明的消费契约与尚缺少真实 Host 响应的运行事实；不把截图当作 DBX Host Bug 证据。
+审计基线：`origin/main` `651fb5af8dc75c4b7f3724475ace133665d12361`；后续已 rebase 到最新 `origin/main` `f30334da7bcf60fae0cf53486aa7693594510844`（#119）。本记录区分已由源码/Fixture 证明的消费契约与尚缺少真实 Host 响应的运行事实；不把截图当作 DBX Host Bug 证据。
 
 ## 历史修复边界
 
@@ -73,7 +73,7 @@ PostgreSQL 查询由 DBX `queryData()` 执行并受现有 `host.data:read` permi
 
 P0 最终定向验证覆盖 `temporal-precision`、DBX Host Provider、Workbench Controller、sample probe、诊断本地化、高级设置、Preview/Export 保存七个测试文件：**131/131 passed，0 failed**。P1 最终诊断/i18n/Workbench/temporal 定向测试覆盖七个测试文件：**121/121 passed，0 failed**；12-field/compact-list 补充回归 **36/36 passed**。
 
-P2 全量验证：`npm test` **386/386 passed，0 failed（48 suites）**；`npm run lint` 通过（103 files）；`npm run typecheck` 的 manifest/Core/Host/package-input checks 通过；`npm run build` 构建 universal `.dbxp` review candidate（unsigned），`npm run smoke:package-identity` 确认 manifest/archive/artifact 一致。`dist/` 被 ignore，tracked dist files 为 0；最终 `git diff --check` 通过。首次全量测试因为该 Worktree 的 ignored `node_modules` 缺少锁定的 `@dbx-app/plugin-cli@0.1.9` 未通过；为本 Worktree 执行 `npm ci --include=dev` 后 package-contract **5/5** 和全量测试全部通过，无 tracked dependency/artifact 变更。
+P2 全量验证（rebase 到 `f30334d`/`#119` 后复跑）：`npm test` **396/396 passed，0 failed（48 suites）**；`npm run lint` 通过（103 files）；`npm run typecheck` 的 manifest/Core/Host/package-input checks 通过；`npm run build` 构建 universal `.dbxp` review candidate（unsigned），`npm run smoke:package-identity` 确认 manifest/archive/artifact 一致。rebase 后 11 个相关测试文件定向回归 **173/173 passed**。`dist/` 被 ignore，tracked dist files 为 0，工作区干净；最终 `git diff --check` 通过。首次全量测试因为该 Worktree 的 ignored `node_modules` 缺少锁定的 `@dbx-app/plugin-cli@0.1.9` 未通过；为本 Worktree 执行 `npm ci --include=dev` 后 package-contract **5/5** 和全量测试全部通过，无 tracked dependency/artifact 变更。
 
 ## 结论与未完成的真实证据
 
