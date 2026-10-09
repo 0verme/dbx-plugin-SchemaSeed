@@ -49,11 +49,13 @@ DBX getTableMetadata()
 - 一次成功生成创建当前不可变 `ExportDataset`；`prepareExport()` 的 CSV、JSON、INSERT SQL 均序列化该 snapshot，不重新调用生成器。INSERT SQL 是文本导出，不会执行数据库写入。
 - 高级设置页签/诊断渲染由 `ui/generation-workbench/app.mjs` 的 view-model/UI 路径完成；切换标签、展开 HTML `<details>` 和 `setTranslator()` 不发起 Core generation/sample dispatch。
 
-## 已确认的诊断 UI 缺口（P1）
+## P1 诊断聚合与展示实现
 
-- `describeDiagnostics()` 当前只逐项映射原始记录；`renderDiagnostics()` 对每条记录调用一次 `renderDiagnostic()`，导致同一表内相同代码/原因/建议的时间字段分别占用完整卡片。
-- 每个卡片显示局部化标题、说明和建议；Core 原始 code/reason/rule/table/column 位于折叠详情中。DBX 表标识的 `dbx:[connectionId,...]` 可能出现在技术表行中；当前详情也未呈现结构化 precision 的可用状态/provenance 与实际 generation source。
-- 应在 UI 层按表、诊断 code、根因/建议、severity、blocking 进行严格聚合；保留逐条 Core 记录和字段明细。通过安全的用户表上下文展示表名，常规 UI 不需要显示 Connection ID。不得改变 Core 的 severity/blocking 或对 warning 进行视觉降级。
+- `describeDiagnosticGroups()` 仅对有明确 table/column 的诊断按原表标识、code、raw reason、Core severity/blocking、局部化 action 与 semantic copy 严格分组；无表/字段的全局诊断保持单条。分组保留每条原始 Core 记录、原有 rule/table/column/reason 与独立的字段说明，不改写 Core 协议。
+- 折叠卡片显示用户可读标题、字段数量、受影响字段（超过 5 项时仅摘要显示并说明其余数量）、安全 TableContext label、原因/建议和当前生成/预览/导出影响。Warning 不强制展开；blocking 状态通过有效级别和红色样式突出。Error/Warning/Info 标签与 Core 原始 severity 分开保留；catalog override 只允许非阻塞 Warning 转为 confirmation，不得更改 Core blocking、降级 Core error/unsupported/info。
+- 键盘可访问的原生 `<details>` 为每条字段保留诊断代码、severity、blocking、rule、Core reason、Schema 类型/precision fact state/provenance、解析精度 source/provenance、最终 generation precision/source 和 rule source。UI 用当前 DBX database/schema/table 上下文替代内部 `dbx:[connectionId,...]`；没有上下文时不展示 raw internal table ID；技术值通过 `textContent` 写入，不插入 JSON/HTML。字段详情不读取 sample values、observed ranges 或真实业务数据。
+- 当前 Preview/Export 能力按 view-model 状态呈现；INSERT SQL 明确是文本且不会由 SchemaSeed 执行写库。切表仍由 Controller 清除旧诊断；打开弹窗/诊断、展开 details、切标签只读 DOM/view-model；切 UI locale 仅调用 `setTranslator()` 并重绘 presentation。
+- 双语测试覆盖同因分组/非同表或原因不合并、字段计数、未知代码的 raw reason 仅在折叠详情、精度 availability/source、Connection ID 遮蔽、blocking override 不降级、Info 级别、impact 状态和 UI 无 dispatch 路径。
 
 ## 回归覆盖及本轮增补
 
@@ -69,7 +71,7 @@ DBX getTableMetadata()
 
 PostgreSQL 查询由 DBX `queryData()` 执行并受现有 `host.data:read` permission、Data API capability、connection consent 控制；没有新建 DB 连接。Fixture 仅验证 resolver 消费 SQL/result 的约定，真实 DBX PostgreSQL Runtime 仍 PENDING。
 
-P0 最终定向验证覆盖 `temporal-precision`、DBX Host Provider、Workbench Controller、sample probe、诊断本地化、高级设置、Preview/Export 保存七个测试文件：**131/131 passed，0 failed**。完整 `npm test` 和其余最终质量命令留待 P2。
+P0 最终定向验证覆盖 `temporal-precision`、DBX Host Provider、Workbench Controller、sample probe、诊断本地化、高级设置、Preview/Export 保存七个测试文件：**131/131 passed，0 failed**。P1 最终诊断/i18n/Workbench/temporal 定向测试覆盖七个测试文件：**121/121 passed，0 failed**。完整 `npm test` 和其余最终质量命令留待 P2。
 
 ## 结论与未完成的真实证据
 

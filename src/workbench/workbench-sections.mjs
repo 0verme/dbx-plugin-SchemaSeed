@@ -17,7 +17,7 @@ import { diagnosticLevel } from "../i18n/diagnostics.mjs";
  * generation state, plan or dataset, and it never exposes raw Core enums.
  */
 
-/** @typedef {"none" | "warning" | "error"} SectionSummarySeverity */
+/** @typedef {"none" | "info" | "warning" | "error"} SectionSummarySeverity */
 
 /** @type {Readonly<Record<string, boolean>>} */
 export const WORKBENCH_SECTION_DEFAULTS = Object.freeze({
@@ -40,6 +40,43 @@ export function isBlockingDiagnostic(diagnostic, t) {
 }
 
 /**
+ * Describe current plan impact without inferring it from severity. The Core
+ * `blocking` flag remains authoritative; preview/export availability comes
+ * from the current view model, and SQL export never executes a database write.
+ * @param {Record<string, unknown>} diagnostic
+ * @param {Record<string, any>} viewModel
+ * @param {import("../i18n/index.mjs").Translator} t
+ */
+export function diagnosticImpactMessage(diagnostic, viewModel, t) {
+  if (diagnostic?.blocking === true) return t("diagnostics.impact.blocking");
+  if (viewModel?.status === "blocked" || viewModel?.status === "error" || viewModel?.plan?.status === "blocked") {
+    return t("diagnostics.impact.otherBlocker");
+  }
+  if (viewModel?.export?.enabled === true && viewModel?.draftChanged !== true
+    && viewModel?.lastSuccessfulParametersCurrent !== false) {
+    return t("diagnostics.impact.available");
+  }
+  return t("diagnostics.impact.pending");
+}
+
+/**
+ * User-facing table context. DBX Connection IDs and internal tableIdentity are
+ * deliberately omitted; callers render the returned label as plain text.
+ * @param {unknown} context
+ */
+export function tableContextLabel(context) {
+  if (!context || typeof context !== "object" || Array.isArray(context)) return null;
+  const parts = [];
+  for (const field of ["database", "schema", "table"]) {
+    const value = context[field];
+    if (typeof value !== "string" || value.trim() === "") continue;
+    const segment = value.trim();
+    if (parts.at(-1) !== segment) parts.push(segment);
+  }
+  return parts.length > 0 ? parts.join(".") : null;
+}
+
+/**
  * Count the blocking diagnostics behind a view model. When the controller is
  * already blocked / failed but no diagnostic detail is available, the state
  * itself still counts as one blocking problem, so the collapsed header never
@@ -52,19 +89,20 @@ export function blockingDiagnosticCount(viewModel, t) {
 }
 
 /**
- * Split the current diagnostics into the three user-facing buckets the
- * collapsed summary shows. Core severity / blocking flags are mapped to
- * localized wording only; no enum or diagnostic code is exposed here.
+ * Split current diagnostics into localized severity / blocking buckets for
+ * the collapsed summary. Core severity / blocking flags are mapped to copy
+ * only; no enum or diagnostic code is exposed here.
  * @param {Record<string, any>} viewModel
  * @param {import("../i18n/index.mjs").Translator} t
  */
 export function diagnosticSummaryCounts(viewModel, t) {
   const diagnostics = Array.isArray(viewModel?.diagnostics) ? viewModel.diagnostics : [];
-  const counts = { blocking: 0, pending: 0, issues: 0 };
+  const counts = { blocking: 0, pending: 0, issues: 0, info: 0 };
   for (const diagnostic of diagnostics) {
     const level = diagnosticLevel(diagnostic, t);
     if (level === "blocking") counts.blocking += 1;
     else if (level === "warning" || level === "needs_confirmation") counts.pending += 1;
+    else if (level === "info") counts.info += 1;
     else counts.issues += 1;
   }
   if (diagnostics.length === 0 && (viewModel?.status === "blocked" || viewModel?.status === "error")) {
@@ -102,9 +140,8 @@ export function shouldAutoExpandDiagnostics(previousBlockingCount, blockingCount
 }
 
 /**
- * Localized one-line summary for every collapsible section. `severity` lets
- * the header reuse the existing warning / error colors; `blockingCount` is the
- * state used by the auto-expand rule.
+ * Localized one-line summary for every collapsible section. `severity` selects
+ * the info / warning / error color; `blockingCount` drives auto-expansion.
  * @param {Record<string, any>} viewModel
  * @param {import("../i18n/index.mjs").Translator} t
  */
@@ -141,9 +178,9 @@ function constraintsSummary(viewModel, t) {
   };
 }
 
-/** @param {Record<string, any>} viewModel @param {{ blocking: number, pending: number, issues: number }} counts @param {import("../i18n/index.mjs").Translator} t @returns {{ text: string, severity: SectionSummarySeverity }} */
+/** @param {Record<string, any>} viewModel @param {{ blocking: number, pending: number, issues: number, info: number }} counts @param {import("../i18n/index.mjs").Translator} t @returns {{ text: string, severity: SectionSummarySeverity }} */
 function diagnosticsSummary(viewModel, counts, t) {
-  if (counts.blocking === 0 && counts.pending === 0 && counts.issues === 0) {
+  if (counts.blocking === 0 && counts.pending === 0 && counts.issues === 0 && counts.info === 0) {
     return {
       text: viewModel?.status === "loading" ? t("diagnostics.summary.loading") : t("diagnostics.summary.none"),
       severity: "none",
@@ -153,8 +190,9 @@ function diagnosticsSummary(viewModel, counts, t) {
   if (counts.blocking > 0) parts.push(t("diagnostics.summary.errors", { count: counts.blocking }));
   if (counts.pending > 0) parts.push(t("diagnostics.summary.pending", { count: counts.pending }));
   if (counts.issues > 0) parts.push(t("diagnostics.summary.issues", { count: counts.issues }));
+  if (counts.info > 0) parts.push(t("diagnostics.summary.info", { count: counts.info }));
   return {
     text: parts.join(" · "),
-    severity: counts.blocking > 0 ? "error" : "warning",
+    severity: counts.blocking > 0 ? "error" : counts.pending > 0 || counts.issues > 0 ? "warning" : "info",
   };
 }

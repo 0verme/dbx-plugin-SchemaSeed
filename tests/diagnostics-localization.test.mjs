@@ -3,7 +3,13 @@ import { describe, it } from "node:test";
 
 import { generateRows } from "../src/generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
-import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
+import {
+  describeDiagnostic,
+  describeDiagnosticGroups,
+  describeDiagnostics,
+  diagnosticColumnTechnicalRows,
+  diagnosticTechnicalRows,
+} from "../src/i18n/diagnostics.mjs";
 import { createI18n } from "../src/i18n/index.mjs";
 import {
   constraintEditorStateMessage,
@@ -165,20 +171,99 @@ describe("diagnostics localization: human copy", () => {
     assert.match(described.action, /based on the business definition/);
   });
 
-  it("falls back safely for an unknown diagnostic code", () => {
+  it("falls back safely for an unknown diagnostic code without exposing the raw reason in primary copy", () => {
     const future = { severity: "error", code: "brand_new_future_code", table: "t", column: null, rule: null, reason: "boom", blocking: true };
     for (const t of [zh, en]) {
       const described = describeDiagnostic(future, t);
       assert.equal(described.code, "brand_new_future_code", "the unknown code is preserved, not replaced");
       assert.equal(described.blocking, true);
-      assert.match(described.description, /boom/, "the raw reason is shown instead of an invented meaning");
+      assert.doesNotMatch(described.description, /boom/, "the raw Core reason stays behind technical details");
       assert.ok(described.title.length > 0);
+      assert.equal(diagnosticTechnicalRows(described, t).at(-1)[1], "boom");
     }
     assert.match(describeDiagnostic(future, zh).title, /未分类诊断/);
     assert.match(describeDiagnostic({ reason: "no code" }, zh).title, /未分类诊断/);
     assert.equal(describeDiagnostic({}, zh).code, "unknown");
     assert.deepEqual(describeDiagnostics(null, zh), []);
     assert.equal(describeDiagnostics([future], zh).length, 1);
+  });
+
+  it("never lets a localized level override downgrade Core blocking or fabricate a blocking decision", () => {
+    const blockingConfirmation = describeDiagnostic({ ...SEMANTIC_CONFIRMATION, blocking: true }, zh);
+    assert.equal(blockingConfirmation.level, "blocking");
+    assert.equal(blockingConfirmation.levelLabel, "阻塞");
+    assert.equal(blockingConfirmation.technical.severity, "warning");
+    assert.equal(blockingConfirmation.technical.blocking, true);
+
+    const nonBlocking = describeDiagnostic({ ...SEMANTIC_CONFIRMATION, blocking: false }, zh);
+    assert.equal(nonBlocking.level, "needs_confirmation");
+    const error = describeDiagnostic({ ...SEMANTIC_CONFIRMATION, severity: "error", blocking: false }, zh);
+    assert.equal(error.level, "error", "a catalog cannot visually downgrade Core error severity");
+    const info = describeDiagnostic({ code: "future_info", severity: "info", blocking: false }, en);
+    assert.equal(info.level, "info");
+    assert.equal(info.levelLabel, "Info");
+  });
+
+  it("groups only same-table diagnostics with matching cause, action, severity and blocking", () => {
+    const timestampDiagnostic = (overrides = {}) => ({
+      severity: "warning",
+      code: "timestamp_precision_unknown",
+      table: 'dbx:["connection-secret","app","public","audit"]',
+      column: "created_at",
+      rule: "schema:created_at",
+      reason: "no authoritative precision metadata",
+      blocking: false,
+      ...overrides,
+    });
+    const grouped = describeDiagnosticGroups([
+      timestampDiagnostic(),
+      timestampDiagnostic({ column: "updated_at", rule: "schema:updated_at" }),
+      timestampDiagnostic({ table: 'dbx:["other-connection","app","public","audit"]', column: "archived_at" }),
+      timestampDiagnostic({ column: "deleted_at", reason: "catalog query was denied" }),
+      timestampDiagnostic({ column: "processed_at", severity: "error" }),
+      timestampDiagnostic({ column: "blocked_at", blocking: true }),
+    ], zh);
+
+    assert.equal(grouped.length, 5);
+    assert.equal(grouped[0].grouped, true);
+    assert.equal(grouped[0].count, 2);
+    assert.equal(grouped[0].entries.map((entry) => entry.description.location.column).join(","), "created_at,updated_at");
+    assert.match(grouped[0].title, /2 个字段/u);
+    assert.match(grouped[0].description, /数据库列声明精度/u);
+    assert.equal(grouped.slice(1).every((entry) => entry.grouped === false && entry.count === 1), true);
+    assert.equal(describeDiagnosticGroups([
+      timestampDiagnostic({ table: "", column: "a" }),
+      timestampDiagnostic({ table: "", column: "b" }),
+    ], zh).length, 2, "diagnostics without a concrete table are not merged");
+    const english = describeDiagnosticGroups([timestampDiagnostic(), timestampDiagnostic({ column: "updated_at" })], en)[0];
+    assert.match(english.title, /2 fields/u);
+    assert.match(english.description, /Generation can continue/u);
+    assert.doesNotMatch(english.description, /这些字段/u);
+  });
+
+  it("shows schema precision availability and source while allowing a safe table override", () => {
+    const column = {
+      schemaFacts: {
+        dataType: { state: "known", value: "timestamp", provenance: "DBX Host API 1.3" },
+        precision: { state: "unavailable", reason: "fieldCapabilities.precision=unknown" },
+      },
+      temporalPrecision: {
+        declaration: { state: "unknown", reason: "no metadata" },
+        generation: { value: 3, source: "schema_seed_fallback" },
+      },
+      rule: { source: "schema_type" },
+      sampleValue: "must-not-appear",
+    };
+    const metadataRows = diagnosticColumnTechnicalRows(column, en);
+    assert.ok(metadataRows.some(([label, value]) => label === "Schema precision fact / availability" && /unavailable.*fieldCapabilities/u.test(value)));
+    assert.ok(metadataRows.some(([label, value]) => label === "Generation precision / source" && value === "3 · schema_seed_fallback"));
+    assert.ok(metadataRows.some(([label, value]) => label === "Rule source" && value === "schema_type"));
+    assert.doesNotMatch(metadataRows.map((row) => row.join(" ")).join(" "), /must-not-appear|sampleValue/u);
+
+    const described = describeDiagnostic(VARCHAR_UNKNOWN, en);
+    const rows = diagnosticTechnicalRows(described, en, { table: "app.public.customer", metadataRows });
+    assert.ok(rows.some(([label, value]) => label === "Table" && value === "app.public.customer"));
+    assert.doesNotMatch(rows.map((row) => row.join(" ")).join(" "), /uuid|connection-A/u);
   });
 
   it("does not require the semantic type to be present in the rule identity", () => {

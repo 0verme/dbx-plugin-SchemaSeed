@@ -43,6 +43,7 @@
 .sswb-section-summary { flex: 0 0 auto; color: var(--sswb-muted); font-size: 12px; white-space: nowrap; }
 .sswb-section-summary[data-severity="warning"] { color: #8a5a0a; font-weight: 600; }
 .sswb-section-summary[data-severity="error"] { color: #a02b25; font-weight: 600; }
+.sswb-section-summary[data-severity="info"] { color: #24769a; font-weight: 600; }
 .sswb-section-body { padding: 0 16px 14px; }
 .sswb-section-body > .sswb-caption { margin: 0 0 10px; }
 .sswb-section-hint { flex: 0 1 100%; min-width: 0; margin-left: 0; padding-left: 13px; overflow: hidden; color: var(--sswb-muted); font-size: 11px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
@@ -137,13 +138,27 @@
 .sswb-diagnostic[data-severity="warning"] { border-left-color: #c18b24; }
 .sswb-diagnostic[data-severity="error"] { border-left-color: #c4433c; }
 .sswb-diagnostic[data-severity="unsupported"] { border-left-color: #7758a6; }
+.sswb-diagnostic[data-level="blocking"], .sswb-diagnostic[data-level="error"] { border-left-color: #c4433c; }
+.sswb-diagnostic[data-level="warning"], .sswb-diagnostic[data-level="needs_confirmation"] { border-left-color: #c18b24; }
+.sswb-diagnostic[data-level="unsupported"] { border-left-color: #7758a6; }
+.sswb-diagnostic[data-level="info"] { border-left-color: #24769a; }
 .sswb-diagnostic strong { font-size: 11px; text-transform: capitalize; }
-.sswb-diagnostic-body { grid-column: 2; display: grid; gap: 3px; }
-.sswb-diagnostic-title { margin: 0; color: #344456; font-size: 12px; font-weight: 650; }
-.sswb-diagnostic-description { margin: 0; color: #49586a; font-size: 12px; }
-.sswb-diagnostic-action { margin: 0; color: #805400; font-size: 12px; }
+.sswb-diagnostic-body { grid-column: 2; display: grid; gap: 4px; min-width: 0; }
+.sswb-diagnostic-title { margin: 0; color: #344456; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+.sswb-diagnostic-severity { margin: 0; color: #596779; font-size: 11px; }
+.sswb-diagnostic-description, .sswb-diagnostic-table, .sswb-diagnostic-fields, .sswb-diagnostic-impact { margin: 0; color: #49586a; font-size: 12px; overflow-wrap: anywhere; }
+.sswb-diagnostic-table { color: #596779; font-size: 11px; }
+.sswb-diagnostic-fields { color: #344456; font-weight: 600; }
+.sswb-diagnostic-impact { color: #3d566b; }
+.sswb-diagnostic[data-level="blocking"] .sswb-diagnostic-impact { color: #a02b25; font-weight: 650; }
+.sswb-diagnostic-action { margin: 0; color: #805400; font-size: 12px; overflow-wrap: anywhere; }
 .sswb-diagnostic-action-label { font-weight: 650; }
 .sswb-diagnostic-body details { margin-top: 3px; }
+.sswb-diagnostic-details { display: grid; gap: 8px; }
+.sswb-diagnostic-entry { display: grid; gap: 3px; padding-top: 7px; border-top: 1px solid #e2e7ec; }
+.sswb-diagnostic-entry h4 { margin: 0; color: #344456; font-size: 11px; }
+.sswb-diagnostic-entry-description { margin: 0; color: #596779; font-size: 11px; overflow-wrap: anywhere; }
+.sswb-diagnostic-entry dl { margin-top: 3px; }
 .sswb-diagnostic-body summary { color: #176b87; cursor: pointer; font-size: 11px; }
 .sswb-diagnostic-body dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; margin: 6px 0 0; padding: 7px 9px; border: 1px solid #e7ebef; border-radius: 3px; background: color-mix(in srgb, var(--sswb-panel), #64748b 3%); }
 .sswb-diagnostic-body dt { color: #596779; font-size: 11px; }

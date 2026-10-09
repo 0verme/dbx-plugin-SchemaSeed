@@ -2,7 +2,12 @@ import { createGenerationWorkbenchController } from "../src/workbench/dbx-genera
 import { isJsonDocumentValue, serializeJsonDocumentValue } from "../src/json-document.mjs";
 import { selectInitialContext } from "./context.mjs";
 import { renderWorkbenchContextVisibility } from "./visibility.mjs";
-import { describeDiagnostic, describeDiagnostics, diagnosticTechnicalRows } from "../src/i18n/diagnostics.mjs";
+import {
+  describeDiagnostic,
+  describeDiagnosticGroups,
+  diagnosticColumnTechnicalRows,
+  diagnosticTechnicalRows,
+} from "../src/i18n/diagnostics.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
 import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
 import { constraintKindOptions, constraintPlanLabel, ruleFieldLabel } from "../src/i18n/labels.mjs";
@@ -23,7 +28,11 @@ import {
   stateMessage,
   statusLabel,
 } from "../src/i18n/workbench-messages.mjs";
-import { diagnosticSummaryCounts } from "../src/workbench/workbench-sections.mjs";
+import {
+  diagnosticImpactMessage,
+  diagnosticSummaryCounts,
+  tableContextLabel,
+} from "../src/workbench/workbench-sections.mjs";
 import {
   createSettingsDraft,
   resetSettingsDraft,
@@ -1128,6 +1137,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       ...viewModel,
       constraints: structuredClone(settingsDraft.constraints),
       constraintPlan: changed ? null : viewModel.constraintPlan,
+      draftChanged: changed || enumEditorDirty(),
       diagnostics: advancedValidationDiagnostics ?? viewModel.diagnostics,
     };
     const sampleState = viewModel.sampleStatus?.state
@@ -1544,61 +1554,136 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       container.append(empty);
       return;
     }
-    for (const description of describeDiagnostics(viewModel.diagnostics, t)) {
-      container.append(renderDiagnostic(description, t));
+    for (const presentation of describeDiagnosticGroups(viewModel.diagnostics, t)) {
+      container.append(renderDiagnostic(presentation, t, viewModel));
     }
   }
 
   /**
-   * Progressive disclosure: severity + localized headline first, then the plain
-   * explanation and suggested action, with the raw Core message, codes and ids
-   * behind "technical details".
+   * Progressive disclosure keeps the localized cause, affected fields, severity
+   * and current generation impact visible. Per-field machine facts remain in a
+   * keyboard-accessible details panel; raw DBX Connection IDs are never rendered.
    */
-  function renderDiagnostic(description, t) {
+  function renderDiagnostic(presentation, t, viewModel) {
+    const firstEntry = presentation.entries[0];
+    const diagnostic = firstEntry.diagnostic;
     const item = document.createElement("article");
     item.className = "sswb-diagnostic";
-    item.dataset.severity = description.severity ?? "error";
-    item.setAttribute("aria-label", description.headline);
+    item.dataset.severity = String(diagnostic.severity ?? "error");
+    item.dataset.level = presentation.level;
+    item.dataset.blocking = String(diagnostic.blocking === true);
+    item.dataset.count = String(presentation.count);
+    item.setAttribute("aria-label", presentation.headline);
     const level = document.createElement("strong");
-    level.textContent = description.levelLabel;
+    level.textContent = presentation.levelLabel;
     const body = document.createElement("div");
     body.className = "sswb-diagnostic-body";
     const title = document.createElement("p");
     title.className = "sswb-diagnostic-title";
-    title.textContent = description.title;
+    title.textContent = presentation.title;
+    body.append(title);
+    const rawSeverity = String(diagnostic.severity ?? "");
+    const rawSeverityKey = `diagnostics.level.${rawSeverity}`;
+    const rawSeverityLabel = t.has(rawSeverityKey) ? t(rawSeverityKey) : rawSeverity;
+    if (rawSeverityLabel !== presentation.levelLabel) {
+      const severity = document.createElement("p");
+      severity.className = "sswb-diagnostic-severity";
+      severity.textContent = t("diagnostics.severityIndicator", { severity: rawSeverityLabel });
+      body.append(severity);
+    }
+
+    const table = tableContextLabel(viewModel.context);
+    if (presentation.grouped && table) {
+      const tableLabel = document.createElement("p");
+      tableLabel.className = "sswb-diagnostic-table";
+      tableLabel.textContent = t("diagnostics.group.table", { table });
+      body.append(tableLabel);
+    }
+    if (presentation.grouped) {
+      const fields = presentation.entries.map((entry) => entry.description.location.column ?? t("diagnostics.genericColumn"));
+      const visibleFields = fields.slice(0, 5);
+      if (fields.length > visibleFields.length) visibleFields.push(t("diagnostics.group.moreFields", { count: fields.length - visibleFields.length }));
+      const fieldList = document.createElement("p");
+      fieldList.className = "sswb-diagnostic-fields";
+      fieldList.textContent = t("diagnostics.group.fields", { count: fields.length, fields: visibleFields.join(", ") });
+      body.append(fieldList);
+    }
+
     const text = document.createElement("p");
     text.className = "sswb-diagnostic-description";
-    text.textContent = description.description;
-    body.append(title, text);
-    if (description.action) {
+    text.textContent = presentation.description;
+    body.append(text);
+
+    const impact = document.createElement("p");
+    impact.className = "sswb-diagnostic-impact";
+    impact.textContent = diagnosticImpactMessage(diagnostic, viewModel, t);
+    body.append(impact);
+
+    if (presentation.action) {
       const action = document.createElement("p");
       action.className = "sswb-diagnostic-action";
       const label = document.createElement("span");
       label.className = "sswb-diagnostic-action-label";
       label.textContent = t("diagnostics.actionLabel");
       const value = document.createElement("span");
-      value.textContent = description.action;
+      value.textContent = presentation.action;
       action.append(label, value);
       body.append(action);
     }
-    const rows = diagnosticTechnicalRows(description, t);
-    if (rows.length > 0) {
-      const details = document.createElement("details");
-      const summary = document.createElement("summary");
-      summary.textContent = t("diagnostics.technicalSummary");
-      const list = document.createElement("dl");
-      for (const [rowLabel, rowValue] of rows) {
-        const term = document.createElement("dt");
-        term.textContent = rowLabel;
-        const definition = document.createElement("dd");
-        definition.textContent = rowValue;
-        list.append(term, definition);
+
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = presentation.grouped
+      ? t("diagnostics.group.details", { count: presentation.count })
+      : t("diagnostics.technicalSummary");
+    const detailContent = document.createElement("div");
+    detailContent.className = "sswb-diagnostic-details";
+    for (const entry of presentation.entries) {
+      if (presentation.grouped) {
+        const fieldEntry = document.createElement("section");
+        fieldEntry.className = "sswb-diagnostic-entry";
+        const fieldHeading = document.createElement("h4");
+        fieldHeading.textContent = t("diagnostics.group.field", {
+          field: entry.description.location.column ?? t("diagnostics.genericColumn"),
+        });
+        fieldEntry.append(fieldHeading);
+        const fieldDescription = document.createElement("p");
+        fieldDescription.className = "sswb-diagnostic-entry-description";
+        fieldDescription.textContent = entry.description.description;
+        fieldEntry.append(fieldDescription);
+        fieldEntry.append(renderTechnicalList(diagnosticTechnicalRows(entry.description, t, {
+          table: null,
+          metadataRows: diagnosticColumnTechnicalRows(findDiagnosticColumn(viewModel, entry.description), t),
+        })));
+        detailContent.append(fieldEntry);
+      } else {
+        detailContent.append(renderTechnicalList(diagnosticTechnicalRows(entry.description, t, {
+          table,
+          metadataRows: diagnosticColumnTechnicalRows(findDiagnosticColumn(viewModel, entry.description), t),
+        })));
       }
-      details.append(summary, list);
-      body.append(details);
     }
+    details.append(summary, detailContent);
+    body.append(details);
     item.append(level, body);
     return item;
+  }
+
+  function findDiagnosticColumn(viewModel, description) {
+    const name = description.location.column;
+    return typeof name === "string" ? viewModel.columns.find((column) => column.column === name) : undefined;
+  }
+
+  function renderTechnicalList(rows) {
+    const list = document.createElement("dl");
+    for (const [rowLabel, rowValue] of rows) {
+      const term = document.createElement("dt");
+      term.textContent = rowLabel;
+      const definition = document.createElement("dd");
+      definition.textContent = rowValue;
+      list.append(term, definition);
+    }
+    return list;
   }
 
   /**

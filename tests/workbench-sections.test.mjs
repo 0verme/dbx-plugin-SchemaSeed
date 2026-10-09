@@ -10,9 +10,11 @@ import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import { toColumnViewModel } from "../src/workbench/workbench-view-model.mjs";
 import {
   blockingDiagnosticCount,
+  diagnosticImpactMessage,
   initialSectionExpansion,
   sectionSummaries,
   shouldAutoExpandDiagnostics,
+  tableContextLabel,
   WORKBENCH_SECTION_DEFAULTS,
 } from "../src/workbench/workbench-sections.mjs";
 
@@ -106,6 +108,30 @@ describe("Workbench section disclosure defaults", () => {
     assert.equal(initialSectionExpansion(viewModel({ status: "blocked" }), t).preview, true, "Preview stays expanded");
   });
 
+  it("keeps the Core blocking flag authoritative and reports actual Preview/export impact", () => {
+    const t = createI18n("en-US");
+    assert.match(diagnosticImpactMessage(BLOCKING_ERROR, { status: "blocked", export: { enabled: false } }, t), /Blocks generation/u);
+    assert.match(diagnosticImpactMessage(CONFIRMATION_WARNING, {
+      status: "warning", export: { enabled: true }, lastSuccessfulParametersCurrent: true,
+    }, t), /current Preview and exports remain available/u);
+    assert.match(diagnosticImpactMessage(CONFIRMATION_WARNING, {
+      status: "warning", export: { enabled: true }, lastSuccessfulParametersCurrent: true,
+    }, createI18n("zh-CN")), /不阻止生成；当前预览和导出仍可用/u);
+    assert.match(diagnosticImpactMessage(CONFIRMATION_WARNING, {
+      status: "dirty", export: { enabled: false }, draftChanged: true,
+    }, t), /after successful generation/u);
+    assert.match(diagnosticImpactMessage(CONFIRMATION_WARNING, {
+      status: "blocked", export: { enabled: false },
+    }, t), /another blocker or error/u);
+  });
+
+  it("renders a safe table label without exposing DBX Connection IDs", () => {
+    assert.equal(tableContextLabel({ connectionId: "private-connection", database: "app", schema: "public", table: "audit_results" }), "app.public.audit_results");
+    assert.equal(tableContextLabel({ connectionId: "private-connection", database: "app", schema: "app", table: "orders" }), "app.orders");
+    assert.equal(tableContextLabel({ connectionId: "private-connection" }), null);
+    assert.doesNotMatch(tableContextLabel({ connectionId: "private-connection", database: "app", table: "orders" }), /private-connection/u);
+  });
+
   it("auto-opens only when blocking appears, not for warnings", () => {
     const t = createI18n("zh-CN");
     const blockingCount = blockingDiagnosticCount;
@@ -129,6 +155,19 @@ describe("Workbench section disclosure defaults", () => {
 });
 
 describe("Workbench section summaries", () => {
+  it("exposes safe schema precision facts and provenance in column view models", () => {
+    const { schema, issues } = normalizeTableSchema({
+      tableIdentity: "precision-view-model",
+      columns: [{ name: "checked_at", dataType: "timestamp", nullable: false, precision: { state: "unavailable", reason: "fieldCapabilities.precision=unknown" } }],
+    });
+    assert.deepEqual(issues, []);
+    const plan = buildGenerationPlan(schema, { rowCount: 3, seed: "precision-view-model" });
+    const column = toColumnViewModel(plan.columns[0], plan.diagnostics, { translator: createI18n("zh-CN") });
+    assert.deepEqual(column.schemaFacts.precision, { state: "unavailable", reason: "fieldCapabilities.precision=unknown" });
+    assert.equal(column.schemaFacts.dataType.value, "timestamp");
+    assert.equal(column.temporalPrecision.generation.source, "schema_seed_fallback");
+    assert.equal(column.temporalPrecision.generation.value, 3);
+  });
   it("summarizes field count and pending semantic confirmations", () => {
     const { columns, diagnostics } = sampleViewModel();
     const zh = sectionSummaries(viewModel({ status: "warning", columns, diagnostics }), createI18n("zh-CN"));
@@ -181,6 +220,10 @@ describe("Workbench section summaries", () => {
 
     const failed = viewModel({ status: "error" });
     assert.deepEqual(sectionSummaries(failed, zh).diagnostics, { text: "1 个错误", severity: "error" }, "a failed runtime never claims no issues");
+
+    const information = viewModel({ status: "ready", diagnostics: [{ code: "future_info", severity: "info", blocking: false }] });
+    assert.deepEqual(sectionSummaries(information, zh).diagnostics, { text: "1 条信息", severity: "info" });
+    assert.deepEqual(sectionSummaries(information, en).diagnostics, { text: "1 info item(s)", severity: "info" });
   });
 
   it("localizes every summary key in both UI locales without unresolved placeholders", () => {
@@ -192,7 +235,7 @@ describe("Workbench section summaries", () => {
         "columns.summary", "columns.summaryPending",
         "constraints.summary.none", "constraints.summary.count",
         "diagnostics.summary.none", "diagnostics.summary.pending", "diagnostics.summary.errors",
-        "diagnostics.summary.issues", "diagnostics.summary.loading",
+        "diagnostics.summary.issues", "diagnostics.summary.info", "diagnostics.summary.loading",
       ]) {
         assert.equal(t.has(key), true, `${locale} resolves ${key}`);
       }
@@ -312,6 +355,32 @@ describe("Advanced settings Modal and Workbench markup contract", () => {
     assert.equal(createI18n("en-US")("advanced.restore.constraintCount", { count: 2 }), "2 manual generation constraint(s) will be restored.");
     assert.match(createI18n("zh-CN")("advanced.previewStale"), /生成规则已更新，请重新生成预览/u);
     assert.doesNotMatch(createI18n("en-US")("advanced.title"), /[\u3400-\u9fff]/u);
+  });
+
+  it("renders grouped diagnostics and keeps opening, expanding, tab changes and UI locale presentation-only", async () => {
+    const source = await readFile(UI_SOURCE, "utf8");
+    const diagnosticsRender = source.slice(source.indexOf("function renderDiagnostics"), source.indexOf("function renderEvidence"));
+    assert.match(diagnosticsRender, /describeDiagnosticGroups\(viewModel\.diagnostics, t\)/u);
+    assert.match(diagnosticsRender, /diagnosticImpactMessage\(diagnostic, viewModel, t\)/u);
+    assert.match(diagnosticsRender, /diagnostics\.severityIndicator/u);
+    assert.match(diagnosticsRender, /diagnosticColumnTechnicalRows\(findDiagnosticColumn/u);
+    assert.match(diagnosticsRender, /tableContextLabel\(viewModel\.context\)/u);
+    assert.match(diagnosticsRender, /createElement\("details"\)/u);
+    assert.doesNotMatch(diagnosticsRender, /controller\.(dispatch|sample|generate)/u);
+
+    const tabHandler = source.slice(source.indexOf("function setAdvancedTab"), source.indexOf("function renderAdvancedSettings"));
+    assert.match(tabHandler, /aria-selected/u);
+    assert.doesNotMatch(tabHandler, /controller\.(dispatch|sample|generate)/u);
+    const openHandler = source.slice(source.indexOf("function openAdvancedSettings"), source.indexOf("function requestAdvancedClose"));
+    assert.match(openHandler, /renderAdvancedSettings/u);
+    assert.doesNotMatch(openHandler, /controller\.(dispatch|sample|generate)/u);
+    const localeBranch = source.slice(source.indexOf('if (target.matches("#sswb-ui-locale"))'), source.indexOf('if (target.matches("#sswb-rows, #sswb-seed, #sswb-locale"))'));
+    assert.match(localeBranch, /controller\.setTranslator\(translator\)/u);
+    assert.doesNotMatch(localeBranch, /controller\.dispatch/u);
+    const css = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
+    assert.match(css, /\.sswb-diagnostic\[data-level="blocking"\][^}]*border-left-color/u);
+    assert.match(css, /\.sswb-diagnostic\[data-level="info"\][^}]*border-left-color/u);
+    assert.match(css, /\.sswb-diagnostic-fields[^}]*overflow-wrap:\s*anywhere/u);
   });
 
   it("shows stale datasets without enabling export and keeps explicit generation as the recovery", async () => {
