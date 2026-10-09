@@ -2,6 +2,7 @@
 
 - Issue：[#84](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/84)
 - P1 子 Issue：[#85](https://github.com/0verme/dbx-plugin-SchemaSeed/issues/85)
+- Draft PR：[#86](https://github.com/0verme/dbx-plugin-SchemaSeed/pull/86)（等待真机 UI 验收，暂不合并）
 - 代码基线：`origin/main` / `997c041f8f6833430d3d2bf835b06da70a30e758`（2026-10-09）
 - 范围：只审计并调整现有生产 Workbench 的上下文、参数与操作区；不实施 P2–P5，不引入 Faker/Chance。
 
