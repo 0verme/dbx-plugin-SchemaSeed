@@ -241,7 +241,7 @@ describe("Advanced settings Modal and Workbench markup contract", () => {
   it("keeps modal controls, close confirmation and responsive scroll surfaces available", async () => {
     const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
     const modal = markup.slice(markup.indexOf('<div id="sswb-advanced-modal"'));
-    for (const selector of ["data-advanced-close", "data-advanced-save", "data-advanced-cancel", "data-advanced-discard", "data-advanced-continue"]) {
+    for (const selector of ["data-advanced-close", "data-advanced-save", "data-advanced-cancel", "data-advanced-reset", "data-advanced-undo", "data-advanced-discard", "data-advanced-continue"]) {
       assert.match(modal, new RegExp(selector));
     }
     assert.match(modal, /id="sswb-advanced-confirm"[^>]*role="alertdialog"[^>]*hidden/u);
@@ -250,7 +250,9 @@ describe("Advanced settings Modal and Workbench markup contract", () => {
     assert.match(source, /settingsDraftChanged\(settingsDraft\)[\s\S]*advanced-*/u);
     assert.match(source, /advancedDialog\.requestClose\("backdrop"\)/u);
     assert.match(source, /advancedDialog\.requestClose\("cancel-button"\)/u);
-    assert.match(source, /if \(enumEditorDirty\(\) \|\| \(settingsDraft && settingsDraftChanged\(settingsDraft\)\)\)[\s\S]*element\("sswb-advanced-confirm"\)\.hidden = false/u);
+    assert.match(source, /if \(enumEditorDirty\(\) \|\| \(settingsDraft && settingsDraftChanged\(settingsDraft\)\)\)[\s\S]*showAdvancedConfirmation\("discard"\)/u);
+    assert.match(source, /onKeyDown[\s\S]*?requestAdvancedClose\(\)/u, "Escape follows the same close/confirmation lifecycle");
+    assert.match(source, /closeAdvancedConfirmation\(focusSelector\)/u, "closing a confirmation restores focus without applying it");
     const css = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
     assert.match(css, /\.sswb-advanced-dialog\s*\{[^}]*width:\s*min\(1180px,/u);
     assert.match(css, /\.sswb-advanced-dialog\s*\{[^}]*max-height:\s*min\(90vh,/u);
@@ -264,10 +266,15 @@ describe("Advanced settings Modal and Workbench markup contract", () => {
     const source = await readFile(UI_SOURCE, "utf8");
     assert.match(source, /settingsDraft\.rules\[column\.column\] = structuredClone\(choice\.draft\)/u);
     assert.match(source, /settingsDraft\.rules\[column\.column\] = \{ kind: "enum", values: structuredClone/u, "enum tag and JSON edits stay inside the modal draft");
-    assert.match(source, /advancedSaving \|\| unavailable \|\| enumEditorDirty\(\)/u);
+    assert.match(source, /advancedSaving \|\| advancedValidating \|\| Boolean\(advancedConfirmation\) \|\| unavailable \|\| enumEditorDirty\(\)/u);
     assert.match(source, /settingsDraft\.constraints = settingsDraft\.constraints\.map/u);
+    assert.match(source, /resetSettingsDraft\(settingsDraft, controller\.schema\.columns\)/u, "the full schema, not rendered rows, defines the reset scope");
+    const draftHelpers = await readFile(path.join(root, "src/workbench/settings-draft.mjs"), "utf8");
+    assert.match(draftHelpers, /draft\.rules = \{\}[\s\S]*draft\.constraints = \[\]/u, "reset clears rule overrides and manual constraints atomically");
+    assert.match(source, /validateSettingsDraft\(\{/u, "restored diagnostics are recalculated with validation-only Core work");
     assert.match(source, /type: "save-settings"[\s\S]*contextKey: submittedDraft\.contextKey/u);
-    assert.match(source, /advancedSaving \|\| viewModel\.status === "loading"/u, "the modal cannot save while an older generation is in flight");
+    assert.match(source, /schemaKey: submittedDraft\.schemaKey[\s\S]*settingsRevision: submittedDraft\.settingsRevision/u);
+    assert.match(source, /advancedSaving \|\| advancedValidating[\s\S]*viewModel\.status === "loading"/u, "the modal cannot save while Core validation or generation is in flight");
     assert.doesNotMatch(source, /dispatch\(\{ type: "update-rule"/u);
     assert.doesNotMatch(source, /dispatch\(\{ type: "update-constraint"/u);
     const controller = await readFile(path.join(root, "src/workbench/dbx-generation-workbench-controller.mjs"), "utf8");
@@ -291,7 +298,19 @@ describe("Advanced settings Modal and Workbench markup contract", () => {
     assert.equal(createI18n("en-US")("advanced.diagnostics.none"), "No issues found.");
     assert.match(createI18n("zh-CN")("actions.diagnosticsLink", { count: 3 }), /发现 3 项问题 · 查看诊断/u);
     assert.match(createI18n("en-US")("actions.diagnosticsLink", { count: 3 }), /3 issue\(s\) found · View diagnostics/u);
-    assert.match(createI18n("zh-CN")("advanced.previewStale"), /配置已更新，请重新生成预览/u);
+    for (const key of [
+      "advanced.restore.button", "advanced.restore.confirmTitle", "advanced.restore.confirm",
+      "advanced.restore.cancel", "advanced.restore.alreadyDefault", "advanced.restore.restored",
+      "advanced.restore.undo", "advanced.restore.fieldCount", "advanced.restore.constraintCount",
+      "advanced.restore.otherTables", "advanced.restore.saveOnly", "advanced.draft.schemaChanged",
+    ]) {
+      assert.equal(createI18n("zh-CN").has(key), true, `zh-CN resolves ${key}`);
+      assert.equal(createI18n("en-US").has(key), true, `en-US resolves ${key}`);
+    }
+    assert.equal(createI18n("zh-CN")("advanced.restore.button"), "恢复本表默认规则");
+    assert.equal(createI18n("zh-CN")("advanced.restore.fieldCount", { count: 3 }), "将恢复 3 个字段的手动配置。");
+    assert.equal(createI18n("en-US")("advanced.restore.constraintCount", { count: 2 }), "2 manual generation constraint(s) will be restored.");
+    assert.match(createI18n("zh-CN")("advanced.previewStale"), /生成规则已更新，请重新生成预览/u);
     assert.doesNotMatch(createI18n("en-US")("advanced.title"), /[\u3400-\u9fff]/u);
   });
 
