@@ -178,11 +178,11 @@ describe("plugin-center missing table context", () => {
     assert.match(markup, /id="sswb-empty-title" data-i18n="empty\.title"/u);
     assert.match(markup, /id="sswb-workbench-content" class="sswb-workbench-content"/u);
     assert.match(source, /renderWorkbenchContextVisibility\(root, viewModel\.status\)/u);
-    assert.match(source, /controller\.setContext\(selectInitialContext\(host, initialContext\)\)/u);
+    assert.match(source, /const selectedContext = selectInitialContext\(host, initialContext\);[\s\S]*?await controller\.setContext\(selectedContext\)/u);
     assert.match(source, /host\.onContext\(\(context\) =>[\s\S]*?controller\.setContext\(context\)/u);
     const visibilitySource = await readFile(path.join(root, "ui/generation-workbench/visibility.mjs"), "utf8");
     assert.match(visibilitySource, /root\.querySelector\("#sswb-empty-state"\)[\s\S]*?root\.querySelector\("#sswb-workbench-content"\)[\s\S]*?root\.querySelector\("#sswb-status"\)/u);
-    assert.match(source, /viewModel\.status === "empty" && sqlDialog\.isOpen/u);
+    assert.match(source, /\(viewModel\.status === "empty" \|\| pendingEnumDraft\) && sqlDialog\.isOpen/u);
 
     const bootSource = await readFile(path.join(root, "ui/app.mjs"), "utf8");
     assert.ok(bootSource.indexOf("await host.ready") < bootSource.indexOf("mountGenerationWorkbench"));

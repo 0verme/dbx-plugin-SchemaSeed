@@ -25,6 +25,16 @@ import {
 import { initialSectionExpansion, sectionSummaries, shouldAutoExpandDiagnostics } from "../src/workbench/workbench-sections.mjs";
 import { saveExportWithHost } from "./export-save.mjs";
 import { paginatePreviewRows } from "../src/workbench/preview-pagination.mjs";
+import { validateGenerationRule } from "../src/generation/generation-rules.mjs";
+import {
+  appendCandidateValues,
+  candidateValuesEqual,
+  parseCandidateJson,
+  parseCandidatePaste,
+  removeCandidateValue,
+  shouldAddCandidateOnEnter,
+  shouldRemoveLastCandidateOnBackspace,
+} from "./candidate-input.mjs";
 
 const WORKBENCH_MARKUP = `
   <div class="sswb">
@@ -165,6 +175,9 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   let sqlCopyStatus = null;
   let sqlCopyInProgress = false;
   let previewPage = 0;
+  const enumEditorStates = new Map();
+  let enumContextKey = null;
+  let enumDraftGateActive = false;
   const sqlDialog = createModalDialogController({
     overlay: element("sswb-sql-modal"),
     dialog: element("sswb-sql-modal").querySelector(".sswb-sql-dialog"),
@@ -180,19 +193,28 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     },
   });
   const unsubscribeContext = host.onContext((context) => {
-    // A new table context invalidates the dataset, so a previously displayed
-    // save result must not keep describing it.
+    // A new table context invalidates the dataset and all page-local editor drafts.
     exportSaveState = null;
     previewPage = 0;
+    const nextKey = enumContextIdentity(context);
+    if (nextKey !== enumContextKey) {
+      enumEditorStates.clear();
+      enumContextKey = nextKey;
+    }
     void controller.setContext(context);
   });
   // Disclosure is page-session state only: it starts collapsed on every open,
   // survives re-renders, and never touches browser storage.
   const sectionState = { initialized: false, blockingCount: 0 };
   root.addEventListener("change", onControlsChange);
+  root.addEventListener("input", onEnumInput);
+  root.addEventListener("keydown", onEnumKeydown);
+  root.addEventListener("paste", onEnumPaste);
   root.addEventListener("click", onClick);
   applyStaticMessages();
-  await controller.setContext(selectInitialContext(host, initialContext));
+  const selectedContext = selectInitialContext(host, initialContext);
+  enumContextKey = enumContextIdentity(selectedContext);
+  await controller.setContext(selectedContext);
   render(controller.getViewModel());
 
   /**
@@ -221,6 +243,274 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     select.value = localeStore.getLocale();
   }
 
+  function enumEditorState(column) {
+    let state = enumEditorStates.get(column.column);
+    if (state) return state;
+    const values = Array.isArray(column.generationRule?.values) ? column.generationRule.values : null;
+    const validation = values ? validateEnumCandidates(column, values) : { ok: false, errorKey: "enumInput.invalid" };
+    const canUseTags = column.schemaFamily === "varchar" && values?.every((value) => typeof value === "string") === true;
+    state = {
+      mode: canUseTags ? "tags" : "json",
+      tagDraft: "",
+      jsonDraft: canUseTags ? null : JSON.stringify(Array.isArray(values) ? values : column.generationRule?.values ?? [], null, 2),
+      draftValues: null,
+      errorKey: validation.ok ? null : validation.errorKey,
+      pasteOptions: null,
+      confirmClear: false,
+      pending: false,
+    };
+    enumEditorStates.set(column.column, state);
+    return state;
+  }
+
+  function validateEnumCandidates(column, values) {
+    const schemaColumn = controller.schema?.columns.find((entry) => entry.name === column.column);
+    if (!schemaColumn) return { ok: false, errorKey: "enumInput.invalid" };
+    const validation = validateGenerationRule(schemaColumn, { kind: "enum", values }, {
+      tableIdentity: controller.schema.tableIdentity,
+      rowCount: controller.controls.rowCount,
+      temporalPrecision: controller.temporalPrecisionMetadata?.[column.column],
+    });
+    if (validation.valid) return { ok: true, values: validation.rule.values };
+    const diagnostic = validation.diagnostics[0];
+    if (diagnostic?.code === "generation_rule_incompatible") return { ok: false, errorKey: "enumInput.incompatible", diagnostic };
+    if (diagnostic?.code === "generation_rule_invalid" && /at least one candidate/iu.test(diagnostic.reason)) {
+      return { ok: false, errorKey: "enumInput.empty", diagnostic };
+    }
+    if (diagnostic?.code === "generation_rule_invalid" && /must be unique/iu.test(diagnostic.reason)) {
+      return { ok: false, errorKey: "enumInput.duplicate", diagnostic };
+    }
+    return { ok: false, errorKey: "enumInput.invalid", diagnostic };
+  }
+
+  function enumValuesFor(column, state) {
+    if (Array.isArray(state.draftValues)) return state.draftValues;
+    return Array.isArray(column.generationRule?.values) ? column.generationRule.values : [];
+  }
+
+  function enumDraftPending() {
+    return [...enumEditorStates.values()].some((state) => state.pending);
+  }
+
+  function updateEnumEditorFeedback(target, column, state) {
+    const editor = target.closest(".sswb-enum-editor");
+    if (!editor) return;
+    const t = localeStore.getTranslator();
+    const values = enumValuesFor(column, state);
+    const count = editor.querySelector("[data-enum-count]");
+    if (count) count.textContent = t("enumInput.count", { count: values.length });
+    const error = editor.querySelector("[data-enum-error]");
+    if (error) {
+      error.textContent = state.errorKey ? t(state.errorKey)
+        : state.pending ? t("enumInput.previewInvalid") : "";
+      error.hidden = !state.errorKey && !state.pending;
+      error.dataset.severity = state.errorKey ? "error" : "info";
+    }
+    const choices = editor.querySelector("[data-enum-paste-choices]");
+    if (choices) choices.hidden = state.pasteOptions === null;
+  }
+
+  function applyEnumDraftGate() {
+    const pending = enumDraftPending();
+    if (pending === enumDraftGateActive) return;
+    enumDraftGateActive = pending;
+    if (!pending) {
+      render(controller.getViewModel());
+      return;
+    }
+    sqlPreviewDescriptor = null;
+    sqlPreviewError = null;
+    if (sqlDialog.isOpen) sqlDialog.close();
+    const t = localeStore.getTranslator();
+    const preview = root.querySelector('[data-sswb-action="preview"]');
+    preview.disabled = true;
+    preview.title = t("enumInput.fixFirst");
+    for (const id of ["sswb-export-csv", "sswb-export-json", "sswb-export-sql", "sswb-preview-sql"]) {
+      element(id).disabled = true;
+      element(id).title = t("enumInput.fixFirst");
+    }
+    element("sswb-state-message").textContent = t("enumInput.fixFirst");
+    element("sswb-state-message").dataset.status = "dirty";
+    element("sswb-state-message").hidden = false;
+    element("sswb-export-message").textContent = t("enumInput.previewInvalid");
+    element("sswb-preview-summary").textContent = t("enumInput.previewInvalid");
+    element("sswb-preview-scroll").hidden = true;
+    element("sswb-preview-pagination").hidden = true;
+    element("sswb-preview-empty").hidden = false;
+    element("sswb-preview-empty").querySelector("strong").textContent = t("enumInput.fixFirst");
+    element("sswb-preview-empty").querySelector("p").textContent = t("enumInput.previewInvalid");
+  }
+
+  function onEnumInput(event) {
+    const target = event.target;
+    if (target.matches("[data-enum-tag-input]")) {
+      const column = viewColumn(target.dataset.ruleColumn, controller);
+      if (!column) return;
+      const state = enumEditorState(column);
+      state.tagDraft = target.value;
+      const values = enumValuesFor(column, state);
+      const validation = validateEnumCandidates(column, target.value.length > 0
+        ? appendCandidateValues(values, [target.value]) : values);
+      const draftBaseChanged = Array.isArray(state.draftValues)
+        && !candidateValuesEqual(state.draftValues, column.generationRule?.values);
+      state.errorKey = validation.ok ? null : validation.errorKey;
+      state.pending = draftBaseChanged || (target.value.length > 0 && !validation.ok);
+      updateEnumEditorFeedback(target, column, state);
+      applyEnumDraftGate();
+      return;
+    }
+    if (!target.matches("[data-enum-json]")) return;
+    const column = viewColumn(target.dataset.ruleColumn, controller);
+    if (!column) return;
+    const state = enumEditorState(column);
+    state.jsonDraft = target.value;
+    const parsed = parseCandidateJson(target.value);
+    if (!parsed.ok) {
+      state.draftValues = null;
+      state.errorKey = "enumInput.invalidJson";
+      state.pending = true;
+    } else {
+      state.draftValues = parsed.values;
+      const validation = validateEnumCandidates(column, parsed.values);
+      state.errorKey = validation.ok ? null : validation.errorKey;
+      state.pending = !validation.ok || !candidateValuesEqual(parsed.values, column.generationRule?.values);
+    }
+    updateEnumEditorFeedback(target, column, state);
+    applyEnumDraftGate();
+  }
+
+  async function commitEnumValues(column, state, values, options = {}) {
+    const validation = validateEnumCandidates(column, values);
+    state.draftValues = [...values];
+    state.errorKey = validation.ok ? null : validation.errorKey;
+    state.pending = !validation.ok || !candidateValuesEqual(values, column.generationRule?.values);
+    state.pasteOptions = null;
+    state.confirmClear = false;
+    if (!validation.ok) {
+      render(controller.getViewModel());
+      focusEnumTagInput(column, state, options.focusTagInput === true);
+      return false;
+    }
+    if (!state.pending) {
+      state.draftValues = null;
+      state.jsonDraft = null;
+      if (options.clearTagDraft) state.tagDraft = "";
+      state.errorKey = null;
+      render(controller.getViewModel());
+      focusEnumTagInput(column, state, options.focusTagInput === true);
+      return true;
+    }
+    exportSaveState = null;
+    await controller.dispatch({ type: "update-rule", column: column.column, rule: { kind: "enum", values: validation.values ?? values } });
+    state.draftValues = null;
+    state.jsonDraft = null;
+    if (options.clearTagDraft) state.tagDraft = "";
+    state.errorKey = null;
+    state.pending = false;
+    state.pasteOptions = null;
+    render(controller.getViewModel());
+    focusEnumTagInput(column, state, options.focusTagInput === true);
+    return true;
+  }
+
+  function focusEnumTagInput(column, state, shouldFocus) {
+    if (!shouldFocus || state.mode !== "tags") return;
+    const input = [...root.querySelectorAll("[data-enum-tag-input]")]
+      .find((entry) => entry.dataset.ruleColumn === column.column);
+    input?.focus();
+  }
+
+  async function commitEnumJsonDraft(column, state) {
+    if (typeof state.jsonDraft !== "string") return;
+    const parsed = parseCandidateJson(state.jsonDraft);
+    if (!parsed.ok) {
+      state.errorKey = "enumInput.invalidJson";
+      state.pending = true;
+      render(controller.getViewModel());
+      return;
+    }
+    const validation = validateEnumCandidates(column, parsed.values);
+    state.draftValues = parsed.values;
+    state.errorKey = validation.ok ? null : validation.errorKey;
+    state.pending = !validation.ok || !candidateValuesEqual(parsed.values, column.generationRule?.values);
+    if (!validation.ok) {
+      render(controller.getViewModel());
+      return;
+    }
+    await commitEnumValues(column, state, parsed.values);
+  }
+
+  function onEnumKeydown(event) {
+    const target = event.target;
+    if (!target.matches("[data-enum-tag-input]")) return;
+    const column = viewColumn(target.dataset.ruleColumn, controller);
+    if (!column) return;
+    const state = enumEditorState(column);
+    const values = enumValuesFor(column, state);
+    if (shouldAddCandidateOnEnter(event)) {
+      event.preventDefault();
+      if (target.value.length === 0) return;
+      state.tagDraft = target.value;
+      const candidate = target.value;
+      if (values.includes(candidate)) {
+        state.errorKey = "enumInput.duplicate";
+        state.pending = true;
+        updateEnumEditorFeedback(target, column, state);
+        applyEnumDraftGate();
+        return;
+      }
+      state.tagDraft = "";
+      void commitEnumValues(column, state, appendCandidateValues(values, [candidate]), { focusTagInput: true, clearTagDraft: true });
+      return;
+    }
+    if (shouldRemoveLastCandidateOnBackspace({
+      key: event.key,
+      value: target.value,
+      isComposing: event.isComposing,
+      keyCode: event.keyCode,
+    }, values.length)) {
+      event.preventDefault();
+      void commitEnumValues(column, state, removeCandidateValue(values, values.length - 1), { focusTagInput: true });
+    }
+  }
+
+  function onEnumPaste(event) {
+    const target = event.target;
+    if (!target.matches("[data-enum-tag-input]")) return;
+    const column = viewColumn(target.dataset.ruleColumn, controller);
+    if (!column) return;
+    const text = event.clipboardData?.getData("text");
+    if (typeof text !== "string") return;
+    event.preventDefault();
+    const start = Number.isSafeInteger(target.selectionStart) ? target.selectionStart : target.value.length;
+    const end = Number.isSafeInteger(target.selectionEnd) ? target.selectionEnd : start;
+    const pasteText = `${target.value.slice(0, start)}${text}${target.value.slice(end)}`;
+    const state = enumEditorState(column);
+    const parsed = parseCandidatePaste(pasteText);
+    if (parsed.kind === "empty") return;
+    if (parsed.kind === "error") {
+      state.tagDraft = pasteText;
+      state.errorKey = "enumInput.invalidJson";
+      state.pending = true;
+      state.pasteOptions = null;
+      render(controller.getViewModel());
+      focusEnumTagInput(column, state, true);
+      return;
+    }
+    if (parsed.kind === "ambiguous") {
+      state.tagDraft = pasteText;
+      state.errorKey = "enumInput.ambiguousPaste";
+      state.pending = true;
+      state.pasteOptions = { splitValues: parsed.splitValues, singleValue: parsed.singleValue };
+      render(controller.getViewModel());
+      focusEnumTagInput(column, state, true);
+      return;
+    }
+    const values = enumValuesFor(column, state);
+    state.tagDraft = "";
+    void commitEnumValues(column, state, appendCandidateValues(values, parsed.values), { focusTagInput: true, clearTagDraft: true });
+  }
+
   function onControlsChange(event) {
     const target = event.target;
     if (target.matches("#sswb-ui-locale")) {
@@ -246,10 +536,19 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       });
       return;
     }
+    if (target.matches("[data-enum-json]")) {
+      if (document.activeElement?.matches("[data-enum-mode]")) return;
+      const column = viewColumn(target.dataset.ruleColumn, controller);
+      if (column) void commitEnumJsonDraft(column, enumEditorState(column));
+      return;
+    }
     if (target.matches("[data-rule-selector]")) {
       const column = viewColumn(target.dataset.ruleColumn, controller);
       const choice = column?.ruleChoices.find((entry) => entry.kind === target.value);
-      if (column && choice) void controller.dispatch({ type: "update-rule", column: column.column, rule: choice.draft });
+      if (column && choice) {
+        if (choice.kind !== "enum") enumEditorStates.delete(column.column);
+        void controller.dispatch({ type: "update-rule", column: column.column, rule: choice.draft });
+      }
       return;
     }
     if (target.matches("[data-rule-field]")) {
@@ -282,8 +581,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   }
 
   function onClick(event) {
-    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete], [data-preview-page]");
+    const target = event.target.closest("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice], [data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete], [data-preview-page]");
     if (!target) return;
+    if (target.matches("[data-enum-mode], [data-enum-remove], [data-enum-clear], [data-enum-clear-confirm], [data-enum-clear-cancel], [data-enum-paste-choice]")) {
+      void onEnumEditorClick(target);
+      return;
+    }
     if (target.dataset.previewPage) {
       previewPage += target.dataset.previewPage === "next" ? 1 : -1;
       render(controller.getViewModel());
@@ -323,10 +626,81 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     }
     if (target.dataset.sswbAction === "preview") {
       const action = controller.getViewModel().previewAction;
-      if (!action.disabled) void controller.dispatch({ type: action.action });
+      if (!enumDraftPending() && !action.disabled) void controller.dispatch({ type: action.action });
       return;
     }
     void controller.dispatch({ type: target.dataset.sswbAction });
+  }
+
+  async function onEnumEditorClick(target) {
+    const column = viewColumn(target.dataset.ruleColumn, controller);
+    if (!column) return;
+    const state = enumEditorState(column);
+    const values = enumValuesFor(column, state);
+    if (target.matches("[data-enum-remove]")) {
+      const index = Number(target.dataset.enumIndex);
+      void commitEnumValues(column, state, removeCandidateValue(values, index), { focusTagInput: true });
+      return;
+    }
+    if (target.matches("[data-enum-clear]")) {
+      state.confirmClear = true;
+      render(controller.getViewModel());
+      const confirm = [...root.querySelectorAll("[data-enum-clear-confirm]")]
+        .find((entry) => entry.dataset.ruleColumn === column.column);
+      confirm?.focus();
+      return;
+    }
+    if (target.matches("[data-enum-clear-cancel]")) {
+      state.confirmClear = false;
+      render(controller.getViewModel());
+      const clear = [...root.querySelectorAll("[data-enum-clear]")]
+        .find((entry) => entry.dataset.ruleColumn === column.column);
+      clear?.focus();
+      return;
+    }
+    if (target.matches("[data-enum-clear-confirm]")) {
+      void commitEnumValues(column, state, [], { focusTagInput: true });
+      return;
+    }
+    if (target.matches("[data-enum-paste-choice]")) {
+      const choice = target.dataset.enumPasteChoice;
+      const additions = choice === "split" ? state.pasteOptions?.splitValues
+        : choice === "single" ? [state.pasteOptions?.singleValue] : null;
+      if (!Array.isArray(additions)) return;
+      state.tagDraft = "";
+      void commitEnumValues(column, state, appendCandidateValues(values, additions), { focusTagInput: true, clearTagDraft: true });
+      return;
+    }
+    if (target.dataset.enumMode === "json") {
+      state.mode = "json";
+      state.jsonDraft = JSON.stringify(values, null, 2);
+      render(controller.getViewModel());
+      const input = [...root.querySelectorAll("[data-enum-json]")]
+        .find((entry) => entry.dataset.ruleColumn === column.column);
+      input?.focus();
+      return;
+    }
+    if (target.dataset.enumMode === "tags") {
+      const parsed = typeof state.jsonDraft === "string" ? parseCandidateJson(state.jsonDraft) : null;
+      const returnValues = parsed ? (parsed.ok ? parsed.values : null) : values;
+      if (!Array.isArray(returnValues) || !returnValues.every((value) => typeof value === "string")) {
+        state.errorKey = "enumInput.returnNotLossless";
+        state.pending = true;
+        render(controller.getViewModel());
+        return;
+      }
+      state.mode = "tags";
+      state.draftValues = returnValues;
+      const validation = validateEnumCandidates(column, returnValues);
+      state.errorKey = validation.ok ? null : validation.errorKey;
+      state.pending = !validation.ok || !candidateValuesEqual(returnValues, column.generationRule?.values);
+      if (!validation.ok) {
+        render(controller.getViewModel());
+        focusEnumTagInput(column, state, true);
+        return;
+      }
+      await commitEnumValues(column, state, returnValues, { focusTagInput: true });
+    }
   }
 
   /**
@@ -338,7 +712,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
    * @param {string} format
    */
   async function saveExport(format, preparedDescriptor = null) {
-    if (exportSaveState?.status === "saving" || exportSaveState?.status === "waiting") return;
+    if (enumDraftPending() || exportSaveState?.status === "saving" || exportSaveState?.status === "waiting") return;
     let descriptor = preparedDescriptor;
     try {
       if (!descriptor) descriptor = controller.prepareExport(format);
@@ -366,16 +740,22 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   function render(viewModel) {
     const t = localeStore.getTranslator();
     const context = viewModel.context;
-    if (viewModel.status === "empty" && sqlDialog.isOpen) sqlDialog.close();
+    const pendingEnumDraft = enumDraftPending();
+    enumDraftGateActive = pendingEnumDraft;
+    if ((viewModel.status === "empty" || pendingEnumDraft) && sqlDialog.isOpen) sqlDialog.close();
+    if (pendingEnumDraft) {
+      sqlPreviewDescriptor = null;
+      sqlPreviewError = null;
+    }
     renderWorkbenchContextVisibility(root, viewModel.status);
     element("sswb-database").textContent = context?.database ?? "—";
     element("sswb-schema").textContent = context?.schema ?? "—";
     element("sswb-table").textContent = context?.table ?? "—";
-    element("sswb-status").textContent = statusLabel(viewModel, t);
-    element("sswb-status").dataset.status = viewModel.status;
-    element("sswb-state-message").textContent = stateMessage(viewModel, t);
-    element("sswb-state-message").dataset.status = viewModel.status;
-    element("sswb-state-message").hidden = Boolean(viewModel.context && viewModel.plan
+    element("sswb-status").textContent = statusLabel(pendingEnumDraft ? { ...viewModel, status: "dirty" } : viewModel, t);
+    element("sswb-status").dataset.status = pendingEnumDraft ? "dirty" : viewModel.status;
+    element("sswb-state-message").textContent = pendingEnumDraft ? t("enumInput.fixFirst") : stateMessage(viewModel, t);
+    element("sswb-state-message").dataset.status = pendingEnumDraft ? "dirty" : viewModel.status;
+    element("sswb-state-message").hidden = !pendingEnumDraft && Boolean(viewModel.context && viewModel.plan
       && ["idle", "dirty"].includes(viewModel.status));
     element("sswb-action-error").textContent = viewModel.actionError ? actionErrorMessage(viewModel.actionError, t) : "";
     element("sswb-action-error").hidden = !viewModel.actionError;
@@ -385,12 +765,9 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     if (document.activeElement !== rowInput) rowInput.value = String(viewModel.controls.rowCount);
     if (document.activeElement !== seedInput) seedInput.value = viewModel.controls.seed;
     if (document.activeElement !== localeInput) localeInput.value = viewModel.controls.locale;
-    for (const control of root.querySelector(".sswb").querySelectorAll("button, input, select, textarea")) {
-      if (control.id !== "sswb-ui-locale") control.disabled = viewModel.status === "loading";
-    }
     const previewButton = root.querySelector('[data-sswb-action="preview"]');
     previewButton.textContent = t(viewModel.previewAction.labelKey);
-    previewButton.disabled = viewModel.previewAction.disabled;
+    previewButton.disabled = pendingEnumDraft || viewModel.previewAction.disabled;
     previewButton.dataset.previewState = viewModel.previewAction.state.toLowerCase();
     if (viewModel.previewAction.busy) previewButton.setAttribute("aria-busy", "true");
     else previewButton.removeAttribute("aria-busy");
@@ -402,18 +779,25 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     const sampleHintKey = `columns.sampleHint.${sampleState}`;
     element("sswb-sample-hint").textContent = t(t.has(sampleHintKey) ? sampleHintKey : "columns.sampleHint.unknown");
     renderColumns(viewModel.columns, viewModel.sampleStatus, viewModel.status, t);
+    for (const control of root.querySelector(".sswb").querySelectorAll("button, input, select, textarea")) {
+      if (control.id === "sswb-ui-locale") continue;
+      if (control.matches('[data-sswb-action="preview"], [data-enum-clear], [data-enum-mode]')) continue;
+      control.disabled = viewModel.status === "loading";
+    }
     renderConstraints(viewModel, t);
     renderDiagnostics(viewModel, t);
-    renderPreview(viewModel, t);
-    renderSqlPreview(viewModel, t);
+    renderPreview(viewModel, t, pendingEnumDraft);
+    renderSqlPreview(viewModel, t, pendingEnumDraft);
     const exportBusy = exportSaveState?.status === "saving" || exportSaveState?.status === "waiting";
-    const exportDisabled = !viewModel.export.enabled || viewModel.status === "loading" || exportBusy;
-    const exportHint = exportDisabled && !exportBusy ? exportDisabledHint(viewModel, t) : "";
+    const exportDisabled = pendingEnumDraft || !viewModel.export.enabled || viewModel.status === "loading" || exportBusy;
+    const exportHint = pendingEnumDraft ? t("enumInput.fixFirst")
+      : exportDisabled && !exportBusy ? exportDisabledHint(viewModel, t) : "";
     for (const id of ["sswb-export-csv", "sswb-export-json", "sswb-export-sql"]) {
       element(id).disabled = exportDisabled;
       element(id).title = exportHint;
     }
-    const exportMessage = exportSaveState ? exportSaveMessage(exportSaveState, t) : exportStatusMessage(viewModel, t);
+    const exportMessage = pendingEnumDraft ? t("enumInput.previewInvalid")
+      : exportSaveState ? exportSaveMessage(exportSaveState, t) : exportStatusMessage(viewModel, t);
     element("sswb-export-message").textContent = exportMessage ?? "";
   }
 
@@ -480,7 +864,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
         recommendation.textContent = t("columns.recommendation", { rule: column.recommendation.label });
         strategy.append(recommendation);
       }
-      strategy.append(renderRuleEditor(column, t));
+      strategy.append(renderRuleEditor(column, t, column.generationRule.kind === "enum" ? enumEditorState(column) : null));
       row.append(strategy);
       const mappingStatus = textCell(column.mappingStatus, "sswb-mapping-status");
       mappingStatus.dataset.mappingStatus = column.mappingStatusToken;
@@ -716,7 +1100,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   }
 
   function openSqlPreview(trigger) {
-    if (!sqlDialog.open(trigger)) return;
+    if (enumDraftPending() || !sqlDialog.open(trigger)) return;
     exportSaveState = null;
     sqlPreviewDescriptor = null;
     sqlPreviewError = null;
@@ -754,11 +1138,12 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     }
   }
 
-  function renderSqlPreview(viewModel, t) {
+  function renderSqlPreview(viewModel, t, pendingEnumDraft = false) {
     const button = element("sswb-preview-sql");
-    button.disabled = !viewModel.export.enabled;
-    button.title = button.disabled ? exportDisabledHint(viewModel, t) : "";
-    if (!viewModel.export.enabled) {
+    button.disabled = pendingEnumDraft || !viewModel.export.enabled;
+    button.title = pendingEnumDraft ? t("enumInput.fixFirst")
+      : button.disabled ? exportDisabledHint(viewModel, t) : "";
+    if (pendingEnumDraft || !viewModel.export.enabled) {
       sqlPreviewDescriptor = null;
       sqlPreviewError = null;
       sqlCopyStatus = null;
@@ -824,22 +1209,31 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     code.replaceChildren(content);
   }
 
-  function renderPreview(viewModel, t) {
+  function renderPreview(viewModel, t, pendingEnumDraft = false) {
     const header = element("sswb-preview-head");
     const body = element("sswb-preview-body");
-    const hasRows = viewModel.preview.rows.length > 0;
+    const rows = pendingEnumDraft ? [] : viewModel.preview.rows;
+    const hasRows = rows.length > 0;
     const hasPreparedPlan = Boolean(viewModel.plan);
-    const showEmptyState = Boolean(viewModel.context && hasPreparedPlan
+    const showEmptyState = pendingEnumDraft || Boolean(viewModel.context && hasPreparedPlan
       && ["idle", "dirty", "error"].includes(viewModel.status));
-    element("sswb-preview-empty").hidden = !showEmptyState;
+    const empty = element("sswb-preview-empty");
+    empty.hidden = !showEmptyState;
+    if (pendingEnumDraft) {
+      empty.querySelector("strong").textContent = t("enumInput.fixFirst");
+      empty.querySelector("p").textContent = t("enumInput.previewInvalid");
+    } else {
+      empty.querySelector("strong").textContent = t("preview.empty.title");
+      empty.querySelector("p").textContent = t("preview.empty.helper");
+    }
     element("sswb-preview-scroll").hidden = !hasRows;
     header.replaceChildren();
     body.replaceChildren();
-    element("sswb-preview-summary").textContent = previewSummary(viewModel, t);
-    const pagination = paginatePreviewRows(viewModel.preview.rows, previewPage);
+    element("sswb-preview-summary").textContent = pendingEnumDraft ? t("enumInput.previewInvalid") : previewSummary(viewModel, t);
+    const pagination = paginatePreviewRows(rows, previewPage);
     previewPage = pagination.page;
     const paginationNav = element("sswb-preview-pagination");
-    paginationNav.hidden = pagination.pageCount <= 1;
+    paginationNav.hidden = pendingEnumDraft || pagination.pageCount <= 1;
     paginationNav.setAttribute("aria-label", t("preview.pagination.ariaLabel"));
     element("sswb-preview-previous").disabled = pagination.page === 0;
     element("sswb-preview-next").disabled = pagination.page >= pagination.pageCount - 1;
@@ -878,11 +1272,14 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     unsubscribeRender();
     unsubscribeContext();
     root.removeEventListener("change", onControlsChange);
+    root.removeEventListener("input", onEnumInput);
+    root.removeEventListener("keydown", onEnumKeydown);
+    root.removeEventListener("paste", onEnumPaste);
     root.removeEventListener("click", onClick);
   };
 }
 
-function renderRuleEditor(column, t) {
+function renderRuleEditor(column, t, enumState) {
   const editor = document.createElement("div");
   editor.className = "sswb-rule-editor";
   const selector = document.createElement("select");
@@ -901,6 +1298,10 @@ function renderRuleEditor(column, t) {
   const fields = document.createElement("div");
   fields.className = "sswb-rule-fields";
   for (const field of column.ruleFields) {
+    if (field.key === "values" && column.generationRule.kind === "enum") {
+      fields.append(renderEnumEditor(column, enumState, t));
+      continue;
+    }
     const label = document.createElement("label");
     label.textContent = field.label;
     let input;
@@ -917,7 +1318,7 @@ function renderRuleEditor(column, t) {
       input.value = String(field.value ?? "");
     } else if (field.editor === "json") {
       input = document.createElement("textarea");
-      input.rows = field.key === "values" ? 2 : 1;
+      input.rows = 1;
       input.value = field.value === undefined ? "" : JSON.stringify(field.value);
     } else {
       input = document.createElement("input");
@@ -939,6 +1340,170 @@ function renderRuleEditor(column, t) {
   }
   editor.append(fields);
   return editor;
+}
+
+function renderEnumEditor(column, state, t) {
+  const editor = document.createElement("div");
+  editor.className = "sswb-enum-editor";
+  editor.dataset.enumColumn = column.column;
+  const values = Array.isArray(state.draftValues) ? state.draftValues
+    : Array.isArray(column.generationRule.values) ? column.generationRule.values : [];
+  const heading = document.createElement("label");
+  heading.className = "sswb-enum-label";
+  heading.textContent = state.mode === "tags" ? t("enumInput.label") : t("enumInput.jsonLabel");
+  editor.append(heading);
+
+  if (state.mode === "tags") {
+    const surface = document.createElement("div");
+    surface.className = "sswb-enum-surface";
+    const tags = document.createElement("div");
+    tags.className = "sswb-enum-tags";
+    tags.setAttribute("role", "list");
+    tags.setAttribute("aria-label", t("enumInput.label"));
+    for (let index = 0; index < values.length; index += 1) {
+      const value = values[index];
+      const tag = document.createElement("span");
+      tag.className = "sswb-enum-tag";
+      tag.setAttribute("role", "listitem");
+      const text = document.createElement("span");
+      text.className = "sswb-enum-tag-text";
+      text.textContent = typeof value === "string" ? (value === "" ? '""' : value) : JSON.stringify(value);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "sswb-enum-remove";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", t("enumInput.remove", { candidate: typeof value === "string" ? value : JSON.stringify(value) }));
+      remove.dataset.enumRemove = "true";
+      remove.dataset.enumIndex = String(index);
+      remove.dataset.ruleColumn = column.column;
+      tag.append(text, remove);
+      tags.append(tag);
+    }
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = state.tagDraft ?? "";
+    input.placeholder = t("enumInput.placeholder");
+    input.setAttribute("aria-label", t("enumInput.ariaInput"));
+    input.setAttribute("autocomplete", "off");
+    input.dataset.enumTagInput = "true";
+    input.dataset.ruleColumn = column.column;
+    surface.append(tags, input);
+    editor.append(surface);
+  } else {
+    const input = document.createElement("textarea");
+    input.rows = 5;
+    input.value = state.jsonDraft ?? JSON.stringify(values, null, 2);
+    input.setAttribute("aria-label", t("enumInput.ariaJson"));
+    input.dataset.enumJson = "true";
+    input.dataset.ruleColumn = column.column;
+    editor.append(input);
+  }
+
+  const footer = document.createElement("div");
+  footer.className = "sswb-enum-footer";
+  const count = document.createElement("span");
+  count.className = "sswb-enum-count";
+  count.setAttribute("role", "status");
+  count.setAttribute("aria-live", "polite");
+  count.dataset.enumCount = "true";
+  count.textContent = t("enumInput.count", { count: values.length });
+  footer.append(count);
+
+  if (state.mode === "tags") {
+    const advanced = document.createElement("button");
+    advanced.type = "button";
+    advanced.className = "sswb-enum-link";
+    advanced.textContent = t("enumInput.advanced");
+    advanced.dataset.enumMode = "json";
+    advanced.dataset.ruleColumn = column.column;
+    footer.append(advanced);
+
+    if (state.confirmClear) {
+      const confirm = document.createElement("button");
+      confirm.type = "button";
+      confirm.className = "sswb-button sswb-enum-clear-confirm";
+      confirm.textContent = t("enumInput.clearConfirm");
+      confirm.dataset.enumClearConfirm = "true";
+      confirm.dataset.ruleColumn = column.column;
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "sswb-enum-link";
+      cancel.textContent = t("enumInput.clearCancel");
+      cancel.dataset.enumClearCancel = "true";
+      cancel.dataset.ruleColumn = column.column;
+      footer.append(confirm, cancel);
+    } else {
+      const clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "sswb-enum-link";
+      clear.textContent = t("enumInput.clear");
+      clear.disabled = values.length === 0;
+      clear.dataset.enumClear = "true";
+      clear.dataset.ruleColumn = column.column;
+      footer.append(clear);
+    }
+  } else if (column.schemaFamily === "varchar") {
+    const parsed = typeof state.jsonDraft === "string" ? parseCandidateJson(state.jsonDraft) : null;
+    const returnValues = parsed ? (parsed.ok ? parsed.values : null) : values;
+    const canReturn = Array.isArray(returnValues) && returnValues.every((value) => typeof value === "string");
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "sswb-enum-link";
+    back.textContent = t("enumInput.backToTags");
+    back.disabled = !canReturn;
+    back.title = canReturn ? "" : t("enumInput.returnNotLossless");
+    back.dataset.enumMode = "tags";
+    back.dataset.ruleColumn = column.column;
+    footer.append(back);
+    if (!canReturn) {
+      const lossless = document.createElement("span");
+      lossless.className = "sswb-enum-lossless-hint";
+      lossless.textContent = t("enumInput.returnNotLossless");
+      editor.append(lossless);
+    }
+  }
+  editor.append(footer);
+
+  if (state.mode === "tags" && state.pasteOptions) {
+    const choices = document.createElement("div");
+    choices.className = "sswb-enum-paste-choices";
+    choices.dataset.enumPasteChoices = "true";
+    const split = document.createElement("button");
+    split.type = "button";
+    split.className = "sswb-button";
+    split.textContent = t("enumInput.pasteSplitComma");
+    split.dataset.enumPasteChoice = "split";
+    split.dataset.ruleColumn = column.column;
+    const single = document.createElement("button");
+    single.type = "button";
+    single.className = "sswb-button";
+    single.textContent = t("enumInput.pasteAsOne");
+    single.dataset.enumPasteChoice = "single";
+    single.dataset.ruleColumn = column.column;
+    choices.append(split, single);
+    editor.append(choices);
+  }
+
+  const feedback = document.createElement("p");
+  feedback.className = "sswb-enum-error";
+  feedback.setAttribute("role", "alert");
+  feedback.setAttribute("aria-live", "polite");
+  feedback.dataset.enumError = "true";
+  feedback.textContent = state.errorKey ? t(state.errorKey)
+    : state.pending ? t("enumInput.previewInvalid") : "";
+  feedback.hidden = !state.errorKey && !state.pending;
+  feedback.dataset.severity = state.errorKey ? "error" : "info";
+  editor.append(feedback);
+  return editor;
+}
+
+function enumContextIdentity(context) {
+  if (context === null || context === undefined) return "empty";
+  try {
+    return JSON.stringify([context.connectionId, context.database ?? null, context.schema ?? null, context.table ?? null]);
+  } catch {
+    return `invalid:${String(context)}`;
+  }
 }
 
 function viewColumn(name, controller) {

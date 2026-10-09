@@ -290,8 +290,8 @@ describe("Workbench markup disclosure contract", () => {
     const markup = markupOf(source);
     assert.match(markup, /<button[^>]*data-sswb-action="preview"[^>]*><\/button>/u);
     assert.match(markup, /<div id="sswb-preview-empty" class="sswb-preview-empty" hidden>[\s\S]*data-i18n="preview\.empty\.title"[\s\S]*data-i18n="preview\.empty\.helper"[\s\S]*<\/div>/u);
-    assert.match(source, /const showEmptyState = Boolean\(viewModel\.context && hasPreparedPlan\s+&& \["idle", "dirty", "error"\]\.includes\(viewModel\.status\)\)/u);
-    assert.match(source, /previewButton\.disabled = viewModel\.previewAction\.disabled/u);
+    assert.match(source, /const showEmptyState = pendingEnumDraft \|\| Boolean\(viewModel\.context && hasPreparedPlan\s+&& \["idle", "dirty", "error"\]\.includes\(viewModel\.status\)\)/u);
+    assert.match(source, /previewButton\.disabled = pendingEnumDraft \|\| viewModel\.previewAction\.disabled/u);
     assert.match(source, /previewButton\.textContent = t\(viewModel\.previewAction\.labelKey\)/u);
     assert.match(source, /previewButton\.setAttribute\("aria-busy", "true"\)/u);
     assert.doesNotMatch(source, /data-sswb-action="new-seed"/u);

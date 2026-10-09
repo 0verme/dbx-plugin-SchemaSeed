@@ -240,9 +240,9 @@ describe("production Workbench save path regression", () => {
     assert.match(source, /else sqlPreviewDescriptor = descriptor/u, "the descriptor content is presented without reserialization");
     assert.match(source, /copyTextToClipboard\(sqlPreviewDescriptor\.content\)/u, "copy uses the complete current preview text");
     assert.match(source, /saveExport\("sql", sqlPreviewDescriptor\)/u, "Modal export reuses the exact prepared descriptor");
-    assert.match(source, /if \(!sqlDialog\.open\(trigger\)\) return/u, "repeated clicks do not create or reopen duplicate dialogs");
-    assert.match(source, /button\.disabled = !viewModel\.export\.enabled/u, "preview is disabled without a current exportable dataset");
-    assert.match(source, /if \(!viewModel\.export\.enabled\) \{[\s\S]*?sqlPreviewDescriptor = null;[\s\S]*?if \(sqlDialog\.isOpen\) sqlDialog\.close\(\);/u, "invalidating the dataset closes and clears the stale preview");
+    assert.match(source, /if \(enumDraftPending\(\) \|\| !sqlDialog\.open\(trigger\)\) return/u, "repeated clicks do not reopen duplicate dialogs and invalid drafts cannot open stale SQL");
+    assert.match(source, /button\.disabled = pendingEnumDraft \|\| !viewModel\.export\.enabled/u, "preview is disabled without a current exportable dataset or with an invalid candidate draft");
+    assert.match(source, /if \(pendingEnumDraft \|\| !viewModel\.export\.enabled\) \{[\s\S]*?sqlPreviewDescriptor = null;[\s\S]*?if \(sqlDialog\.isOpen\) sqlDialog\.close\(\);/u, "invalidating the dataset or candidate draft closes and clears the stale preview");
     assert.doesNotMatch(source, /sswb-sql-details|sswb-sql-content|sswb-sql-preview-error/u, "the bottom disclosure and textarea are removed");
     assert.doesNotMatch(source, /exportInsertSql|sql-exporter\.mjs/u, "the browser UI does not add a second SQL serializer");
   });

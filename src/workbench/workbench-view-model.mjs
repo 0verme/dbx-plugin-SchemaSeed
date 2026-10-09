@@ -10,6 +10,7 @@ import {
   schemaTypeStateLabel,
 } from "../i18n/labels.mjs";
 import { SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
+import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 
 /**
  * Convert one Core column plan into a presentation-neutral view model.
@@ -41,6 +42,9 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
     inferenceStatus: inference.status,
   });
   const mappingStatus = mappingStatusLabel(mappingStatusToken, t, kind ? { kind: ruleKindLabel(kind, t) } : undefined);
+  const invalidExplicitRule = column.rule.kind === "unsupported" && column.rule.source === "explicit_user_rule"
+    && diagnostics.some((entry) => entry.column === column.schema.name
+      && ["generation_rule_invalid", "generation_rule_incompatible"].includes(entry.code));
 
   const detectedKey = inference.status === "ambiguous" ? "ambiguous" : "semantic";
   const detectedInput = {
@@ -51,6 +55,7 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
   return {
     column: column.schema.name,
     schemaType: formatSchemaType(column.schema, t),
+    schemaFamily: interpretColumnType(column.schema)?.kind ?? null,
     detected: detectedLabel(detectedInput, t),
     detectedKey,
     detectedType: inference.semanticType,
@@ -67,6 +72,7 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
       semanticMapping,
       generationRule,
       ruleKind: column.rule.kind,
+      invalidExplicitRule,
     }, t),
     mappingStatus,
     mappingStatusToken,
@@ -120,6 +126,7 @@ export function mappingStatusTokenFor(input) {
 
 /** @param {{ isSelectedSemantic: boolean, rejectedMapping: boolean, semanticMapping: Record<string, any>, generationRule: Record<string, any>, ruleKind: string }} input @param {import("../i18n/index.mjs").Translator} t */
 function selectedMappingLabel(input, t) {
+  if (input.invalidExplicitRule) return t("generatorKind.invalidRule");
   if (input.isSelectedSemantic || input.rejectedMapping) {
     return semanticTypeLabel(input.semanticMapping.semanticType, t);
   }
