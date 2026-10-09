@@ -14,7 +14,6 @@
 export const EN_US_MESSAGES = Object.freeze({
   // Application shell.
   "app.titleSuffix": "Generation Workbench",
-  "app.subtitle": "DBX Table Context · schema-aware synthetic data",
   "app.boot.connecting": "Connecting to the DBX Plugin Host…",
   "app.boot.bridgeUnavailable": "The DBX Plugin Host bridge is unavailable.",
   "app.boot.errorTitle": "SchemaSeed failed to load",
@@ -25,19 +24,19 @@ export const EN_US_MESSAGES = Object.freeze({
 
   // Table context.
   "context.title": "Current table",
-  "context.caption": "Uses the DBX TableContext directly; database / schema are optional",
   "context.database": "Database",
   "context.schema": "Schema",
   "context.table": "Table",
   "dataAccess.title": "Data access",
-  "dataAccess.description": "Only after DBX Host obtains your consent for this plugin and connection may SchemaSeed sample up to 8 rows from candidate columns through the read-only Host Data API. Sensitive raw values are processed briefly in memory only to derive safe features, then discarded; they are never displayed or persisted.",
+  "dataAccess.description": "Real-data sampling requires DBX Host authorization, reads at most 100 rows, and is used only to infer field rules.",
+  "dataAccess.detailsSummary": "Learn more",
+  "dataAccess.detailsDescription": "DBX Host manages authorization for each plugin and connection. Read-only sampling uses only privacy-screened candidate fields (up to 16 columns per request). Raw samples exist only in memory for this inference and are never persisted or shown in previews, logs, or error messages; only safe field features, distributions, or code values are retained for inference. Sampling does not run when authorization is denied, the capability is unavailable, or a query fails.",
 
   // Dataset controls.
-  "controls.rows": "Rows",
-  "controls.rowsRange": "1–100",
+  "controls.rows": "Rows (1–1000)",
   "controls.seed": "Seed",
   "controls.dataLocale": "Data language",
-  "controls.localeNote": "UI language changes interface text only. Data language (zh-CN / en) only shapes synthetic generated values. The two are independent.",
+  "controls.dataLocaleHelp": "Shapes generated values only; it does not change the interface language.",
   "controls.uiLocale": "UI language",
 
   // Primary actions.
@@ -50,7 +49,6 @@ export const EN_US_MESSAGES = Object.freeze({
   "columns.title": "Columns and generation strategy",
   "columns.summary": "{count} fields",
   "columns.summaryPending": "{count} fields · {pending} to confirm",
-  "columns.caption": "Generator, semantic mapping and evidence come from the current GenerationPlan",
   "columns.sampleHint.used": "Field recognition was refined using schema metadata and a small data sample.",
   "columns.sampleHint.metadataOnly": "Field recognition is based on schema metadata.",
   "columns.header.column": "Column",
@@ -71,7 +69,7 @@ export const EN_US_MESSAGES = Object.freeze({
   // Rule editor state line.
   "ruleEditor.state.loading": "Load a DBX table schema before editing generation rules.",
   "ruleEditor.state.validating": "Core is validating the updated rule; Preview and Export remain invalidated.",
-  "ruleEditor.state.generating": "GenerationPlan and dataset are being rebuilt…",
+  "ruleEditor.state.generating": "Regenerating synthetic test data…",
   "ruleEditor.state.error": "Rule Editor is unavailable because the Host or runtime request failed.",
   "ruleEditor.state.dirty": "Rules are validated; preview is stale. Generate to create a dataset.",
   "ruleEditor.state.blocked": "A rule or schema diagnostic blocks generation; fix it before Generate or Export.",
@@ -289,8 +287,12 @@ export const EN_US_MESSAGES = Object.freeze({
   // Preview.
   "preview.title": "Preview",
   "preview.caption.waitingContext": "Waiting for a valid DBX TableContext",
-  "preview.caption.waitingPlan": "Waiting for GenerationPlan",
-  "preview.summary": "{rows} rows · seed {seed} · data language {locale} · {profile}",
+  "preview.caption.waitingPlan": "Waiting for generation settings",
+  "preview.summary": "{rows} rows · seed {seed}",
+  "preview.pagination.ariaLabel": "Preview pagination",
+  "preview.pagination.previous": "Previous",
+  "preview.pagination.next": "Next",
+  "preview.pagination.info": "Showing rows {start}–{end} of {total} (page {page} of {pages})",
   "preview.readonly": "READ ONLY",
   "preview.null": "NULL",
   "preview.sqlTitle": "INSERT SQL preview",
@@ -309,20 +311,19 @@ export const EN_US_MESSAGES = Object.freeze({
   // Preview / export state line.
   "state.dirty": "Rules changed, so the previous Preview and Export are stale; generate the dataset again.",
   "state.loading.metadata": "Reading the current table metadata through the DBX Host API…",
-  "state.loading.generation": "Building the GenerationPlan and generating the preview…",
+  "state.loading.generation": "Generating the synthetic data preview…",
   "state.blocked.metadataCapability": "This DBX runtime does not expose the Schema Metadata capability, so this table cannot be generated.",
-  "state.blocked.plan": "The current GenerationPlan is blocked; no dataset is generated or exported. Resolve the blocking items in Diagnostics first.",
+  "state.blocked.plan": "The current generation settings have blocking issues, so no data can be generated or exported. Resolve the issues shown below first.",
   "state.blocked.context": "The TableContext is invalid or its metadata is unavailable; reopen this Workbench from the DBX sidebar table context menu.",
   "state.error": "The Host API or Generation Runtime request failed.",
   "state.warning": "Preview is ready, but Core diagnostics contain warning / unsupported facts.",
-  "state.ready": "Preview matches the current GenerationPlan; Export reuses the same dataset.",
+  "state.ready": "Generation complete. Review or export the preview below.",
 
   // Export.
   "export.csv": "Export CSV",
   "export.json": "Export JSON",
   "export.sql": "Export INSERT SQL",
   "export.unavailable": "Export is available after a successful preview.",
-  "export.ready": "Export reuses the same dataset as the current Preview.",
   "export.disabledHint": "Export stays disabled while Preview is unavailable or a blocking diagnostic is present.",
   "export.saving": "Preparing the export…",
   "export.waiting": "Waiting for the system save dialog…",
@@ -334,7 +335,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "export.failed": "Export failed: {code} · {message}",
   "export.error.export_host_save_unavailable": "This DBX version does not support saving files; please update DBX.",
   "export.error.export_host_save_failed": "The system save dialog or the file write failed.",
-  "export.error.export_blocked_plan": "The current GenerationPlan is blocked and cannot be exported.",
+  "export.error.export_blocked_plan": "The current generation settings have blocking issues and cannot be exported.",
   "export.error.export_no_dataset": "Export needs a successfully generated preview of the current table.",
   "export.error.export_no_table_reference": "The current table has no database / schema / table reference, so INSERT SQL cannot be generated.",
   "export.error.export_serialization_failed": "A value cannot be safely serialized, so the export stopped.",
@@ -342,10 +343,10 @@ export const EN_US_MESSAGES = Object.freeze({
 
   // Errors surfaced by Workbench actions.
   "error.actionFailed": "Action rejected: {message}",
+  "error.invalidRowCount": "Row count must be a whole number from 1 to 1000.",
 
-  // Safety and footer statements.
-  "safety.notice": "Generated values are synthetic test data and are not sourced from real PII.",
-  "footer.statement": "Production DBX Workbench · No fixture fallback · No second database connection · No database writes",
+  // Safety notice.
+  "safety.notice": "Preview shows synthetic test data only; it does not display or reuse real personal information.",
 
   // Locale switcher option labels (each language names itself).
   "uiLocale.zh-CN": "简体中文",
@@ -464,8 +465,8 @@ export const EN_US_DIAGNOSTICS = Object.freeze({
   },
   invalid_row_count: {
     title: "The row count is out of range",
-    description: "The requested number of rows is outside the range the Workbench accepts (1–100).",
-    action: "Choose a row count between 1 and 100.",
+    description: "The row count must be a whole number from 1 to 1000.",
+    action: "Enter a whole number from 1 to 1000.",
   },
   invalid_locale: {
     title: "The data language is not supported",
@@ -558,8 +559,8 @@ export const EN_US_DIAGNOSTICS = Object.freeze({
     action: "Relax the rule bounds or correct the schema facts so at least one value fits.",
   },
   invalid_generation_plan: {
-    title: "The GenerationPlan is not valid",
-    description: "The plan failed its own contract checks, so SchemaSeed will neither generate nor export from it.",
+    title: "Generation settings are invalid",
+    description: "The generation settings did not pass validation, so no data was generated or exported.",
     action: "Re-generate the plan; report the diagnostics if the plan stays invalid.",
   },
   generation_runtime_failed: {

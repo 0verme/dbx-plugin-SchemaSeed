@@ -4,6 +4,7 @@ import { allocateConstraintRows } from "./constraint-allocation.mjs";
 import { digestFor, randomBigIntBelow, randomBigIntBelowUniform, randomUnit } from "./generation-identity.mjs";
 import { validateDatasetConstraints } from "./manual-constraints.mjs";
 import { generatePersonSyntheticValue } from "./person-synthetic.mjs";
+import { MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "./row-count.mjs";
 
 const STRING_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const DAY_MS = 86_400_000;
@@ -29,6 +30,20 @@ export function generateRows(plan) {
     return { rows: [], diagnostics, status: "blocked" };
   }
   if (plan.status === "blocked") return { rows: [], diagnostics: [...plan.diagnostics], status: "blocked" };
+  if (!Number.isSafeInteger(plan.rowCount)
+    || plan.rowCount < MIN_GENERATION_ROW_COUNT || plan.rowCount > MAX_GENERATION_ROW_COUNT) {
+    const diagnostics = [
+      ...plan.diagnostics,
+      makeDiagnostic({
+        severity: "error",
+        code: "invalid_row_count",
+        table: plan.table?.tableIdentity,
+        rule: "generation-engine",
+        reason: `rowCount must be an integer from ${MIN_GENERATION_ROW_COUNT} through ${MAX_GENERATION_ROW_COUNT}`,
+      }),
+    ];
+    return { rows: [], diagnostics, status: "blocked" };
+  }
 
   const rows = [];
   const constrainedRows = plan.constraintPlan?.allocations?.length

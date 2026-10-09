@@ -1,3 +1,5 @@
+import { paginatePreviewRows } from "../src/workbench/preview-pagination.mjs";
+
 const STATUS_LABELS = {
   loading: "加载中",
   empty: "无 fixture",
@@ -23,7 +25,7 @@ export function exportButtonState(viewModel) {
   return Object.freeze({ csv: enabled, json: enabled });
 }
 
-export function renderWorkbench(viewModel) {
+export function renderWorkbench(viewModel, previewPage = 0) {
   const statusBadge = byId("status-badge");
   statusBadge.textContent = STATUS_LABELS[viewModel.status] ?? viewModel.status;
   statusBadge.dataset.status = viewModel.status;
@@ -49,7 +51,7 @@ export function renderWorkbench(viewModel) {
   renderMappings(viewModel.columns);
   renderPersonGroups(viewModel.personGroups);
   renderDiagnostics(viewModel.diagnostics, viewModel.information ?? []);
-  renderPreview(viewModel);
+  renderPreview(viewModel, previewPage);
   renderExport(viewModel);
 }
 
@@ -210,20 +212,28 @@ function renderDiagnostics(diagnostics, information) {
   }
 }
 
-function renderPreview(viewModel) {
+function renderPreview(viewModel, requestedPage) {
   const plan = viewModel.plan;
   const summary = byId("preview-summary");
   const state = byId("preview-state");
   const notice = byId("safe-synthetic-notice");
   const head = byId("preview-columns");
   const body = byId("preview-rows");
+  const paginationNav = byId("preview-pagination");
   head.replaceChildren();
   body.replaceChildren();
   state.replaceChildren();
-  notice.textContent = plan ? `Safe Synthetic · ${viewModel.safeSyntheticNotice}` : "";
+  notice.textContent = plan ? viewModel.safeSyntheticNotice : "";
+  const pagination = paginatePreviewRows(viewModel.preview.rows, requestedPage);
+  paginationNav.hidden = pagination.pageCount <= 1;
+  byId("preview-page-info").textContent = pagination.pageCount > 1
+    ? `Rows ${pagination.startRow}–${pagination.endRow} of ${pagination.totalRows} · Page ${pagination.page + 1}/${pagination.pageCount}`
+    : "";
+  paginationNav.querySelector('[data-preview-page="previous"]').disabled = pagination.page === 0;
+  paginationNav.querySelector('[data-preview-page="next"]').disabled = pagination.page >= pagination.pageCount - 1;
 
   if (viewModel.status === "loading") {
-    summary.textContent = "正在构建 GenerationPlan 并生成 preview…";
+    summary.textContent = "正在生成数据预览…";
     state.textContent = "Loading";
     state.dataset.kind = "loading";
     return;
@@ -242,16 +252,16 @@ function renderPreview(viewModel) {
     return;
   }
   if (!plan) {
-    summary.textContent = "等待可用的 GenerationPlan";
+    summary.textContent = "等待生成设置";
     state.textContent = viewModel.status === "empty" ? "没有可用 fixture。" : "Preview blocked。";
     state.dataset.kind = "blocked";
     return;
   }
 
-  summary.textContent = `${plan.rowCount} rows · seed ${plan.seed} · ${plan.locale}`;
+  summary.textContent = `${plan.rowCount} 行 · 种子 ${plan.seed}`;
   state.textContent = viewModel.status === "blocked"
-    ? "Preview blocked：Core plan 标记为 blocking；没有生成 rows。"
-    : `GenerationPlan ${plan.status} · ${viewModel.preview.rows.length} rows`;
+    ? "当前生成设置存在问题，未生成数据。"
+    : `生成完成，共 ${viewModel.preview.rows.length} 行。`;
   state.dataset.kind = viewModel.status === "blocked" ? "blocked" : "ready";
   for (const column of viewModel.preview.columns) {
     const cell = document.createElement("th");
@@ -259,7 +269,7 @@ function renderPreview(viewModel) {
     cell.textContent = column;
     head.append(cell);
   }
-  for (const previewRow of viewModel.preview.rows) {
+  for (const previewRow of pagination.rows) {
     const row = document.createElement("tr");
     for (const column of viewModel.preview.columns) {
       const cell = document.createElement("td");

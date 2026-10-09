@@ -9,7 +9,6 @@
 export const ZH_CN_MESSAGES = Object.freeze({
   // Application shell.
   "app.titleSuffix": "测试数据生成",
-  "app.subtitle": "基于当前表结构生成测试数据",
   "app.boot.connecting": "正在连接 DBX Plugin Host…",
   "app.boot.bridgeUnavailable": "DBX Plugin Host bridge 不可用。",
   "app.boot.errorTitle": "SchemaSeed 加载失败",
@@ -20,19 +19,19 @@ export const ZH_CN_MESSAGES = Object.freeze({
 
   // Table context.
   "context.title": "当前表",
-  "context.caption": "直接使用 DBX 传入的表上下文；database / schema 可选",
   "context.database": "数据库",
   "context.schema": "Schema",
   "context.table": "数据表",
   "dataAccess.title": "数据访问",
-  "dataAccess.description": "仅在 DBX Host 获得你对此插件和连接的授权后，SchemaSeed 才会通过只读 Host Data API 对最多 8 行候选字段进行采样。敏感原始值仅在内存中短暂处理以提取安全特征，随后丢弃；不会展示或持久化。",
+  "dataAccess.description": "真实采样需经 DBX Host 授权，最多读取 100 行，仅用于字段规则推断。",
+  "dataAccess.detailsSummary": "了解详情",
+  "dataAccess.detailsDescription": "DBX Host 按插件和连接管理授权。仅对通过隐私筛选的候选字段（每次最多 16 列）进行只读采样。原始样本只在本次内存处理中使用，不会持久化，也不会出现在预览、日志或错误信息中；系统仅保留安全的字段特征、分布或码值用于推断。拒绝授权、能力不可用或查询失败时不会采样。",
 
   // Dataset controls.
-  "controls.rows": "生成行数",
-  "controls.rowsRange": "1–100",
+  "controls.rows": "生成行数（1–1000）",
   "controls.seed": "随机种子",
   "controls.dataLocale": "数据语言",
-  "controls.localeNote": "“界面语言”只改变界面文字；“数据语言”（zh-CN / en）只影响生成值的语言形态。两者互不影响。",
+  "controls.dataLocaleHelp": "只影响生成值的语言形态，不改变界面语言。",
   "controls.uiLocale": "界面语言",
 
   // Primary actions.
@@ -45,7 +44,6 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "columns.title": "字段与生成策略",
   "columns.summary": "{count} 个字段",
   "columns.summaryPending": "{count} 个字段 · {pending} 个待确认",
-  "columns.caption": "生成策略、语义识别与证据来自当前 GenerationPlan",
   "columns.sampleHint.used": "已结合表结构与少量数据样本优化字段识别",
   "columns.sampleHint.metadataOnly": "根据表结构识别字段类型与语义",
   "columns.header.column": "字段名",
@@ -66,7 +64,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   // Rule editor state line.
   "ruleEditor.state.loading": "请先打开一个 DBX 表，再编辑生成规则。",
   "ruleEditor.state.validating": "正在由 Core 校验新规则；校验期间预览与导出不可用。",
-  "ruleEditor.state.generating": "正在重建 GenerationPlan 与数据集…",
+  "ruleEditor.state.generating": "正在重新生成测试数据…",
   "ruleEditor.state.error": "Host 或 Generation Runtime 请求失败，规则编辑器暂不可用。",
   "ruleEditor.state.dirty": "规则已通过校验，但预览已过期；请重新生成。",
   "ruleEditor.state.blocked": "存在规则或表结构问题，暂时无法生成或导出；请先处理这些问题。",
@@ -283,8 +281,12 @@ export const ZH_CN_MESSAGES = Object.freeze({
   // Preview.
   "preview.title": "数据预览",
   "preview.caption.waitingContext": "等待有效的 DBX 表上下文",
-  "preview.caption.waitingPlan": "等待 GenerationPlan",
-  "preview.summary": "{rows} 行 · 随机种子 {seed} · 数据语言 {locale} · {profile}",
+  "preview.caption.waitingPlan": "等待生成设置准备就绪",
+  "preview.summary": "{rows} 行 · 种子 {seed}",
+  "preview.pagination.ariaLabel": "预览分页",
+  "preview.pagination.previous": "上一页",
+  "preview.pagination.next": "下一页",
+  "preview.pagination.info": "显示第 {start}–{end} 行，共 {total} 行（第 {page}/{pages} 页）",
   "preview.readonly": "只读",
   "preview.null": "NULL",
   "preview.sqlTitle": "INSERT SQL 预览",
@@ -303,20 +305,19 @@ export const ZH_CN_MESSAGES = Object.freeze({
   // Preview / export state line.
   "state.dirty": "规则已更新，旧的预览与导出已失效；请重新生成当前规则的数据。",
   "state.loading.metadata": "正在通过 DBX Host API 读取当前表结构…",
-  "state.loading.generation": "正在构建 GenerationPlan 并生成预览…",
+  "state.loading.generation": "正在生成测试数据预览…",
   "state.blocked.metadataCapability": "当前 DBX runtime 未提供 Schema Metadata 能力，因此无法为这张表生成数据。",
   "state.blocked.plan": "当前存在阻塞问题，暂时无法生成或导出测试数据。请先处理上方“问题诊断”中的阻塞项。",
   "state.blocked.context": "表上下文无效或表结构不可用；请从 DBX 侧边栏的表右键菜单重新打开本工作台。",
   "state.error": "Host API 或 Generation Runtime 请求失败。",
   "state.warning": "预览已生成，但 Core 诊断中包含警告或不支持的事实。",
-  "state.ready": "预览与当前 GenerationPlan 一致；导出的数据与预览完全相同。",
+  "state.ready": "生成完成，可在下方预览或导出。",
 
   // Export.
   "export.csv": "导出 CSV",
   "export.json": "导出 JSON",
   "export.sql": "导出 INSERT SQL",
   "export.unavailable": "生成预览成功后才可导出。",
-  "export.ready": "导出的数据与当前预览完全相同。",
   "export.disabledHint": "预览不可用或存在阻塞诊断时，导出保持禁用。",
   "export.saving": "正在准备保存…",
   "export.waiting": "请在系统保存窗口中确认…",
@@ -328,7 +329,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "export.failed": "导出失败：{code} · {message}",
   "export.error.export_host_save_unavailable": "当前 DBX 版本不支持文件保存，请升级 DBX。",
   "export.error.export_host_save_failed": "系统保存窗口或写入文件时出错。",
-  "export.error.export_blocked_plan": "当前 GenerationPlan 被阻塞，无法导出。",
+  "export.error.export_blocked_plan": "当前生成设置存在阻塞问题，无法导出。",
   "export.error.export_no_dataset": "导出需要先成功生成当前表的数据预览。",
   "export.error.export_no_table_reference": "当前表缺少 database / schema / table 上下文，无法生成 INSERT SQL。",
   "export.error.export_serialization_failed": "当前数据无法安全序列化，已停止导出。",
@@ -336,10 +337,10 @@ export const ZH_CN_MESSAGES = Object.freeze({
 
   // Errors surfaced by Workbench actions.
   "error.actionFailed": "操作未生效：{message}",
+  "error.invalidRowCount": "生成行数必须是 1 到 1000 之间的整数。",
 
-  // Safety and footer statements.
-  "safety.notice": "生成的数据均为合成测试数据，不来源于真实个人信息。",
-  "footer.statement": "Production DBX Workbench · 不使用 fixture 兜底 · 不建立第二条数据库连接 · 不写入数据库",
+  // Safety notice.
+  "safety.notice": "预览仅展示合成测试数据，不直接展示或复用真实个人信息。",
 
   // Locale switcher option labels (each language names itself).
   "uiLocale.zh-CN": "简体中文",
@@ -454,8 +455,8 @@ export const ZH_CN_DIAGNOSTICS = Object.freeze({
   },
   invalid_row_count: {
     title: "生成行数超出范围",
-    description: "请求的行数不在工作台允许的范围（1–100）内。",
-    action: "请把行数设置在 1 到 100 之间。",
+    description: "生成行数必须是 1 到 1000 之间的整数。",
+    action: "请输入 1 到 1000 之间的整数。",
   },
   invalid_locale: {
     title: "不支持该数据语言",
@@ -548,8 +549,8 @@ export const ZH_CN_DIAGNOSTICS = Object.freeze({
     action: "请放宽规则取值范围，或修正表结构信息，使至少有一个取值可用。",
   },
   invalid_generation_plan: {
-    title: "GenerationPlan 无效",
-    description: "生成计划未通过自身的契约检查，SchemaSeed 不会用它生成或导出数据。",
+    title: "生成设置无效",
+    description: "生成配置未通过检查，因此没有生成或导出数据。",
     action: "请重新生成计划；若仍然无效，请报告相关诊断信息。",
   },
   generation_runtime_failed: {

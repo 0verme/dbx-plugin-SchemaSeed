@@ -6,7 +6,7 @@ let viewModel = {
   status: "loading",
   fixtures: [],
   selectedFixture: null,
-  controls: { rowCount: 20, seed: "demo", locale: "zh-CN" },
+  controls: { rowCount: 50, seed: "demo", locale: "zh-CN" },
   columns: [],
   personGroups: [],
   diagnostics: [],
@@ -15,10 +15,11 @@ let viewModel = {
 };
 let busy = false;
 let exportMessage = "";
+let previewPage = 0;
 renderState();
 
 function renderState(nextViewModel = viewModel) {
-  renderWorkbench({ ...nextViewModel, exportMessage, exportBusy: busy });
+  renderWorkbench({ ...nextViewModel, exportMessage, exportBusy: busy }, previewPage);
 }
 
 controls.addEventListener("submit", (event) => event.preventDefault());
@@ -50,8 +51,13 @@ root.addEventListener("change", (event) => {
 });
 
 root.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-action], [data-confirm-column], [data-export-format]");
+  const target = event.target.closest("[data-action], [data-confirm-column], [data-export-format], [data-preview-page]");
   if (!target) return;
+  if (target.dataset.previewPage) {
+    previewPage += target.dataset.previewPage === "next" ? 1 : -1;
+    renderState();
+    return;
+  }
   if (target.dataset.confirmColumn) {
     void dispatch({ type: "confirm-detected", column: target.dataset.confirmColumn });
     return;
@@ -79,6 +85,7 @@ async function initialize() {
 
 async function dispatch(action) {
   if (busy) return;
+  previewPage = 0;
   busy = true;
   setBusy(true);
   renderState({ ...viewModel, status: "loading", actionError: null });

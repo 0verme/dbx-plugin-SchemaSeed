@@ -80,10 +80,6 @@ export function previewSummary(viewModel, t) {
     return t("preview.summary", {
       rows: viewModel.plan.rowCount,
       seed: viewModel.plan.seed,
-      // The generation locale is a data-language value, not the UI language:
-      // it is shown as the raw setting so the two cannot be confused.
-      locale: viewModel.plan.locale,
-      profile: viewModel.plan.determinismProfile,
     });
   }
   return viewModel.context ? t("preview.caption.waitingPlan") : t("preview.caption.waitingContext");
@@ -96,7 +92,7 @@ export function previewSummary(viewModel, t) {
 export function exportStatusMessage(viewModel, t) {
   if (viewModel.status === "blocked") return t("export.error.export_blocked_plan");
   if (viewModel.status === "loading" || !viewModel.export?.enabled) return t("export.unavailable");
-  return t("export.ready");
+  return "";
 }
 
 /**
@@ -160,5 +156,7 @@ export function exportErrorMessage(error, t) {
  * @param {unknown} message @param {import("./index.mjs").Translator} t
  */
 export function actionErrorMessage(message, t) {
-  return t("error.actionFailed", { message: String(message ?? "") });
+  const value = String(message ?? "");
+  if (/^Rows must be an integer from \d+ to \d+$/u.test(value)) return t("error.invalidRowCount");
+  return t("error.actionFailed", { message: value });
 }

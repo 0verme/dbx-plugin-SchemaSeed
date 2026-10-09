@@ -29,12 +29,12 @@ async function profileFixture() {
   const result = await probeDbxDataSamples({
     capabilities: { dataApi: true },
     async queryData(request) {
-      assert.equal(request.maxRows, 8);
+      assert.equal(request.maxRows, 100);
       assert.equal(request.timeoutMs, 3_000);
       assert.doesNotMatch(request.sql, /\bid\b|task_id|message/);
       return {
         columns: candidates.map(({ name }) => ({ name })),
-        rows: fixture.sampleRows.slice(0, 8).map((row) => candidates.map(({ name }) => row[name])),
+        rows: fixture.sampleRows.slice(0, 100).map((row) => candidates.map(({ name }) => row[name])),
       };
     },
   }, tableContext, schema);

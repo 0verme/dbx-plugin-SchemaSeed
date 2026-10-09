@@ -84,10 +84,10 @@ describe("DBX Generation Workbench production controller", () => {
     assert.deepEqual(calls, [{ connectionId: "connection-A", schema: "public", table: "customer" }]);
     assert.deepEqual(view.context, context);
     assert.deepEqual(view.table, { database: null, schema: "public", table: "customer" });
-    assert.equal(view.plan.rowCount, 20);
+    assert.equal(view.plan.rowCount, 50);
     assert.equal(view.columns[0].generationRule.kind, "auto");
     assert.ok(view.columns[0].ruleChoices.some((choice) => choice.kind === "sequence"));
-    assert.equal(view.preview.rows.length, 20);
+    assert.equal(view.preview.rows.length, 50);
     assert.deepEqual(view.preview.columns, ["customer_id", "display_name"]);
     assert.equal(view.export.enabled, true);
     assert.equal(view.sampleUsed, false, "a missing sample probe keeps the Workbench in metadata-only mode");
@@ -176,7 +176,7 @@ describe("DBX Generation Workbench production controller", () => {
     assert.ok(csv.content.startsWith("\uFEFFcustomer_id,display_name"));
     assert.deepEqual(JSON.parse(json.content), sameSeed.preview.rows);
     assert.equal(csv.summary.rowCount, sameSeed.preview.rows.length);
-    assert.equal(firstDataset.rows.length, 20);
+    assert.equal(firstDataset.rows.length, 50);
 
     view = await controller.dispatch({ type: "new-seed" });
     assert.equal(view.controls.seed, "fresh-seed");
@@ -215,7 +215,7 @@ describe("DBX Generation Workbench production controller", () => {
 
     view = await controller.dispatch({ type: "generate" });
     assert.equal(view.status, "warning", "the unrelated inferred display_name candidate retains its Core warning");
-    assert.deepEqual(view.preview.rows.map((row) => row.customer_id), Array.from({ length: 20 }, (_v, index) => 40 + index * 3));
+    assert.deepEqual(view.preview.rows.map((row) => row.customer_id), Array.from({ length: 50 }, (_v, index) => 40 + index * 3));
     const generated = structuredClone(view.preview.rows);
     const exported = JSON.parse(controller.prepareExport("json").content);
     assert.deepEqual(exported, generated);
@@ -277,7 +277,7 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.status, "dirty");
     view = await controller.dispatch({ type: "generate" });
     assert.equal(view.status, "warning");
-    assert.equal(view.preview.rows.length, 20);
+    assert.equal(view.preview.rows.length, 50);
     assert.equal(view.export.enabled, true);
 
     view = await controller.dispatch({ type: "delete-constraint", id: "manual-1" });
@@ -287,7 +287,7 @@ describe("DBX Generation Workbench production controller", () => {
     assert.equal(view.export.enabled, false);
     view = await controller.dispatch({ type: "generate" });
     assert.equal(view.status, "warning");
-    assert.equal(view.preview.rows.length, 20);
+    assert.equal(view.preview.rows.length, 50);
     assert.equal(view.export.enabled, true);
   });
 
@@ -366,7 +366,7 @@ describe("DBX Generation Workbench production controller", () => {
     view = await createController({ provider: warningProvider }).setContext(BASE_CONTEXT);
     assert.equal(view.status, "warning");
     assert.equal(view.plan.status, "ready_with_warnings");
-    assert.equal(view.preview.rows.length, 20);
+    assert.equal(view.preview.rows.length, 50);
     assert.equal(view.export.enabled, true);
     assert.ok(view.diagnostics.some((diagnostic) => diagnostic.code === "nullability_unknown"));
   });

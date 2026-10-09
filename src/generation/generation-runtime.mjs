@@ -1,7 +1,6 @@
 import { generateRows } from "./generation-engine.mjs";
 import { buildGenerationPlan } from "./generation-plan.mjs";
-
-const MAX_PREVIEW_ROWS = 100;
+import { MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "./row-count.mjs";
 const ALLOWED_OPTIONS = new Set(["rowCount", "seed", "locale", "mode", "rules", "constraints", "validateOnly", "semanticOverrides", "semanticMappings", "sampleEvidence"]);
 const SAMPLE_EVIDENCE_FIELDS = new Set([
   "column", "kind", "sampleCount", "matchedCount", "distinctCount", "min", "max", "zeroCount", "candidates", "suffixes",
@@ -39,8 +38,10 @@ function validateParams(params) {
   }
   const unknownOptions = Object.keys(params.options).filter((key) => !ALLOWED_OPTIONS.has(key));
   if (unknownOptions.length > 0) throw new TypeError(`Unsupported generation option(s): ${unknownOptions.join(", ")}`);
-  if (!Number.isSafeInteger(params.options.rowCount) || params.options.rowCount < 1 || params.options.rowCount > MAX_PREVIEW_ROWS) {
-    throw new RangeError(`Workbench preview rows must be from 1 to ${MAX_PREVIEW_ROWS}`);
+  if (!Number.isSafeInteger(params.options.rowCount)
+    || params.options.rowCount < MIN_GENERATION_ROW_COUNT
+    || params.options.rowCount > MAX_GENERATION_ROW_COUNT) {
+    throw new RangeError(`Workbench preview rows must be from ${MIN_GENERATION_ROW_COUNT} to ${MAX_GENERATION_ROW_COUNT}`);
   }
   if (typeof params.options.seed !== "string") throw new TypeError("Workbench preview seed must be text");
   if (params.options.validateOnly !== undefined && typeof params.options.validateOnly !== "boolean") {

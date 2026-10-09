@@ -183,9 +183,9 @@ test("runtime transports bounded sample profiles and rejects copied row values",
 });
 
 test("runtime rejects oversized or malformed preview input without generating rows", () => {
-  const tooManyRows = handleRuntimeRpcRequest(request({ schema, options: { ...options, rowCount: 101 } }));
+  const tooManyRows = handleRuntimeRpcRequest(request({ schema, options: { ...options, rowCount: 1_001 } }));
   assert.equal(tooManyRows.error.code, -32602);
-  assert.match(tooManyRows.error.message, /1 to 100/);
+  assert.match(tooManyRows.error.message, /1 to 1000/);
 
   const invalidSchema = handleRuntimeRpcRequest(request({ schema: { columns: [] }, options }));
   assert.equal(invalidSchema.error.code, -32602);

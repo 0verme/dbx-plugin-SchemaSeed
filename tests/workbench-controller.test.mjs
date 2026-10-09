@@ -44,12 +44,12 @@ describe("Fixture-driven WorkbenchController", () => {
     const initial = await workbench.initialize();
 
     assert.equal(initial.selectedFixture, "simple_customer");
-    assert.equal(initial.controls.rowCount, 20);
+    assert.equal(initial.controls.rowCount, 50);
     assert.equal(initial.controls.seed, "demo");
     assert.equal(initial.controls.locale, "zh-CN");
-    assert.equal(initial.plan.rowCount, 20);
+    assert.equal(initial.plan.rowCount, 50);
     assert.equal(initial.plan.seed, "demo");
-    assert.equal(initial.preview.rows.length, 20);
+    assert.equal(initial.preview.rows.length, 50);
     assert.equal(initial.plan.determinismProfile, "sha256-addressed-v1");
     assert.equal(initial.plan.mode, "safe_synthetic");
     assert.equal(initial.information[0].code, "safe_synthetic_mode");
@@ -166,15 +166,15 @@ describe("Fixture-driven WorkbenchController", () => {
     assert.notEqual(english.preview.rows[0].customer_name, confirmed.preview.rows[0].customer_name);
   });
 
-  it("rejects Workbench row counts outside 1–100 without changing the prior preview", async () => {
+  it("rejects Workbench row counts outside 1–1000 without changing the prior preview", async () => {
     const workbench = controller();
     const initial = await workbench.initialize();
-    assert.equal(WORKBENCH_MAX_ROW_COUNT, 100);
-    const invalid = await workbench.dispatch({ type: "update-controls", controls: { rowCount: 101 } });
+    assert.equal(WORKBENCH_MAX_ROW_COUNT, 1000);
+    const invalid = await workbench.dispatch({ type: "update-controls", controls: { rowCount: 1_001 } });
 
     assert.equal(invalid.controls.rowCount, initial.controls.rowCount);
     assert.equal(invalid.preview.rows.length, initial.preview.rows.length);
-    assert.match(invalid.actionError, /1 to 100/);
+    assert.match(invalid.actionError, /1 to 1000/);
   });
 
   it("blocks an incompatible override and keeps preview rows empty", async () => {
@@ -222,7 +222,7 @@ describe("Fixture-driven WorkbenchController", () => {
     assert.equal(partial.status, "ready_with_warnings");
     assert.equal(partial.personGroups[0].status, "partial");
     assert.ok(diagnostic(partial, "person_group_partial"));
-    assert.equal(partial.preview.rows.length, 20);
+    assert.equal(partial.preview.rows.length, 50);
     assert.equal("person_gender" in partial.preview.rows[0], false);
   });
 

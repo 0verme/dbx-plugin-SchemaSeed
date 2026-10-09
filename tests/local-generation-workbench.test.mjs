@@ -32,7 +32,7 @@ test("Workbench preview executes the shared Generation Core locally without Host
   const view = await controller.setContext(context);
 
   assert.ok(["ready", "warning"].includes(view.status));
-  assert.equal(view.preview.rows.length, 20);
+  assert.equal(view.preview.rows.length, 50);
   assert.deepEqual(view.preview.columns, ["customer_id", "display_name"]);
   assert.equal(view.export.enabled, true);
   assert.equal(view.sampleUsed, false, "unavailable Data API keeps generation metadata-only");

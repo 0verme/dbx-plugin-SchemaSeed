@@ -372,10 +372,10 @@ describe("Generation Core and fixture preview", () => {
     assert.equal(plan.status, "blocked");
   });
 
-  it("uses 20 rows only as the preview layer default", async () => {
+  it("uses 50 rows only as the preview layer default", async () => {
     const preview = await previewFixture({ fixtureName: "simple_customer", seed: "preview-default" });
-    assert.equal(preview.plan.rowCount, 20);
-    assert.equal(preview.rows.length, 20);
+    assert.equal(preview.plan.rowCount, 50);
+    assert.equal(preview.rows.length, 50);
     const missingCoreCount = buildGenerationPlan(await getFixture("simple_customer"), { seed: "required-count" });
     assert.equal(missingCoreCount.status, "blocked");
     assert.equal(diagnostic({ diagnostics: missingCoreCount.diagnostics }, "invalid_row_count").table, "simple_customer");

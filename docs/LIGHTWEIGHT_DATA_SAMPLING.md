@@ -27,7 +27,7 @@ Sample evidence 不能替代或覆盖 schema facts：data type、varchar length�
 - 文件名/路径列只分析后缀；敏感字段仍不进入 categorical/text、numeric 或 filename profile，free-text、binary/BLOB、未知或不支持类型、超出长度上限的字段不进入相应 profile。Temporal 敏感字段仅例外生成上述受限 shape profile；已有高置信度 semantic mapping 不采样。
 - 不依赖 `category`、`dws`、`err`、`audit_results` 等具体字段名或样本业务值；相同规则应用于通过 guard 的字段。
 
-Probe 构造 `SELECT` 时只包含候选字段，并同时设置 SQL `LIMIT 8` 与 Host `maxRows: 8`；Host 请求 `timeoutMs` 最多为 3000 ms，Workbench deadline 最多为 3500 ms。没有 COUNT / DISTINCT 聚合、全表 histogram、percentile 或分布 profiling。
+Probe 构造 `SELECT` 时只包含通过隐私筛选的候选字段（最多 16 列），并同时设置 SQL `LIMIT 100` 与 Host `maxRows: 100`；Host API 1.4 文档允许最多 5000 行，返回数据另受 8 MiB 序列化上限约束。SchemaSeed 的 `timeoutMs` 最多为 3000 ms，Workbench deadline 最多为 3500 ms。100 行是上限，不保证每次读满；表中行数较少或 Host/响应边界导致返回不足时，摘要只使用实际返回行数。没有 COUNT / DISTINCT 聚合、全表 histogram、percentile 或分布 profiling。
 
 为兼容没有 Host 方言信息的运行环境，标识符只接受小写、非限定、非保留的 ASCII 标识符；表名不安全时整次 probe 退出，字段名不安全时仅排除该字段。database/schema 通过 Host request scope 传入，不拼接进 SQL。SQL 使用 PostgreSQL、MySQL、SQLite 共同支持的 `LIMIT` 语法；其他 dialect 的请求失败时安全 fallback，不尝试自建方言连接或重试。
 
@@ -39,7 +39,7 @@ Probe 构造 `SELECT` 时只包含候选字段，并同时设置 SQL `LIMIT 8` �
 
 GenerationPlan 的 effective rule/provenance 可观察为 sample-derived strategy；显式用户 rule、已确认 semantic mapping、schema type/precision/nullability 与 bounds 优先。NULL rate 只在 schema 明确 nullable=true 且 temporal profile 与列类型匹配时应用；NOT NULL 或 nullability unknown 时不生成 NULL。样本 range 只用于同一列，不推断 `start_at` / `finish_at` 等跨字段关系；跨字段时间关系 **DEFERRED**，当前 profile 汇总会丢弃行关联。没有足够样本、不兼容或安全性不足时保持原 schema/semantic fallback。Preview 与 CSV/JSON/INSERT SQL 仍共用同一已生成 dataset；profile/generator 的同 seed 输出可 replay。
 
-Profile threshold 以最多 8 行为上限：categorical 至少 4 个非空样本、2–6 个 distinct 且至少有一个重复（distinct ratio ≤ 0.9）；数值范围至少 3 个合法样本；temporal 至少 3 行样本；filename 至少 3 个有效 suffix 且覆盖率 ≥ 0.8。类别候选最多 24 字符并要求 lowercase ASCII，suffix 为 1–8 个 ASCII 字母/数字；不满足阈值不强推策略。
+Profile 校验最多接受 100 行样本：categorical 至少 4 个非空样本、2–6 个 distinct 且至少有一个重复（distinct ratio ≤ 0.9）；数值范围至少 3 个合法样本；temporal 至少 3 行样本；filename 至少 3 个有效 suffix 且覆盖率 ≥ 0.8。类别候选最多 24 字符并要求 lowercase ASCII，suffix 为 1–8 个 ASCII 字母/数字；不满足阈值不强推策略。
 
 Session cache 按 connection/database/schema/table 保存一次探测 promise 及 value-minimized profile；失败和空结果同样缓存，避免重试。改变行数、随机种子、规则或展开面板不会再 query；cache 仅在 Workbench 内存生命周期存在，不持久化原始 rows 或脱敏 profile。
 

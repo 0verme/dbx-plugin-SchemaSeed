@@ -3,8 +3,9 @@ import { buildGenerationPlan } from "../generation/generation-plan.mjs";
 import { generateRows } from "../generation/generation-engine.mjs";
 import { FixtureSchemaMetadataProvider } from "../providers/fixture-schema-metadata-provider.mjs";
 import { isSchemaMetadataProvider } from "../schema/schema-metadata-provider.mjs";
+import { DEFAULT_GENERATION_ROW_COUNT } from "../generation/row-count.mjs";
 
-export const DEFAULT_PREVIEW_ROW_COUNT = 20;
+export const DEFAULT_PREVIEW_ROW_COUNT = DEFAULT_GENERATION_ROW_COUNT;
 
 /**
  * Preview is a consumer of the generation engine. Its convenience default is

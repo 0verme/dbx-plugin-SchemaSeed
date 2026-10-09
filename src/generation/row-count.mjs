@@ -1,0 +1,4 @@
+export const MIN_GENERATION_ROW_COUNT = 1;
+export const MAX_GENERATION_ROW_COUNT = 1_000;
+export const DEFAULT_GENERATION_ROW_COUNT = 50;
+export const PREVIEW_PAGE_SIZE = 50;

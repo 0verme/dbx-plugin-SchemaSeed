@@ -218,7 +218,7 @@ describe("Workbench markup disclosure contract", () => {
 
   it("renders advanced sections and the SQL preview as collapsed details while keeping data Preview visible", async () => {
     const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
-    assert.equal((markup.match(/<details\b/g) ?? []).length, 4, "three advanced sections and the optional SQL preview are disclosures");
+    assert.equal((markup.match(/<details\b/g) ?? []).length, 5, "data-access details, three advanced sections and the optional SQL preview are disclosures");
     assert.match(markup, /<details id="sswb-sql-details"[^>]*hidden>/, "SQL preview starts hidden");
     assert.doesNotMatch(markup, /<details id="sswb-sql-details"[^>]*\bopen\b/, "SQL preview starts collapsed");
     for (const [section, detailsId, titleId] of [
@@ -236,7 +236,7 @@ describe("Workbench markup disclosure contract", () => {
       assert.match(markup, new RegExp(`id="${detailsId.replace("-details", "-summary")}"`), `${section} exposes a collapsed summary slot`);
     }
     assert.doesNotMatch(markup, /<summary[^>]*>(?:(?!<\/summary>)[\s\S])*id="sswb-preview-title"/, "Preview is not a disclosure");
-    assert.equal(/<details[^>]*>[\s\S]*id="sswb-preview-title"/.test(markup), false);
+    assert.match(markup, /<section class="sswb-panel" aria-labelledby="sswb-preview-title">/u, "Preview remains a visible section rather than a disclosure");
   });
 
   it("keeps the field strategy editor and both editor state slots inside their sections", async () => {
@@ -292,7 +292,7 @@ describe("Workbench markup disclosure contract", () => {
     assert.match(stylesheet, /@media \(max-width: 640px\)[\s\S]*?\.sswb-context-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/u, "the three context facts stay in a compact row on narrow screens");
     assert.match(stylesheet, /\.sswb-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.7fr\)\s+minmax\(0,\s*1\.4fr\)\s+minmax\(0,\s*\.8fr\)/u, "row count, seed and data locale share a compact parameter row");
     assert.match(stylesheet, /\.sswb-actions\s+\[data-sswb-action="generate"\]\s*\{\s*grid-column:\s*1\s*\/\s*-1;/u, "the primary Generate action receives the full narrow-screen row");
-    assert.doesNotMatch(stylesheet, /\.sswb-preview-scroll\s*\{[^}]*\b(?:height|max-height):/u, "Preview keeps natural vertical growth instead of adding a nested vertical viewport");
+    assert.match(stylesheet, /\.sswb-preview-scroll\s*\{[^}]*max-height:\s*min\(55vh,\s*620px\)/u, "the preview table has a bounded viewport for long datasets");
   });
 
   it("keeps disclosure state in the page session only", async () => {

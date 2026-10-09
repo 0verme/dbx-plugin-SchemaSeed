@@ -6,10 +6,11 @@ import { generateRows } from "../generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../generation/generation-plan.mjs";
 import { FixtureSchemaMetadataProvider } from "../providers/fixture-schema-metadata-provider.mjs";
 import { toColumnViewModel } from "./workbench-view-model.mjs";
+import { DEFAULT_GENERATION_ROW_COUNT, MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "../generation/row-count.mjs";
 
-export const WORKBENCH_DEFAULT_ROW_COUNT = 20;
-export const WORKBENCH_MIN_ROW_COUNT = 1;
-export const WORKBENCH_MAX_ROW_COUNT = 100;
+export const WORKBENCH_DEFAULT_ROW_COUNT = DEFAULT_GENERATION_ROW_COUNT;
+export const WORKBENCH_MIN_ROW_COUNT = MIN_GENERATION_ROW_COUNT;
+export const WORKBENCH_MAX_ROW_COUNT = MAX_GENERATION_ROW_COUNT;
 export const WORKBENCH_LOCALES = Object.freeze(["zh-CN", "en"]);
 
 const SEMANTIC_TYPES = Object.freeze(["name", "gender", "birthday", "mobile", "email", "address"]);

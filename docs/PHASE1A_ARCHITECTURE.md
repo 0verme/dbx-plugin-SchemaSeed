@@ -105,7 +105,7 @@ Shared schema fixtures live in `fixtures/schemas/`:
 - `precision_boundary`
 - `long_varchar`
 
-The fixture provider is the common schema input for Core tests and Preview. `previewFixture()` is a consumer of the Core; its default 20 rows is a Preview-layer setting. `buildGenerationPlan()` requires an explicit row count and has no UI defaults.
+The fixture provider is the common schema input for Core tests and Preview. `previewFixture()` is a consumer of the Core; its default 50 rows is a Preview-layer setting. `buildGenerationPlan()` requires an explicit row count and has no UI defaults.
 
 ## Explicit non-goals
 

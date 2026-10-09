@@ -16,10 +16,8 @@
 .sswb-mark { display: grid; place-items: center; flex: 0 0 36px; height: 36px; border-radius: 4px; background: #e2f2f6; color: #075a76; font-weight: 750; }
 .sswb-brand h1 { margin: 0; font-size: 17px; font-weight: 650; }
 .sswb-brand h1 span { color: var(--sswb-muted); font-weight: 450; }
-.sswb-brand p { margin: 2px 0 0; color: var(--sswb-muted); font-size: 12px; }
 .sswb-ui-locale { display: flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--sswb-muted); font-size: 11px; white-space: nowrap; }
 .sswb-ui-locale select { min-height: 28px; padding: 3px 6px; border: 1px solid #cbd3dc; border-radius: 3px; background: var(--sswb-panel); font-size: 12px; }
-.sswb-locale-note { margin: 8px 0 0; color: var(--sswb-muted); font-size: 11px; }
 .sswb-status { margin-left: auto; color: var(--sswb-muted); font-size: 12px; white-space: nowrap; }
 .sswb-status[data-status="blocked"], .sswb-status[data-status="error"] { color: #a02b25; }
 .sswb-status[data-status="warning"] { color: #8a5a0a; }
@@ -48,7 +46,10 @@
 .sswb-context-grid strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font: 600 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .sswb-data-access { margin: 0 0 9px; padding: 7px 9px; border-left: 3px solid #176b87; background: color-mix(in srgb, var(--sswb-panel), #176b87 5%); }
 .sswb-data-access h3 { margin: 0 0 3px; font-size: 12px; font-weight: 650; }
-.sswb-data-access p { margin: 0; color: #49586a; font-size: 11px; }
+.sswb-data-access > p { margin: 0; color: #49586a; font-size: 11px; }
+.sswb-data-access-details { margin-top: 4px; color: #49586a; font-size: 11px; }
+.sswb-data-access-details summary { color: var(--sswb-accent); cursor: pointer; }
+.sswb-data-access-details p { margin: 4px 0 0; }
 .sswb-controls { display: grid; grid-template-columns: minmax(90px, .5fr) minmax(140px, 1fr) minmax(115px, .7fr) auto; align-items: end; gap: 10px; }
 .sswb-controls label { display: grid; gap: 4px; color: #49586a; font-size: 12px; font-weight: 600; }
 .sswb-controls small { display: inline; color: #8995a3; font-weight: 400; }
@@ -122,7 +123,10 @@
 .sswb-export-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
 .sswb-export-row > div { display: flex; flex-wrap: wrap; gap: 7px; }
 .sswb-export-row > span { color: var(--sswb-muted); font-size: 11px; }
-.sswb-preview-scroll { border: 1px solid #e2e7ec; }
+.sswb-preview-scroll { max-height: min(55vh, 620px); border: 1px solid #e2e7ec; }
+.sswb-preview-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; color: var(--sswb-muted); font-size: 11px; }
+.sswb-preview-pagination[hidden] { display: none; }
+.sswb-preview-pagination .sswb-button { min-height: 28px; padding: 3px 8px; font-size: 11px; }
 .sswb-preview { min-width: 100%; width: max-content; border-collapse: collapse; text-align: left; }
 .sswb-preview td { max-width: 300px; font-size: 12px; white-space: nowrap; }
 .sswb-preview td.sswb-null { color: #8b5e15; font-style: italic; }
@@ -130,7 +134,6 @@
 .sswb-sql-details summary { padding: 8px 10px; color: #176b87; cursor: pointer; font-size: 12px; font-weight: 600; }
 .sswb-sql-details[open] > summary { border-bottom: 1px solid var(--sswb-line); }
 .sswb-sql-details textarea { display: block; width: 100%; min-height: 150px; max-height: 45vh; margin: 0; padding: 10px; resize: vertical; border: 0; border-radius: 0 0 3px 3px; background: var(--sswb-panel); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; overflow: auto; }
-.sswb footer { padding: 2px 0 0; color: var(--sswb-muted); text-align: center; font-size: 11px; }
 @media (max-width: 1050px) { .sswb-controls { grid-template-columns: repeat(3, minmax(100px, 1fr)); } .sswb-actions { grid-column: 1 / -1; } }
 @media (max-width: 640px) {
   .sswb-header { padding: 10px 12px; }
@@ -140,6 +143,7 @@
   .sswb-context-grid div { padding: 6px; }
   .sswb-context-grid strong { font-size: 11px; }
   .sswb-data-access { margin-bottom: 8px; padding: 6px 8px; }
+  .sswb-preview-scroll { max-height: 50vh; }
   .sswb-controls { grid-template-columns: minmax(0, .7fr) minmax(0, 1.4fr) minmax(0, .8fr); gap: 8px; }
   .sswb-actions { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .sswb-actions [data-sswb-action="generate"] { grid-column: 1 / -1; }
