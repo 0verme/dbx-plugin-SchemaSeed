@@ -111,7 +111,10 @@ export function inferSemanticType(column, locale = "zh-CN", sampleSummary = null
     mobile: "mobile_pattern",
   }[semanticType];
   const samplePattern = classifySamplePattern(sampleSummary, expectedPattern);
-  const sampleVerified = samplePattern === "positive";
+  // A name-shaped sample confirms value format only; it cannot distinguish a
+  // real person's name from a nickname, account label, or another business name.
+  // Keep that evidence visible, but require an explicit mapping before Person generation.
+  const sampleVerified = samplePattern === "positive" && semanticType !== "name";
   const sampleRejected = samplePattern === "negative";
   const sampleEvidence = samplePattern ? sampleEvidenceToCoreEvidence(sampleSummary, column.name) : null;
   const evidence = [...nameEvidence, ...compatibility.evidence, ...(sampleEvidence ? [sampleEvidence] : [])];

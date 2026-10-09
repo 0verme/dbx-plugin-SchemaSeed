@@ -276,13 +276,17 @@ function resolveSemanticMapping(tableIdentity, column, inference, semanticOverri
         blocking: false,
       }));
     }
+    const hasPositiveNamePatternEvidence = inference.semanticType === "name"
+      && inference.evidence.some((entry) => entry.kind === EVIDENCE_KINDS.sampleNamePattern);
     diagnostics.push(makeDiagnostic({
       severity: "warning",
       code: "semantic_confirmation_required",
       table: tableIdentity,
       column: column.name,
       rule: `semantic:${inference.semanticType}:v1`,
-      reason: `Candidate ${inference.semanticType} is inspectable but requires an explicit semantic override or confirmed mapping before Person generation`,
+      reason: hasPositiveNamePatternEvidence
+        ? "Sample values match a Chinese name format, but format alone cannot distinguish a person's name from a nickname or another business label; explicit semantic confirmation is required"
+        : `Candidate ${inference.semanticType} is inspectable but requires an explicit semantic override or confirmed mapping before Person generation`,
       blocking: false,
     }));
     return mappingFromInference(inference, "needs_confirmation", false);

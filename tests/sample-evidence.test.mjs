@@ -10,12 +10,12 @@ import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 const zh = createI18n("zh-CN");
 const en = createI18n("en-US");
 
-function planFor(column, sampleEvidence) {
+function planFor(column, sampleEvidence, options = {}) {
   const { schema } = normalizeTableSchema({
     tableIdentity: `sample-evidence:${column.name}`,
     columns: [{ dataType: "varchar", nullable: false, length: 128, ...column }],
   });
-  return buildGenerationPlan(schema, { rowCount: 2, seed: "sample-evidence", sampleEvidence });
+  return buildGenerationPlan(schema, { rowCount: 2, seed: "sample-evidence", ...options, sampleEvidence });
 }
 
 describe("semantic and value-minimized sample profiles", () => {
@@ -32,18 +32,47 @@ describe("semantic and value-minimized sample profiles", () => {
       candidates: [{ value: "active", frequency: 50 }, { value: "pending", frequency: 51 }],
     }], knownColumns), []);
   });
-  it("uses 4/4 valid Chinese name samples as positive evidence", () => {
-    const plan = planFor({ name: "display_name" }, [
-      { column: "display_name", kind: "chinese_name_pattern", sampleCount: 4, matchedCount: 4 },
-    ]);
+  it("uses a positive name-shaped sample as format evidence but still requires semantic confirmation", () => {
+    const evidence = [{ column: "display_name", kind: "chinese_name_pattern", sampleCount: 4, matchedCount: 4 }];
+    const plan = planFor({ name: "display_name" }, evidence);
     const column = plan.columns[0];
 
     assert.equal(column.inference.semanticType, "name");
-    assert.equal(column.inference.confidence, "high");
-    assert.equal(column.inference.sampleVerified, true);
-    assert.equal(column.semanticMapping.selected, true);
-    assert.equal(column.semanticMapping.status, "sample_verified");
-    assert.equal(plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
+    assert.equal(column.inference.evidence.some((entry) => entry.kind === "sample_name_pattern"), true);
+    assert.equal(column.inference.sampleVerified, false);
+    assert.equal(column.semanticMapping.selected, false);
+    assert.equal(column.semanticMapping.status, "needs_confirmation");
+    assert.equal(column.rule.kind, "varchar");
+    assert.equal(plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), true);
+
+    const confirmed = planFor({ name: "display_name" }, evidence, { semanticMappings: { display_name: "name" } });
+    assert.equal(confirmed.columns[0].semanticMapping.source, "confirmed_semantic_mapping");
+    assert.equal(confirmed.columns[0].rule.kind, "semantic:name");
+    assert.equal(confirmed.columns[0].rule.source, "confirmed_semantic_mapping");
+    assert.equal(confirmed.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), false);
+  });
+
+  it("keeps a mixed name-format sample inconclusive and preserves the plain-text fallback", () => {
+    const plan = planFor({ name: "display_name" }, [
+      { column: "display_name", kind: "chinese_name_pattern", sampleCount: 5, matchedCount: 3 },
+    ]);
+    const column = plan.columns[0];
+    assert.equal(column.inference.status, "candidate");
+    assert.equal(column.semanticMapping.selected, false);
+    assert.equal(column.rule.kind, "varchar");
+    assert.equal(plan.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"), true);
+  });
+
+  it("does not describe a negative name-format sample as a match", () => {
+    const plan = planFor({ name: "customer_name" }, [
+      { column: "customer_name", kind: "chinese_name_pattern_rejected", sampleCount: 5, matchedCount: 0 },
+    ]);
+    const diagnostic = plan.diagnostics.find((entry) => entry.code === "semantic_confirmation_required");
+    assert.ok(diagnostic);
+    assert.match(diagnostic.reason, /requires an explicit semantic override/u);
+    assert.doesNotMatch(diagnostic.reason, /Sample values match/u);
+    assert.equal(plan.columns[0].semanticMapping.selected, false);
+    assert.equal(plan.columns[0].rule.kind, "varchar");
   });
 
   it("rejects weak name aliases after a strongly negative sample but retains human-readable evidence", () => {

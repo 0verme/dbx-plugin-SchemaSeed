@@ -42,10 +42,10 @@ describe("semantic evidence i18n: zh-CN user view", () => {
     const plan = runtimePlan();
     const diagnostic = plan.diagnostics.find((entry) => entry.code === "semantic_confirmation_required");
     const described = describeDiagnostic(diagnostic, zh);
-    assert.equal(described.headline, "需要确认：字段语义存在歧义");
+    assert.equal(described.headline, "需要确认：字段语义需要人工确认");
     assert.doesNotMatch(described.headline, /semantic_confirmation_required/);
     const line = zh("columns.ruleDiagnostic", { title: described.headline, code: described.code });
-    assert.equal(line, "需要确认：字段语义存在歧义");
+    assert.equal(line, "需要确认：字段语义需要人工确认");
     assert.doesNotMatch(line, /semantic_confirmation_required/);
   });
 

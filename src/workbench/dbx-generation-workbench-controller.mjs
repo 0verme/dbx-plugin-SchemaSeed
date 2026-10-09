@@ -38,6 +38,7 @@ export class DbxGenerationWorkbenchController {
     this.sampleEvidenceCache = new Map();
     this.sampleEvidence = [];
     this.sampleUsed = false;
+    this.sampleStatus = { state: "not_attempted", fields: [] };
     this.sampleEvidenceLoaded = false;
     this.generationPromise = null;
     this.seedFactory = options.seedFactory ?? defaultSeed;
@@ -101,6 +102,7 @@ export class DbxGenerationWorkbenchController {
     this.temporalPrecisionMetadata = {};
     this.sampleEvidence = [];
     this.sampleUsed = false;
+    this.sampleStatus = { state: normalized.ok ? "pending" : "not_attempted", fields: [] };
     this.sampleEvidenceLoaded = false;
     this.plan = null;
     this.currentDataset = null;
@@ -280,6 +282,7 @@ export class DbxGenerationWorkbenchController {
       } : null,
       columns: plan?.columns.map((column) => toColumnViewModel(column, this.diagnostics, { translator: this.translator })) ?? [],
       sampleUsed: this.sampleUsed,
+      sampleStatus: structuredClone(this.sampleStatus),
       diagnostics: this.diagnostics.map((diagnostic) => ({ ...diagnostic })),
       preview: {
         columns: plan?.table.columns.map((column) => column.name) ?? [],
@@ -399,25 +402,36 @@ export class DbxGenerationWorkbenchController {
     if (!evidencePromise) {
       const candidates = getSampleProbeCandidates(schema);
       evidencePromise = candidates.length === 0 || !this.sampleProbe
-        ? Promise.resolve({ sampleUsed: false, evidence: [] })
+        ? Promise.resolve({
+          sampleUsed: false,
+          evidence: [],
+          sampleStatus: createFallbackSampleStatus(schema, candidates, "not_attempted"),
+        })
         : Promise.resolve()
           .then(() => this.sampleProbe({ context: { ...context }, schema, candidates }))
           .then((result) => {
             const entries = Array.isArray(result) ? result
               : isRecord(result) && Array.isArray(result.evidence) ? result.evidence : [];
             const evidence = sanitizeSampleEvidence(entries, new Set(schema.columns.map((column) => column.name)));
+            const sampleUsed = evidence.length > 0 || (isRecord(result) && result.sampleUsed === true);
             return {
-              sampleUsed: evidence.length > 0 || (isRecord(result) && result.sampleUsed === true),
+              sampleUsed,
               evidence,
+              sampleStatus: normalizeSampleStatus(result?.sampleStatus, schema, candidates, evidence, sampleUsed),
             };
           })
-          .catch(() => ({ sampleUsed: false, evidence: [] }));
+          .catch(() => ({
+            sampleUsed: false,
+            evidence: [],
+            sampleStatus: createFallbackSampleStatus(schema, candidates, "failed"),
+          }));
       this.sampleEvidenceCache.set(key, evidencePromise);
     }
     const sampleResult = await evidencePromise;
     if (revision === this.contextRevision) {
       this.sampleEvidence = sampleResult.evidence;
       this.sampleUsed = sampleResult.sampleUsed;
+      this.sampleStatus = sampleResult.sampleStatus;
       this.sampleEvidenceLoaded = true;
     }
     return sampleResult.evidence;
@@ -625,6 +639,73 @@ function sanitizeTemporalPrecisionMetadata(value, schema) {
     }]);
   }
   return Object.fromEntries(accepted);
+}
+
+const SAMPLE_STATUS_STATES = new Set([
+  "pending", "not_attempted", "unavailable", "permission_denied", "failed", "sampled", "empty", "insufficient", "unknown",
+]);
+const SAMPLE_FIELD_STATES = new Set([
+  "skipped", "not_attempted", "unavailable", "permission_denied", "failed", "no_data", "insufficient", "used", "unknown",
+]);
+const SAMPLE_STATUS_REASONS = new Set(["not_selected", "high_confidence_semantic", "unsafe_context"]);
+const SAMPLE_SUMMARY_KINDS = new Set([
+  "chinese_name_pattern", "chinese_name_pattern_rejected", "email_pattern", "email_pattern_rejected",
+  "mobile_pattern", "mobile_pattern_rejected", "pattern", "enum_like", "numeric_range", "temporal_range",
+  "temporal_shape", "filename_pattern",
+]);
+
+/** @param {object} schema @param {Array<{ name: string }>} candidates @param {string} state */
+function createFallbackSampleStatus(schema, candidates, state) {
+  const candidateNames = new Set(candidates.map((candidate) => candidate.name));
+  const fields = schema.columns.map((column) => {
+    if (!candidateNames.has(column.name)) return { column: column.name, state: "skipped", reason: "not_selected" };
+    if (["unavailable", "permission_denied", "failed"].includes(state)) return { column: column.name, state };
+    if (state === "not_attempted") return { column: column.name, state: "not_attempted" };
+    return { column: column.name, state: "unknown" };
+  });
+  return { state, fields };
+}
+
+/** @param {unknown} input @param {object} schema @param {Array<{ name: string }>} candidates @param {Array<Record<string, unknown>>} evidence @param {boolean} sampleUsed */
+function normalizeSampleStatus(input, schema, candidates, evidence, sampleUsed) {
+  const candidateNames = new Set(candidates.map((candidate) => candidate.name));
+  const evidenceByColumn = new Map(evidence.map((entry) => [entry.column, entry]));
+  const report = isRecord(input) ? input : {};
+  let state = SAMPLE_STATUS_STATES.has(report.state) ? report.state
+    : sampleUsed ? "sampled" : candidates.length === 0 ? "not_attempted" : "unknown";
+  if (sampleUsed && !["permission_denied", "failed", "unavailable"].includes(state)) state = "sampled";
+  if (!sampleUsed && state === "sampled") state = "unknown";
+  const reportedFields = new Map(Array.isArray(report.fields)
+    ? report.fields.filter((field) => isRecord(field) && typeof field.column === "string").map((field) => [field.column, field])
+    : []);
+
+  const fields = schema.columns.map((column) => {
+    const reported = reportedFields.get(column.name);
+    if (!candidateNames.has(column.name)) {
+      const reason = SAMPLE_STATUS_REASONS.has(reported?.reason) ? reported.reason : "not_selected";
+      return { column: column.name, state: "skipped", reason };
+    }
+    const safeCounts = {};
+    for (const key of ["sampleCount", "matchedCount", "distinctCount"]) {
+      const value = reported?.[key];
+      if (Number.isSafeInteger(value) && value >= 0 && value <= 100) safeCounts[key] = value;
+    }
+    const summaryKind = SAMPLE_SUMMARY_KINDS.has(reported?.summaryKind) ? reported.summaryKind : undefined;
+    let fieldState = SAMPLE_FIELD_STATES.has(reported?.state) ? reported.state : undefined;
+    if (fieldState === "used" && !summaryKind && !evidenceByColumn.has(column.name)) fieldState = "unknown";
+    if (!fieldState && evidenceByColumn.has(column.name)) fieldState = "used";
+    if (!fieldState && ["unavailable", "permission_denied", "failed"].includes(state)) fieldState = state;
+    if (!fieldState && state === "not_attempted") fieldState = "not_attempted";
+    if (!fieldState) fieldState = "unknown";
+    return {
+      column: column.name,
+      state: fieldState,
+      ...(SAMPLE_STATUS_REASONS.has(reported?.reason) ? { reason: reported.reason } : {}),
+      ...(summaryKind ? { summaryKind } : {}),
+      ...safeCounts,
+    };
+  });
+  return { state, fields };
 }
 
 function isAbsentTableContext(value) {

@@ -55,7 +55,7 @@ Session cache 按 connection/database/schema/table 保存一次探测 promise �
 
 sensitive ≠ no sampling：敏感字段可能在本地短暂读取，以计算不暴露或保留原始值的受限 profile。原始 sample rows / free text / 敏感值不进入 GenerationPlan、日志、diagnostics、telemetry、analytics、localStorage、persistent plugin storage、fixtures/snapshots、AI/LLM 或外部 HTTP。允许进入生成决策的仅是通过隐私 guard 的短类别 label/frequency、numeric 有界 min/max/zero frequency、非敏感 temporal 的 observed min/max/precision/NULL frequency、敏感 temporal 的 precision/timezone/count/NULL 统计，以及 filename suffix；它们是字段级摘要，不保留或关联整行。Probe errors 不展示为 fatal modal，也不影响生成。Core RPC 会拒绝携带未声明字段或原始行值的 sampleEvidence payload，并在 Core 再次执行 profile guard。
 
-Sampling 只可能移除由足够强的 semantic ambiguity 产生的确认 warning。Schema metadata 问题（如 timestamp precision 缺失）、混乱样本或真实业务歧义仍按原有规则提示用户。
+样本格式只能支持值形态判断，不能单独证明真实业务语义。尤其是中文姓名格式不能区分实名、昵称、账号名称或其他名称，因此不会自动选择 Person；需要显式语义确认。字段诊断按实际结果说明未采样、授权拒绝、查询失败、无有效值、证据不足或已使用的安全摘要。授权拒绝只依据 DBX 文档化的 `PLUGIN_DATA_ACCESS_NOT_GRANTED` 标记识别；其他 Host 错误只显示通用失败状态，不展示原始错误文本。全局提示只说明本表是否有字段完成样本分析，不暗示每个字段均已采样。
 
 ## 验证
 
