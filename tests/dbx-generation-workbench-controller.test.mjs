@@ -539,6 +539,37 @@ describe("DBX Generation Workbench production controller", () => {
     assert.deepEqual(view.preview.rows, generated);
   });
 
+  it("validates enum candidates through Core and uses the current rule for Generate, Preview and Export", async () => {
+    const calls = [];
+    const controller = createController({ preview: previewCore(calls) });
+    await controller.setContext(BASE_CONTEXT);
+    let view = await controller.dispatch({
+      type: "update-rule",
+      column: "customer_id",
+      rule: { kind: "enum", values: [] },
+    });
+    assert.equal(view.status, "blocked");
+    assert.equal(view.export.enabled, false);
+    assert.ok(view.diagnostics.some((entry) => entry.code === "generation_rule_invalid"));
+    assert.throws(() => controller.prepareExport("json"), (error) => error.code === "export_blocked_plan");
+
+    view = await controller.dispatch({
+      type: "update-rule",
+      column: "customer_id",
+      rule: { kind: "enum", values: [11, 17, 23] },
+    });
+    assert.equal(view.status, "dirty");
+    assert.equal(calls.at(-1).options.validateOnly, true);
+    assert.deepEqual(calls.at(-1).options.rules.customer_id, { kind: "enum", values: [11, 17, 23] });
+    view = await controller.dispatch({ type: "generate" });
+    assert.equal(view.status, "warning");
+    assert.ok(view.preview.rows.every((row) => [11, 17, 23].includes(row.customer_id)));
+    assert.deepEqual(JSON.parse(controller.prepareExport("json").content), view.preview.rows);
+    const generated = structuredClone(view.preview.rows);
+    view = await controller.dispatch({ type: "generate" });
+    assert.deepEqual(view.preview.rows, generated);
+  });
+
   it("keeps invalid rule diagnostics visible and blocks Generate/Export without falling back", async () => {
     const controller = createController();
     await controller.setContext(BASE_CONTEXT);

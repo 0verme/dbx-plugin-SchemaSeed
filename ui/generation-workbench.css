@@ -102,6 +102,26 @@
 .sswb-rule-fields label { display: grid; gap: 2px; min-width: 76px; color: var(--sswb-muted); font-size: 10px; }
 .sswb-rule-fields input, .sswb-rule-fields select, .sswb-rule-fields textarea { width: 100%; min-width: 72px; min-height: 27px; padding: 3px 5px; border: 1px solid #cbd3dc; border-radius: 3px; background: var(--sswb-panel); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .sswb-rule-fields textarea { min-width: 130px; resize: vertical; }
+.sswb-enum-editor { display: grid; flex: 1 1 100%; gap: 5px; min-width: 0; width: 100%; }
+.sswb-enum-label { color: var(--sswb-muted); font-size: 10px; }
+.sswb-enum-surface { display: grid; gap: 5px; min-width: 0; padding: 5px; border: 1px solid var(--sswb-line); border-radius: 4px; background: color-mix(in srgb, var(--sswb-panel), var(--sswb-accent) 3%); }
+.sswb-enum-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; max-height: 112px; overflow: auto; }
+.sswb-enum-tag { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; padding: 2px 4px 2px 7px; border: 1px solid color-mix(in srgb, var(--sswb-line), var(--sswb-accent) 24%); border-radius: 12px; background: color-mix(in srgb, var(--sswb-panel), var(--sswb-accent) 9%); color: var(--color-foreground, #1e293b); font-size: 11px; }
+.sswb-enum-tag-text { min-width: 0; max-width: 260px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sswb-enum-remove { display: inline-grid; flex: 0 0 19px; place-items: center; width: 19px; height: 19px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--sswb-muted); cursor: pointer; line-height: 1; }
+.sswb-enum-remove:hover { background: color-mix(in srgb, var(--sswb-panel), #64748b 12%); color: var(--color-foreground, #1e293b); }
+.sswb-enum-surface > input, .sswb-enum-editor > textarea { width: 100%; min-width: 0; min-height: 30px; padding: 4px 6px; border: 1px solid var(--sswb-line); border-radius: 3px; background: var(--sswb-panel); font: inherit; font-size: 12px; line-height: 1.4; }
+.sswb-enum-editor > textarea { min-height: 108px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+.sswb-enum-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.sswb-enum-count { margin-right: auto; color: var(--sswb-muted); font-size: 10px; }
+.sswb-enum-link { padding: 2px 0; border: 0; background: transparent; color: var(--sswb-accent); cursor: pointer; font-size: 10px !important; text-decoration: underline; text-underline-offset: 2px; }
+.sswb-enum-link:disabled { color: var(--sswb-muted); cursor: not-allowed; text-decoration: none; }
+.sswb-enum-clear-confirm { min-height: 26px; padding: 2px 7px; font-size: 10px !important; }
+.sswb-enum-error, .sswb-enum-lossless-hint { margin: 0; color: var(--sswb-muted); font-size: 10px; overflow-wrap: anywhere; }
+.sswb-enum-error[data-severity="error"] { color: #a02b25; }
+.sswb-enum-paste-choices { display: flex; flex-wrap: wrap; gap: 5px; }
+.sswb-enum-paste-choices[hidden] { display: none; }
+.sswb-enum-paste-choices .sswb-button { min-height: 27px; padding: 3px 7px; font-size: 10px; }
 .sswb-rule-diagnostics { margin: 0 0 7px; padding-left: 16px; color: #a02b25; font-size: 10px; }
 .sswb-rule-diagnostics li { margin: 3px 0; overflow-wrap: anywhere; }
 .sswb-rule-diagnostics li[data-severity="warning"] { color: #805400; }
