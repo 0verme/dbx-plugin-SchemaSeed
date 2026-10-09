@@ -222,7 +222,7 @@ describe("production Workbench export save adapter", () => {
 
     const zh = createI18n("zh-CN");
     const message = exportSaveMessage({ status: "prepare_failed", code: "export_blocked_plan" }, zh);
-    assert.match(message, /^导出失败：export_blocked_plan · 当前 GenerationPlan 被阻塞，无法导出。$/);
+    assert.match(message, /^导出失败：export_blocked_plan · 当前生成设置存在阻塞问题，无法导出。$/);
   });
 });
 

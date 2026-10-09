@@ -56,7 +56,7 @@ Browser components consume that ViewModel and submit actions; they do not call i
 
 ## Dataset Controls and Determinism
 
-- Rows default to `20` and Workbench limits them to `1–100`. This UI guard is outside Generation Core; the Core still receives an explicit `rowCount`.
+- Rows default to `50`; the shared row-count contract accepts `1–1000` consistently in the UI controller, runtime, GenerationPlan and engine. The Core still receives an explicit `rowCount`.
 - Seed defaults to `demo` and remains editable.
 - `Regenerate · same seed` re-runs the same plan inputs. Identical results are the expected deterministic contract.
 - `New Seed` uses a newly generated UUID seed and builds a new preview. It does not replace or reimplement Core RNG.

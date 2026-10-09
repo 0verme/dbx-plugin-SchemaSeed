@@ -8,6 +8,7 @@ import { createI18n } from "../src/i18n/index.mjs";
 import {
   constraintEditorStateMessage,
   diagnosticsEmptyMessage,
+  actionErrorMessage,
   exportDisabledHint,
   exportErrorMessage,
   exportSaveMessage,
@@ -210,8 +211,8 @@ describe("diagnostics localization: Workbench state copy", () => {
   it("localizes the blocked preview, export hint and constraint conflict messages", () => {
     const blocked = { status: "blocked", stage: "ready", diagnostics: [{ code: "varchar_length_unknown" }], plan: {}, export: { enabled: false } };
     assert.equal(stateMessage(blocked, zh), "当前存在阻塞问题，暂时无法生成或导出测试数据。请先处理上方“问题诊断”中的阻塞项。");
-    assert.match(stateMessage(blocked, en), /GenerationPlan is blocked/);
-    assert.match(exportStatusMessage(blocked, zh), /GenerationPlan 被阻塞/);
+    assert.match(stateMessage(blocked, en), /generation settings have blocking issues/u);
+    assert.match(exportStatusMessage(blocked, zh), /当前生成设置存在阻塞问题/u);
     assert.match(exportDisabledHint(blocked, zh), /无法导出/);
     assert.match(constraintEditorStateMessage({ constraintEditor: { state: "blocked" } }, zh), /生成约束或规则存在冲突/);
     assert.match(constraintEditorStateMessage({ constraintEditor: { state: "blocked" } }, zh), /问题诊断/);
@@ -219,15 +220,16 @@ describe("diagnostics localization: Workbench state copy", () => {
     const capability = { status: "blocked", stage: "ready", diagnostics: [{ code: "metadata_capability_unavailable" }], plan: null, export: { enabled: false } };
     assert.match(stateMessage(capability, zh), /未提供 Schema Metadata/);
 
-    assert.match(exportStatusMessage({ status: "ready", export: { enabled: true } }, zh), /与当前预览完全相同/);
+    assert.equal(exportStatusMessage({ status: "ready", export: { enabled: true } }, zh), "");
     const descriptor = { filename: "schemaseed-audit_results-20rows.csv", summary: { rowCount: 20, format: "CSV" } };
     assert.match(exportSaveMessage({ status: "saved", descriptor }, zh), /^已保存 schemaseed-audit_results-20rows\.csv（20 行 · CSV · UTF-8）$/);
     assert.match(exportSaveMessage({ status: "saved", path: "C:/out/a.csv", descriptor }, en), /^Saved to: C:\/out\/a\.csv$/);
     assert.match(exportSaveMessage({ status: "cancelled" }, zh), /^已取消保存。$/);
     assert.match(exportSaveMessage({ status: "failed", code: "export_host_save_failed" }, en), /^Save failed: export_host_save_failed · /);
     assert.match(exportStatusMessage({ status: "loading", export: { enabled: false } }, zh), /生成预览成功后才可导出/);
+    assert.match(actionErrorMessage("Rows must be an integer from 1 to 1000", zh), /生成行数必须是 1 到 1000 之间的整数/u);
     assert.match(exportErrorMessage({ code: "export_blocked_plan", message: "Blocked plans cannot be exported" }, zh), /export_blocked_plan/);
-    assert.match(exportErrorMessage({ code: "export_blocked_plan" }, en), /blocked and cannot be exported/);
+    assert.match(exportErrorMessage({ code: "export_blocked_plan" }, en), /generation settings have blocking issues/u);
     assert.match(exportErrorMessage(new Error("boom"), zh), /export_error/);
   });
 });

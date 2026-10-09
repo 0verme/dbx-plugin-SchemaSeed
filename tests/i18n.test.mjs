@@ -116,10 +116,10 @@ describe("i18n locale strategy", () => {
     // last resort, return the key text instead of throwing.
     const partial = createTranslator("zh-CN", {
       "zh-CN": { "app.titleSuffix": "测试数据生成" },
-      "en-US": { "app.titleSuffix": "Generation Workbench", "app.subtitle": "English fallback copy" },
+      "en-US": { "app.titleSuffix": "Generation Workbench", "controls.dataLocale": "Data language" },
     });
     assert.equal(partial("app.titleSuffix"), "测试数据生成");
-    assert.equal(partial("app.subtitle"), "English fallback copy", "missing zh-CN key falls back to en-US");
+    assert.equal(partial("controls.dataLocale"), "Data language", "missing zh-CN key falls back to en-US");
     assert.equal(partial("totally.missing.key"), "totally.missing.key");
     assert.equal(partial(""), "");
     assert.equal(partial(null), "");
@@ -136,7 +136,7 @@ describe("i18n locale strategy", () => {
   it("keeps zh-CN and en-US copy distinct for the main Workbench surfaces", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "footer.statement", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
+    for (const key of ["app.titleSuffix", "context.title", "controls.rows", "controls.dataLocale", "actions.generate", "actions.previewSql", "diagnostics.title", "preview.title", "preview.readonly", "preview.sqlTitle", "preview.sqlError", "preview.sqlCodeLabel", "preview.sqlCopy", "preview.sqlCopying", "preview.sqlCopied", "preview.sqlCopyFailed", "preview.sqlExport", "preview.sqlClose", "preview.sqlEmpty", "export.csv", "status.blocked", "state.blocked.plan", "constraints.empty.none", "safety.notice", "preview.pagination.previous", "columns.sampleHint.used", "columns.sampleHint.metadataOnly"]) {
       assert.equal(typeof zh(key), "string");
       assert.notEqual(zh(key), en(key), `${key} must be localized`);
       assert.doesNotMatch(en(key), /\{/, `${key} has no unresolved placeholder`);
@@ -147,30 +147,47 @@ describe("i18n locale strategy", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
     assert.equal(zh("dataAccess.title"), "数据访问");
-    assert.match(zh("dataAccess.description"), /DBX Host 获得你对此插件和连接的授权/u);
-    assert.match(zh("dataAccess.description"), /内存中短暂处理以提取安全特征，随后丢弃；不会展示或持久化/u);
+    assert.match(zh("dataAccess.description"), /DBX Host 授权/u);
+    assert.match(zh("dataAccess.description"), /最多读取 100 行/u);
+    assert.match(zh("dataAccess.description"), /字段规则推断/u);
+    assert.match(zh("dataAccess.detailsDescription"), /候选字段/u);
+    assert.match(zh("dataAccess.detailsDescription"), /每次最多 16 列/u);
+    assert.match(zh("dataAccess.detailsDescription"), /MySQL 表的时间精度元数据/u);
+    assert.match(zh("dataAccess.detailsDescription"), /不会持久化/u);
+    assert.match(zh("dataAccess.detailsDescription"), /预览、日志或错误信息/u);
     assert.doesNotMatch(zh("dataAccess.description"), /不会读取|不查看/u);
     assert.match(zh("diagnostic.safe_synthetic_mode.description"), /授权的只读采样/u);
     assert.doesNotMatch(zh("diagnostic.safe_synthetic_mode.description"), /不会读取任何真实数据行/u);
-    assert.match(en("dataAccess.description"), /DBX Host obtains your consent for this plugin and connection/u);
-    assert.match(en("dataAccess.description"), /processed briefly in memory only to derive safe features, then discarded/u);
-    assert.match(en("dataAccess.description"), /never displayed or persisted/u);
+    assert.match(en("dataAccess.description"), /DBX Host authorization/u);
+    assert.match(en("dataAccess.description"), /at most 100 rows/u);
+    assert.match(en("dataAccess.detailsDescription"), /screened candidate fields/u);
+    assert.match(en("dataAccess.detailsDescription"), /up to 16 privacy-screened candidate fields/u);
+    assert.match(en("dataAccess.detailsDescription"), /MySQL table's timestamp precision metadata/u);
+    assert.match(en("dataAccess.detailsDescription"), /never persisted/u);
+    assert.match(en("dataAccess.detailsDescription"), /previews, logs, or error messages/u);
+
     assert.match(en("diagnostic.safe_synthetic_mode.description"), /authorized read-only sampling/u);
     assert.doesNotMatch(en("dataAccess.description"), /\{/u);
 
     const workbench = await readFile(path.join(root, "ui/generation-workbench/app.mjs"), "utf8");
     assert.match(workbench, /data-i18n="dataAccess\.title"/u);
     assert.match(workbench, /data-i18n="dataAccess\.description"/u);
+    assert.match(workbench, /data-i18n="dataAccess\.detailsDescription"/u);
+    assert.match(workbench, /max="1000" step="1" value="50"/u);
+    assert.match(workbench, /data-preview-page="next"/u);
+    assert.doesNotMatch(workbench, /基于当前表结构生成测试数据|直接使用 DBX 传入的表上下文/u);
   });
 
   it("interpolates raw values without translating them", () => {
     const zh = createI18n("zh-CN");
     const en = createI18n("en-US");
-    const summary = zh("preview.summary", { rows: 20, seed: "demo", locale: "zh-CN", profile: "sha256-v1" });
-    assert.match(summary, /20/);
-    assert.match(summary, /demo/);
-    assert.match(summary, /zh-CN/, "the generation locale value is shown verbatim");
-    assert.match(summary, /sha256-v1/);
+    const summary = zh("preview.summary", { rows: 50, seed: "demo", locale: "zh-CN", profile: "sha256-addressed-v1" });
+    assert.equal(summary, "50 行 · 种子 demo");
+    assert.doesNotMatch(summary, /zh-CN|sha256|GenerationPlan/u);
+    assert.equal(zh("controls.rows"), "生成行数（1–1000）");
+    assert.equal(zh("state.ready"), "生成完成，可在下方预览或导出。");
+    assert.equal(zh("export.ready"), "export.ready", "the repeated export-ready sentence is removed");
+    assert.equal(zh("safety.notice"), "预览仅展示合成测试数据，不直接展示或复用真实个人信息。");
     assert.equal(zh("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 行 · 目标表 public.customer");
     assert.equal(en("preview.sqlMeta", { rows: 20, table: "public.customer" }), "20 rows · Target table public.customer");
     assert.equal(zh("columns.strategyDetail", { source: "按字段类型", detected: "姓名", confidence: "高可信度" }), "按字段类型 · 识别为 姓名（高可信度）");
@@ -353,7 +370,7 @@ describe("i18n key coverage in the Workbench sources", () => {
     for (const level of ["blocking", "warning", "error", "unsupported", "needs_confirmation"]) {
       assert.equal(t.has(`diagnostics.level.${level}`), true, `diagnostics.level.${level}`);
     }
-    for (const fallback of ["export.error.export_error", "export.error.export_host_save_unavailable", "export.error.export_host_save_failed", "confidence.unknown", "semantic.unknown", "schemaType.state.unknown", "status.error", "constraints.capacity.unknown", "export.ready", "uiLocale.zh-CN", "uiLocale.en-US", "ruleSource.schema_type_fallback", "mappingStatus.needsConfirmation", "detected.ambiguous", "diagnostics.fallback.title", "diagnostics.fallback.description", "evidence.fallback.observation", "evidence.fallback.explanation", "evidence.source.unknown", "evidence.technicalSummary"]) {
+    for (const fallback of ["export.error.export_error", "export.error.export_host_save_unavailable", "export.error.export_host_save_failed", "confidence.unknown", "semantic.unknown", "schemaType.state.unknown", "status.error", "constraints.capacity.unknown", "uiLocale.zh-CN", "uiLocale.en-US", "ruleSource.schema_type_fallback", "mappingStatus.needsConfirmation", "detected.ambiguous", "diagnostics.fallback.title", "diagnostics.fallback.description", "evidence.fallback.observation", "evidence.fallback.explanation", "evidence.source.unknown", "evidence.technicalSummary"]) {
       assert.equal(t.has(fallback), true, fallback);
     }
   });

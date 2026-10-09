@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { createI18n } from "../src/i18n/index.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
-import { isSensitiveSampleColumn, normalizeSampleEvidence, sampleEvidenceToCoreEvidence, sanitizeSampleEvidence } from "../src/semantic/sample-evidence.mjs";
+import { isSensitiveSampleColumn, normalizeSampleEvidence, sampleEvidenceToCoreEvidence, sanitizeSampleEvidence, SAMPLE_EVIDENCE_MAX_ROWS } from "../src/semantic/sample-evidence.mjs";
 import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 
 const zh = createI18n("zh-CN");
@@ -19,6 +19,19 @@ function planFor(column, sampleEvidence) {
 }
 
 describe("semantic and value-minimized sample profiles", () => {
+  it("accepts summaries up to 100 rows and rejects evidence beyond the sample bound", () => {
+    assert.equal(SAMPLE_EVIDENCE_MAX_ROWS, 100);
+    const knownColumns = new Set(["status"]);
+    const accepted = sanitizeSampleEvidence([{
+      column: "status", kind: "enum_like", sampleCount: 100, distinctCount: 2,
+      candidates: [{ value: "active", frequency: 50 }, { value: "pending", frequency: 50 }],
+    }], knownColumns);
+    assert.equal(accepted[0].sampleCount, 100);
+    assert.deepEqual(sanitizeSampleEvidence([{
+      column: "status", kind: "enum_like", sampleCount: 101, distinctCount: 2,
+      candidates: [{ value: "active", frequency: 50 }, { value: "pending", frequency: 51 }],
+    }], knownColumns), []);
+  });
   it("uses 4/4 valid Chinese name samples as positive evidence", () => {
     const plan = planFor({ name: "display_name" }, [
       { column: "display_name", kind: "chinese_name_pattern", sampleCount: 4, matchedCount: 4 },

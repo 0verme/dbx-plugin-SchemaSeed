@@ -131,7 +131,10 @@ td { font-size: 12px; }
 .export-buttons { display: flex; gap: 7px; }
 .export-status { margin: 0; color: #64748b; font-size: 11px; }
 .export-buttons .button:disabled { opacity: .55; cursor: not-allowed; }
-.preview-scroll { border: 1px solid #e2e7ec; }
+.preview-scroll { max-height: min(55vh, 620px); border: 1px solid #e2e7ec; }
+.preview-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; color: #64748b; font-size: 12px; }
+.preview-pagination[hidden] { display: none; }
+.preview-pagination .button { min-height: 28px; padding: 3px 8px; font-size: 11px; }
 .preview-table { min-width: 100%; width: max-content; }
 .preview-table th, .preview-table td { max-width: 300px; white-space: nowrap; }
 .preview-table td { font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -147,6 +150,7 @@ footer { padding: 0 18px 16px; color: #718093; text-align: center; font-size: 11
   main { padding: 10px; gap: 9px; }
   .panel { padding: 12px; }
   .app-header { padding: 10px 12px; }
+  .preview-scroll { max-height: 50vh; }
   .controls-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .control-actions { grid-column: 1 / -1; }
   .control-actions .button { flex: 1; }

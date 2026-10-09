@@ -1,7 +1,7 @@
 import { parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import { EVIDENCE_KINDS, createEvidence } from "./evidence.mjs";
 
-export const SAMPLE_EVIDENCE_MAX_ROWS = 8;
+export const SAMPLE_EVIDENCE_MAX_ROWS = 100;
 export const TEMPORAL_PROFILE_MIN_ROWS = 3;
 export const NAME_PATTERN_MIN_SAMPLES = 3;
 export const NAME_PATTERN_MIN_RATIO = 0.8;

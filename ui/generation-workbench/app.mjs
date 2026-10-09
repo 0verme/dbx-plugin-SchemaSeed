@@ -21,11 +21,12 @@ import {
 } from "../src/i18n/workbench-messages.mjs";
 import { initialSectionExpansion, sectionSummaries, shouldAutoExpandDiagnostics } from "../src/workbench/workbench-sections.mjs";
 import { saveExportWithHost } from "./export-save.mjs";
+import { paginatePreviewRows } from "../src/workbench/preview-pagination.mjs";
 
 const WORKBENCH_MARKUP = `
   <div class="sswb">
     <header class="sswb-header">
-      <div class="sswb-brand"><span class="sswb-mark" aria-hidden="true">S</span><div><h1>SchemaSeed <span data-i18n="app.titleSuffix"></span></h1><p data-i18n="app.subtitle"></p></div></div>
+      <div class="sswb-brand"><span class="sswb-mark" aria-hidden="true">S</span><div><h1>SchemaSeed <span data-i18n="app.titleSuffix"></span></h1></div></div>
       <label class="sswb-ui-locale"><span data-i18n="controls.uiLocale"></span><select id="sswb-ui-locale" name="uiLocale"></select></label>
       <span id="sswb-status" class="sswb-status" role="status" aria-live="polite"></span>
     </header>
@@ -41,7 +42,7 @@ const WORKBENCH_MARKUP = `
       </section>
       <div id="sswb-workbench-content" class="sswb-workbench-content">
       <section class="sswb-panel" aria-labelledby="sswb-context-title">
-        <div class="sswb-heading"><div><h2 id="sswb-context-title" data-i18n="context.title"></h2><p class="sswb-caption" data-i18n="context.caption"></p></div><span class="sswb-context-tag">DBX HOST</span></div>
+        <div class="sswb-heading"><div><h2 id="sswb-context-title" data-i18n="context.title"></h2></div><span class="sswb-context-tag">DBX HOST</span></div>
         <div class="sswb-context-grid">
           <div><span data-i18n="context.database"></span><strong id="sswb-database">—</strong></div>
           <div><span data-i18n="context.schema"></span><strong id="sswb-schema">—</strong></div>
@@ -50,14 +51,17 @@ const WORKBENCH_MARKUP = `
         <aside class="sswb-data-access" role="note" aria-labelledby="sswb-data-access-title">
           <h3 id="sswb-data-access-title" data-i18n="dataAccess.title"></h3>
           <p data-i18n="dataAccess.description"></p>
+          <details class="sswb-data-access-details">
+            <summary data-i18n="dataAccess.detailsSummary"></summary>
+            <p data-i18n="dataAccess.detailsDescription"></p>
+          </details>
         </aside>
         <form id="sswb-controls" class="sswb-controls">
-          <label><span data-i18n="controls.rows"></span> <small data-i18n="controls.rowsRange"></small><input id="sswb-rows" name="rowCount" type="number" min="1" max="100" value="20" required></label>
+          <label><span data-i18n="controls.rows"></span><input id="sswb-rows" name="rowCount" type="number" min="1" max="1000" step="1" value="50" required></label>
           <label><span data-i18n="controls.seed"></span><input id="sswb-seed" name="seed" type="text" value="demo" maxlength="128"></label>
-          <label><span data-i18n="controls.dataLocale"></span><select id="sswb-locale" name="locale"><option value="zh-CN">zh-CN</option><option value="en">en</option></select></label>
+          <label><span data-i18n="controls.dataLocale"></span><select id="sswb-locale" name="locale" data-i18n-title="controls.dataLocaleHelp"><option value="zh-CN">zh-CN</option><option value="en">en</option></select></label>
           <div class="sswb-actions"><button class="sswb-button sswb-primary" type="button" data-sswb-action="generate" data-i18n="actions.generate"></button><button class="sswb-button" type="button" data-sswb-action="regenerate-same-seed" data-i18n="actions.regenerateSameSeed"></button><button class="sswb-button" type="button" data-sswb-action="new-seed" data-i18n="actions.newSeed"></button></div>
         </form>
-        <p class="sswb-locale-note" data-i18n="controls.localeNote"></p>
         <p id="sswb-action-error" class="sswb-inline-error" role="alert" hidden></p>
       </section>
 
@@ -67,6 +71,11 @@ const WORKBENCH_MARKUP = `
         <p id="sswb-safe-notice" class="sswb-safe-notice"></p>
         <div class="sswb-export-row"><div><button id="sswb-export-csv" class="sswb-button" type="button" data-sswb-export="csv" data-i18n="export.csv" disabled></button><button id="sswb-export-json" class="sswb-button" type="button" data-sswb-export="json" data-i18n="export.json" disabled></button><button id="sswb-export-sql" class="sswb-button" type="button" data-sswb-export="sql" data-i18n="export.sql" disabled></button><button id="sswb-preview-sql" class="sswb-button" type="button" data-sswb-preview-sql data-i18n="actions.previewSql" disabled></button></div><span id="sswb-export-message" role="status" aria-live="polite"></span></div>
         <div class="sswb-scroll sswb-preview-scroll"><table class="sswb-preview"><thead><tr id="sswb-preview-head"></tr></thead><tbody id="sswb-preview-body"></tbody></table></div>
+        <nav id="sswb-preview-pagination" class="sswb-preview-pagination" aria-label="Preview pagination" hidden>
+          <button id="sswb-preview-previous" class="sswb-button" type="button" data-preview-page="previous" data-i18n="preview.pagination.previous"></button>
+          <span id="sswb-preview-page-info" aria-live="polite"></span>
+          <button id="sswb-preview-next" class="sswb-button" type="button" data-preview-page="next" data-i18n="preview.pagination.next"></button>
+        </nav>
       </section>
 
       <section class="sswb-panel sswb-section" aria-labelledby="sswb-columns-title">
@@ -78,7 +87,6 @@ const WORKBENCH_MARKUP = `
             <span id="sswb-sample-hint" class="sswb-section-hint"></span>
           </summary>
           <div class="sswb-section-body">
-            <p class="sswb-caption" data-i18n="columns.caption"></p>
             <div class="sswb-scroll"><table class="sswb-mapping"><thead><tr><th data-i18n="columns.header.column"></th><th data-i18n="columns.header.schemaType"></th><th data-i18n="columns.header.strategy"></th><th data-i18n="columns.header.mappingStatus"></th><th data-i18n="columns.header.rules"></th></tr></thead><tbody id="sswb-columns"></tbody></table></div>
             <div id="sswb-rule-state" class="sswb-rule-slot" role="status"></div>
           </div>
@@ -113,7 +121,6 @@ const WORKBENCH_MARKUP = `
           </div>
         </details>
       </section>
-      <footer data-i18n="footer.statement"></footer>
       </div>
     </main>
   </div>
@@ -162,6 +169,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   let sqlPreviewError = null;
   let sqlCopyStatus = null;
   let sqlCopyInProgress = false;
+  let previewPage = 0;
   const sqlDialog = createModalDialogController({
     overlay: element("sswb-sql-modal"),
     dialog: element("sswb-sql-modal").querySelector(".sswb-sql-dialog"),
@@ -180,6 +188,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     // A new table context invalidates the dataset, so a previously displayed
     // save result must not keep describing it.
     exportSaveState = null;
+    previewPage = 0;
     void controller.setContext(context);
   });
   // Disclosure is page-session state only: it starts collapsed on every open,
@@ -230,6 +239,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       return;
     }
     exportSaveState = null;
+    previewPage = 0;
     if (target.matches("#sswb-rows, #sswb-seed, #sswb-locale")) {
       void controller.dispatch({
         type: "update-controls",
@@ -277,8 +287,13 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   }
 
   function onClick(event) {
-    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete]");
+    const target = event.target.closest("[data-sswb-action], [data-sswb-export], [data-sswb-preview-sql], [data-sswb-sql-modal-close], [data-sswb-sql-modal-copy], [data-sswb-sql-modal-export], [data-constraint-add], [data-constraint-delete], [data-preview-page]");
     if (!target) return;
+    if (target.dataset.previewPage) {
+      previewPage += target.dataset.previewPage === "next" ? 1 : -1;
+      render(controller.getViewModel());
+      return;
+    }
     if (target.matches("[data-sswb-sql-modal-close]")) {
       sqlDialog.close();
       return;
@@ -302,6 +317,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     // Any non-export action may invalidate the dataset, so it also clears a
     // previously displayed save result.
     exportSaveState = null;
+    previewPage = 0;
     if (target.matches("[data-constraint-add]")) {
       void controller.dispatch({ type: "add-constraint", kind: "unique" });
       return;
@@ -395,7 +411,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       element(id).title = exportHint;
     }
     const exportMessage = exportSaveState ? exportSaveMessage(exportSaveState, t) : exportStatusMessage(viewModel, t);
-    if (exportMessage !== null) element("sswb-export-message").textContent = exportMessage;
+    element("sswb-export-message").textContent = exportMessage ?? "";
   }
 
   /**
@@ -780,13 +796,29 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     header.replaceChildren();
     body.replaceChildren();
     element("sswb-preview-summary").textContent = previewSummary(viewModel, t);
+    const pagination = paginatePreviewRows(viewModel.preview.rows, previewPage);
+    previewPage = pagination.page;
+    const paginationNav = element("sswb-preview-pagination");
+    paginationNav.hidden = pagination.pageCount <= 1;
+    paginationNav.setAttribute("aria-label", t("preview.pagination.ariaLabel"));
+    element("sswb-preview-previous").disabled = pagination.page === 0;
+    element("sswb-preview-next").disabled = pagination.page >= pagination.pageCount - 1;
+    element("sswb-preview-page-info").textContent = pagination.pageCount > 1
+      ? t("preview.pagination.info", {
+        start: pagination.startRow,
+        end: pagination.endRow,
+        total: pagination.totalRows,
+        page: pagination.page + 1,
+        pages: pagination.pageCount,
+      })
+      : "";
     for (const column of viewModel.preview.columns) {
       const cell = document.createElement("th");
       cell.scope = "col";
       cell.textContent = column;
       header.append(cell);
     }
-    for (const previewRow of viewModel.preview.rows) {
+    for (const previewRow of pagination.rows) {
       const row = document.createElement("tr");
       for (const column of viewModel.preview.columns) {
         const cell = document.createElement("td");

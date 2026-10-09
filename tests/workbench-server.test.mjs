@@ -33,7 +33,7 @@ describe("Standalone Workbench HTTP harness", () => {
     const state = await stateResponse.json();
     assert.equal(stateResponse.status, 200);
     assert.equal(state.selectedFixture, "simple_customer");
-    assert.equal(state.preview.rows.length, 20);
+    assert.equal(state.preview.rows.length, 50);
     assert.equal(state.export.enabled, true);
 
     const csvResponse = await fetch(`${baseUrl}/api/export`, {
@@ -43,7 +43,7 @@ describe("Standalone Workbench HTTP harness", () => {
     });
     const csv = await csvResponse.json();
     assert.equal(csvResponse.status, 200);
-    assert.equal(csv.filename, "schemaseed-simple_customer-20rows.csv");
+    assert.equal(csv.filename, "schemaseed-simple_customer-50rows.csv");
     assert.equal(csv.mimeType, "text/csv;charset=utf-8");
     assert.ok(csv.content.startsWith("\uFEFFcustomer_id,name,age"));
     assert.equal(csv.summary.spreadsheetSafe, true);

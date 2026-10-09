@@ -21,6 +21,7 @@ import {
 } from "../semantic/sample-evidence.mjs";
 
 export const DATA_SAMPLE_ROW_LIMIT = SAMPLE_EVIDENCE_MAX_ROWS;
+export const DATA_SAMPLE_MAX_COLUMNS = 16;
 export const DATA_SAMPLE_TIMEOUT_MS = 3_000;
 export const DATA_SAMPLE_FIELD_MAX_LENGTH = 1_024;
 const DATA_SAMPLE_UI_DEADLINE_MS = DATA_SAMPLE_TIMEOUT_MS + 500;
@@ -87,11 +88,11 @@ export function getSampleProbeCandidates(schema) {
     if (inference.status !== "unknown" || isSensitiveSampleColumn(column.name) || isFreeTextSampleColumn(column.name)) continue;
     candidates.push({ name: column.name, kind: "text", sampling });
   }
-  return candidates;
+  return candidates.slice(0, DATA_SAMPLE_MAX_COLUMNS);
 }
 
 /**
- * Query a tiny sample through the official DBX Host Data API. The returned
+ * Query a bounded sample through the official DBX Host Data API. The returned
  * value is a bounded summary only; raw result rows never escape this function.
  * Every failure, including missing capability, permission denial and timeout,
  * degrades to metadata-only inference without exposing the Host error.

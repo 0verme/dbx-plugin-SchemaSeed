@@ -36,7 +36,7 @@ Consent: per plugin + connection, owned by DBX Host
 
 该 API 在 DBX 已打开且用户授权的连接上执行单条只读 SQL；插件不获得 driver、pool、credential 或 connection string。Host 拒绝 writes、DDL、locking reads、多语句和 connection database switch；默认 maxRows 500、上限 5000，timeout 上限 60 秒。SchemaSeed manifest 因此要求 `engines.host_api: ^1.4`，但仍在调用前检查 `capabilities.dataApi`。
 
-SchemaSeed 在 host adapter 内额外限制每表候选列、`maxRows: 8`、SQL `LIMIT 8` 和 `timeoutMs: 3000`；仅将脱敏后的 pattern counters 送入 inference，所有失败回退到 metadata-only。此功能的真实 DBX Desktop runtime smoke 尚未在本任务环境执行；不能由 Host 源码文档或 fake capability tests 推断真实 capability 可用。
+SchemaSeed 在 Host adapter 内将采样范围限制为最多 16 个通过隐私筛选的候选列、`maxRows: 100`、SQL `LIMIT 100` 和 `timeoutMs: 3000`。官方 Host API 1.4 契约允许最多 5000 行，但返回内容仍受 8 MiB 上限约束；SchemaSeed 使用实际返回的行数形成字段摘要，查询失败回退到 metadata-only。此功能的真实 DBX Desktop runtime smoke 尚未在本任务环境执行；不能由 Host 契约或 fake capability tests 推断真实 capability 可用。
 
 ## Historical Source Audit Snapshot (2026-09-22, pre-#10043)
 

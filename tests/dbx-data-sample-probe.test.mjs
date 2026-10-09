@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { probeDbxDataSamples, buildSampleSelectQuery, DATA_SAMPLE_FIELD_MAX_LENGTH, DATA_SAMPLE_ROW_LIMIT, DATA_SAMPLE_TIMEOUT_MS, getSampleProbeCandidates } from "../src/host/dbx-data-sample-probe.mjs";
+import { probeDbxDataSamples, buildSampleSelectQuery, DATA_SAMPLE_FIELD_MAX_LENGTH, DATA_SAMPLE_MAX_COLUMNS, DATA_SAMPLE_ROW_LIMIT, DATA_SAMPLE_TIMEOUT_MS, getSampleProbeCandidates } from "../src/host/dbx-data-sample-probe.mjs";
 import { describeConstraintDomain } from "../src/generation/constraint-domain.mjs";
 import { generateRows } from "../src/generation/generation-engine.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
@@ -110,6 +110,18 @@ test("bounded category varchar remains a direct-projection candidate", () => {
   ]);
 });
 
+test("sample selection stays within the fixed candidate-column budget", () => {
+  const schema = schemaOf(Array.from({ length: DATA_SAMPLE_MAX_COLUMNS + 4 }, (_value, index) => ({
+    name: `metric_${String(index).padStart(2, "0")}`,
+    dataType: "integer",
+    nullable: false,
+  })));
+  const candidates = getSampleProbeCandidates(schema);
+  assert.equal(candidates.length, DATA_SAMPLE_MAX_COLUMNS);
+  assert.equal(candidates.at(-1).name, "metric_15");
+  assert.equal(candidates.some(({ name }) => name === "metric_16"), false);
+});
+
 test("native unbounded text admits only existing strong semantic candidates", () => {
   const schema = schemaOf([
     { name: "category", dataType: "text", nullable: true, length: { state: "unavailable", reason: "DBX omitted length metadata" } },
@@ -165,9 +177,9 @@ test("PostgreSQL category text triggers a bounded sample query and summary only"
   }, { ...context, table: "audit_results" }, schema);
 
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].maxRows, 8);
+  assert.equal(requests[0].maxRows, 100);
   assert.equal(requests[0].timeoutMs, DATA_SAMPLE_TIMEOUT_MS);
-  assert.match(requests[0].sql, /^SELECT SUBSTR\(ss\.category, 1, 1024\) AS category FROM audit_results AS ss LIMIT 8$/);
+  assert.match(requests[0].sql, /^SELECT SUBSTR\(ss\.category, 1, 1024\) AS category FROM audit_results AS ss LIMIT 100$/);
   assert.deepEqual(evidence, {
     sampleUsed: true,
     evidence: [{
@@ -175,6 +187,50 @@ test("PostgreSQL category text triggers a bounded sample query and summary only"
       candidates: [{ value: "active", frequency: 3 }, { value: "archived", frequency: 2 }],
     }],
   });
+});
+
+test("samples request at most 100 rows and defensively summarizes no more than 100", async () => {
+  const schema = schemaOf([{ name: "status", dataType: "varchar", nullable: false, length: 32 }]);
+  const requests = [];
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    async queryData(request) {
+      requests.push(request);
+      return {
+        columns: [{ name: "status" }],
+        rows: Array.from({ length: 120 }, (_value, index) => [index % 2 === 0 ? "active" : "pending"]),
+        truncated: true,
+      };
+    },
+  }, context, schema);
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].maxRows, 100);
+  assert.match(requests[0].sql, /LIMIT 100$/u);
+  assert.deepEqual(result, {
+    sampleUsed: true,
+    evidence: [{
+      column: "status", kind: "enum_like", sampleCount: 100, distinctCount: 2,
+      candidates: [{ value: "active", frequency: 50 }, { value: "pending", frequency: 50 }],
+    }],
+  });
+  assert.doesNotMatch(JSON.stringify(result), /raw sample row|customer|email/u);
+});
+
+test("a Host that returns fewer than 100 rows produces evidence from the actual returned count", async () => {
+  const schema = schemaOf([{ name: "status", dataType: "varchar", nullable: false, length: 32 }]);
+  const result = await probeDbxDataSamples({
+    capabilities: { dataApi: true },
+    queryData: async () => ({
+      columns: [{ name: "status" }],
+      rows: Array.from({ length: 25 }, (_value, index) => [index % 2 === 0 ? "active" : "pending"]),
+      truncated: true,
+    }),
+  }, context, schema);
+  assert.equal(result.evidence[0].sampleCount, 25);
+  assert.deepEqual(result.evidence[0].candidates, [
+    { value: "active", frequency: 13 }, { value: "pending", frequency: 12 },
+  ]);
 });
 
 test("temporal samples retain bounded min/max, exact precision, timezone semantics, and NULL counts only", async () => {
@@ -345,7 +401,7 @@ test("queryData reads only uncertain candidate columns using bounded rows and ti
   assert.equal(requests[0].schema, context.schema);
   assert.equal(requests[0].maxRows, DATA_SAMPLE_ROW_LIMIT);
   assert.equal(requests[0].timeoutMs, DATA_SAMPLE_TIMEOUT_MS, "an excessive timeout is clamped to the local bound");
-  assert.match(requests[0].sql, /^SELECT ss\.display_name, ss\.status, ss\.last_login_at FROM p_admin_user AS ss LIMIT 8$/);
+  assert.match(requests[0].sql, /^SELECT ss\.display_name, ss\.status, ss\.last_login_at FROM p_admin_user AS ss LIMIT 100$/);
   assert.doesNotMatch(requests[0].sql, /\*|payload|picture|email|role|\bid\b/);
   assert.match(requests[0].sql, /^SELECT\b/i);
   assert.doesNotMatch(requests[0].sql, /;|\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i);
@@ -532,6 +588,7 @@ test("permission denial, query errors, and timeout return metadata-only evidence
     queryData: async () => { throw new Error("PLUGIN_DATA_ACCESS_NOT_GRANTED: private sample detail"); },
   }, context, sampleTableSchema());
   assert.deepEqual(denied, { sampleUsed: false, evidence: [] });
+  assert.doesNotMatch(JSON.stringify(denied), /PLUGIN_DATA_ACCESS_NOT_GRANTED|private sample detail/u);
 
   const errored = await probeDbxDataSamples({
     capabilities: { dataApi: true },
@@ -546,13 +603,13 @@ test("permission denial, query errors, and timeout return metadata-only evidence
   assert.deepEqual(timedOut, { sampleUsed: false, evidence: [] });
 });
 
-test("query builder combines direct and truncated projections while keeping LIMIT 8", () => {
+test("query builder combines direct and truncated projections while keeping LIMIT 100", () => {
   const query = buildSampleSelectQuery(context, [
     { name: "bounded_field", kind: "enum", sampling: "direct" },
     { name: "category", kind: "enum", sampling: "truncate" },
   ]);
   assert.deepEqual(query, {
-    sql: "SELECT ss.bounded_field, SUBSTR(ss.category, 1, 1024) AS category FROM p_admin_user AS ss LIMIT 8",
+    sql: "SELECT ss.bounded_field, SUBSTR(ss.category, 1, 1024) AS category FROM p_admin_user AS ss LIMIT 100",
     columns: ["bounded_field", "category"],
   });
 });
@@ -566,7 +623,7 @@ test("identifier renderer fails closed for unsafe tables and excludes unsafe col
     direct,
     { name: "status; DELETE FROM users", kind: "enum", sampling: "truncate" },
   ]), {
-    sql: "SELECT ss.status FROM p_admin_user AS ss LIMIT 8",
+    sql: "SELECT ss.status FROM p_admin_user AS ss LIMIT 100",
     columns: ["status"],
   });
 

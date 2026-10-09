@@ -13,7 +13,6 @@
       <div class="brand-mark" aria-hidden="true">S</div>
       <div>
         <h1>SchemaSeed <span>Workbench</span></h1>
-        <p>Fixture-driven preview · read-only</p>
       </div>
       <span id="status-badge" class="status-badge" role="status" aria-live="polite">加载中</span>
     </header>
@@ -31,8 +30,8 @@
           <label>Fixture
             <select id="fixture-select" name="fixture"></select>
           </label>
-          <label>Rows <span class="field-hint">1–100</span>
-            <input id="rows-input" name="rowCount" type="number" min="1" max="100" value="20" required>
+          <label>Rows (1–1000)
+            <input id="rows-input" name="rowCount" type="number" min="1" max="1000" step="1" value="50" required>
           </label>
           <label>Seed
             <input id="seed-input" name="seed" type="text" value="demo" maxlength="128">
@@ -55,7 +54,7 @@
         <div class="section-heading">
           <div>
             <h2 id="mapping-title">Column Mapping</h2>
-            <p class="section-caption">检测结果、当前 generator 与 mapping 状态分开展示</p>
+            <p class="section-caption">字段识别与生成策略</p>
           </div>
         </div>
         <div class="table-scroll">
@@ -81,7 +80,7 @@
         <div class="section-heading">
           <div>
             <h2 id="person-title">Person Groups</h2>
-            <p class="section-caption">仅显示当前 GenerationPlan 中已选择的字段</p>
+            <p class="section-caption">此处列出已选择的关联字段</p>
           </div>
         </div>
         <div id="person-groups" class="person-groups"></div>
@@ -120,6 +119,11 @@
             <tbody id="preview-rows"></tbody>
           </table>
         </div>
+        <nav id="preview-pagination" class="preview-pagination" aria-label="Preview pagination" hidden>
+          <button class="button" type="button" data-preview-page="previous">Previous</button>
+          <span id="preview-page-info" aria-live="polite"></span>
+          <button class="button" type="button" data-preview-page="next">Next</button>
+        </nav>
       </section>
 
       <section id="empty-state" class="panel empty-state" hidden>

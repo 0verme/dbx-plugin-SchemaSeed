@@ -7,9 +7,10 @@ import { createI18n, DEFAULT_UI_LOCALE } from "../i18n/index.mjs";
 import { toColumnViewModel } from "./workbench-view-model.mjs";
 import { getSampleProbeCandidates } from "../host/dbx-data-sample-probe.mjs";
 import { sanitizeSampleEvidence } from "../semantic/sample-evidence.mjs";
+import { DEFAULT_GENERATION_ROW_COUNT, MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "../generation/row-count.mjs";
 
-export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: 20, seed: "demo", locale: "zh-CN" });
-export const DBX_WORKBENCH_MAX_ROWS = 100;
+export const DBX_WORKBENCH_DEFAULTS = Object.freeze({ rowCount: DEFAULT_GENERATION_ROW_COUNT, seed: "demo", locale: "zh-CN" });
+export const DBX_WORKBENCH_MAX_ROWS = MAX_GENERATION_ROW_COUNT;
 const MAX_IDENTIFIER_LENGTH = 256;
 const MAX_TEMPORAL_METADATA_CACHE_ENTRIES = 32;
 
@@ -306,8 +307,9 @@ export class DbxGenerationWorkbenchController {
     const rowCount = input.rowCount ?? this.controls.rowCount;
     const seed = input.seed ?? this.controls.seed;
     const locale = input.locale ?? this.controls.locale;
-    if (!Number.isSafeInteger(rowCount) || rowCount < 1 || rowCount > DBX_WORKBENCH_MAX_ROWS) {
-      throw new RangeError(`Rows must be an integer from 1 to ${DBX_WORKBENCH_MAX_ROWS}`);
+    if (!Number.isSafeInteger(rowCount)
+      || rowCount < MIN_GENERATION_ROW_COUNT || rowCount > DBX_WORKBENCH_MAX_ROWS) {
+      throw new RangeError(`Rows must be an integer from ${MIN_GENERATION_ROW_COUNT} to ${DBX_WORKBENCH_MAX_ROWS}`);
     }
     if (typeof seed !== "string") throw new TypeError("Seed must be text");
     if (locale !== "zh-CN" && locale !== "en") throw new RangeError("Locale must be zh-CN or en");

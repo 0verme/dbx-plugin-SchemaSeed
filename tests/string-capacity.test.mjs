@@ -263,7 +263,7 @@ describe("Workbench state follows the capacity fix", () => {
       const view = await controller.setContext(BASE_CONTEXT);
       assert.notEqual(view.status, "blocked");
       assert.notEqual(view.plan.status, "blocked");
-      assert.equal(view.preview.rows.length, 20);
+      assert.equal(view.preview.rows.length, 50);
       assert.equal(view.export.enabled, true);
       assert.equal(view.diagnostics.some((entry) => entry.code === "varchar_length_unknown"), false);
       assert.doesNotThrow(() => controller.prepareExport("csv"));

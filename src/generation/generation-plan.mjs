@@ -20,9 +20,9 @@ import { createEvidence, EVIDENCE_KINDS } from "../semantic/evidence.mjs";
 import { isFilenameColumnName, isSensitiveSampleColumn, normalizeSampleEvidence } from "../semantic/sample-evidence.mjs";
 import { resolvePersonGroups } from "../semantic/person-groups.mjs";
 import { buildConstraintPlan } from "./manual-constraints.mjs";
+import { MAX_GENERATION_ROW_COUNT, MIN_GENERATION_ROW_COUNT } from "./row-count.mjs";
 
 const SUPPORTED_RULES = new Set(["integer", "decimal", "varchar", "string", "boolean", "date", "timestamp"]);
-const MAX_ROW_COUNT = 1_000_000;
 const MAX_DECIMAL_PRECISION = 1_000;
 
 /**
@@ -1002,13 +1002,13 @@ function normalizeSeed(seed, tableIdentity, diagnostics) {
 }
 
 function normalizeRowCount(rowCount, tableIdentity, diagnostics) {
-  if (Number.isSafeInteger(rowCount) && rowCount >= 0 && rowCount <= MAX_ROW_COUNT) return rowCount;
+  if (Number.isSafeInteger(rowCount) && rowCount >= MIN_GENERATION_ROW_COUNT && rowCount <= MAX_GENERATION_ROW_COUNT) return rowCount;
   diagnostics.push(makeDiagnostic({
     severity: "error",
     code: "invalid_row_count",
     table: tableIdentity,
     rule: "generation-settings",
-    reason: `rowCount must be an integer from 0 through ${MAX_ROW_COUNT}`,
+    reason: `rowCount must be an integer from ${MIN_GENERATION_ROW_COUNT} through ${MAX_GENERATION_ROW_COUNT}`,
   }));
   return 0;
 }
