@@ -15,11 +15,11 @@ const INTEGER_TYPES = new Map([
 
 /**
  * Declared string-family types, keyed by type token, never by database name.
- * `text` is intrinsically unbounded; `varchar` / `character varying` /
- * `nvarchar` / `string` establish a maximum only through an explicit typmod
- * `(n)` or structured length metadata.
+ * `text` is intrinsically unbounded; `char` / `nchar`, `varchar` /
+ * `character varying` / `nvarchar` / `string` establish a maximum only
+ * through an explicit typmod `(n)` or structured length metadata.
  */
-const STRING_TYPE_PATTERN = /^(varchar|character varying|nvarchar|string|text)(?:\s*\(\s*(\d+)\s*\))?$/;
+const STRING_TYPE_PATTERN = /^(character varying|character|nvarchar|nchar|varchar|char|string|text)(?:\s*\(\s*(\d+)\s*\))?$/;
 
 /**
  * Native textual types whose database semantics do not include an explicit
@@ -40,9 +40,10 @@ const NATIVE_UNBOUNDED_STRING_TYPES = new Set(["text"]);
  * Interpret only the database type family. Column names never select semantic
  * generators; business concepts belong to the future Semantic layer.
  *
- * For `varchar`, the returned `capacity` distinguishes a proven maximum from
- * an intrinsically unbounded type and from metadata that proves neither. It
- * is SchemaSeed's string capacity semantics, not a fabricated database limit.
+ * For character-family types, the returned `capacity` distinguishes a proven
+ * maximum from an intrinsically unbounded type and from metadata that proves
+ * neither. It is SchemaSeed's string capacity semantics, not a fabricated
+ * database limit.
  *
  * @param {import("./schema-model.mjs").ColumnSchema} column
  * @returns {{ kind: string, parameters: Record<string, unknown>, capacity?: StringCapacity } | null}
@@ -132,13 +133,13 @@ function classifyStringCapacity(column, token, declaredLength) {
   const fact = column.length;
   if (fact?.state === "known") {
     if (!Number.isSafeInteger(fact.value) || fact.value <= 0) {
-      return { model: "invalid", reason: `varchar length must be a positive safe integer; received ${String(fact.value)}` };
+      return { model: "invalid", reason: `string length must be a positive safe integer; received ${String(fact.value)}` };
     }
     return { model: "bounded", maxLength: fact.value, source: "structured-length" };
   }
   if (declaredLength !== null) {
     if (!Number.isSafeInteger(declaredLength) || declaredLength <= 0) {
-      return { model: "invalid", reason: `declared varchar length must be a positive integer; received ${String(declaredLength)}` };
+      return { model: "invalid", reason: `declared string length must be a positive integer; received ${String(declaredLength)}` };
     }
     return { model: "bounded", maxLength: declaredLength, source: "declared-type" };
   }
@@ -152,6 +153,6 @@ function classifyStringCapacity(column, token, declaredLength) {
   return {
     model: "unknown",
     factState,
-    reason: `varchar capacity is unknown: the declared type does not include an explicit length and length metadata is ${factState}${fact?.reason ? `: ${fact.reason}` : ""}`,
+    reason: `string capacity is unknown: the declared type does not include an explicit length and length metadata is ${factState}${fact?.reason ? `: ${fact.reason}` : ""}`,
   };
 }

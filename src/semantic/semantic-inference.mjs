@@ -1,4 +1,4 @@
-import { interpretColumnType } from "../schema/schema-interpreter.mjs";
+import { interpretColumnType, interpretStringCapacity } from "../schema/schema-interpreter.mjs";
 import { createEvidence, EVIDENCE_KINDS } from "./evidence.mjs";
 import {
   NAME_PATTERN_MIN_RATIO,
@@ -166,7 +166,7 @@ export function normalizeColumnName(name) {
 
 /**
  * Check whether an explicitly chosen semantic can be represented in the
- * schema family and the Safe Synthetic marker can fit a known varchar length.
+ * schema family and the Safe Synthetic marker can fit a known string capacity.
  * `compatible: null` means the schema type is unknown, not compatible.
  * @param {import("../schema/schema-model.mjs").ColumnSchema} column
  * @param {string} semanticType
@@ -217,20 +217,23 @@ export function checkSemanticCompatibility(column, semanticType, locale = "zh-CN
     return { compatible: true, lengthKnown: true, evidence };
   }
 
-  const length = column.length;
-  if (length.state !== "known") {
+  const capacity = interpretStringCapacity(column);
+  if (capacity?.model === "invalid") {
+    return { compatible: false, lengthKnown: true, reason: capacity.reason, evidence };
+  }
+  if (capacity?.model !== "bounded") {
     return { compatible: true, lengthKnown: false, evidence };
   }
 
   const minimum = minimumSafeSyntheticLength(semanticType, locale);
-  if (!Number.isSafeInteger(length.value) || length.value < minimum) {
-    const reason = `Safe Synthetic ${semanticType} needs at least ${minimum} characters for its test marker; schema length is ${String(length.value)}`;
+  if (capacity.maxLength < minimum) {
+    const reason = `Safe Synthetic ${semanticType} needs at least ${minimum} characters for its test marker; schema length is ${capacity.maxLength}`;
     evidence.push(createEvidence({
       kind: EVIDENCE_KINDS.lengthInsufficientForMarker,
       source: "length",
-      observation: String(length.value),
+      observation: String(capacity.maxLength),
       explanation: reason,
-      params: { length: String(length.value), minimum, semantic: semanticType },
+      params: { length: String(capacity.maxLength), minimum, semantic: semanticType },
     }));
     return { compatible: false, lengthKnown: true, reason, evidence };
   }
@@ -238,9 +241,9 @@ export function checkSemanticCompatibility(column, semanticType, locale = "zh-CN
   evidence.push(createEvidence({
     kind: EVIDENCE_KINDS.lengthAccommodatesMarker,
     source: "length",
-    observation: String(length.value),
+    observation: String(capacity.maxLength),
     explanation: `Schema length accommodates the Safe Synthetic ${semanticType} marker`,
-    params: { length: String(length.value), semantic: semanticType },
+    params: { length: String(capacity.maxLength), semantic: semanticType, source: capacity.source },
   }));
   return { compatible: true, lengthKnown: true, evidence };
 }
