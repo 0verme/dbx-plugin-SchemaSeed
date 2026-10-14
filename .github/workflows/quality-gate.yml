@@ -1,0 +1,69 @@
+name: PR Quality Gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+# Do not cancel a running check that may be used to decide whether a PR is safe to merge.
+# GitHub retains only the newest pending run per group; the latest commit is always validated.
+concurrency:
+  group: schema-seed-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Node 22 quality and package contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --include=dev
+
+      - name: Test
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck and package contract
+        run: npm run typecheck
+
+      - name: Build universal DBX package
+        run: npm run build
+
+      - name: Smoke-test package identity
+        run: npm run smoke:package-identity
+
+      - name: Check patch whitespace
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "origin/${PR_BASE_REF}...HEAD"
+          elif [[ "$EVENT_BEFORE" =~ ^0+$ ]]; then
+            git diff --check origin/main...HEAD
+          else
+            git diff --check "${EVENT_BEFORE}..${GITHUB_SHA}"
+          fi
