@@ -732,6 +732,8 @@ describe("DBX Generation Workbench production controller", () => {
     view = controller.getViewModel();
 
     assert.equal(result.valid, true);
+    assert.equal(result.plan.columns.find((column) => column.schema.name === "customer_id").generationRule.kind, "auto",
+      "validation-only results expose the Core default plan for restored Draft rendering");
     assert.ok(result.diagnostics.some((entry) => entry.code === "semantic_confirmation_required"));
     assert.deepEqual(controller.rules, committedRules);
     assert.deepEqual(controller.constraints, committedConstraints);
