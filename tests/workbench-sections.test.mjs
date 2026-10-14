@@ -248,6 +248,40 @@ describe("Workbench section summaries", () => {
 });
 
 describe("Advanced settings Modal and Workbench markup contract", () => {
+  it("keeps the current primary action and compact context/controls contract at narrow widths", async () => {
+    const markup = markupOf(await readFile(UI_SOURCE, "utf8"));
+    const advancedStart = markup.indexOf('<div id="sswb-advanced-modal"');
+    const mainMarkup = markup.slice(0, advancedStart);
+    const contextPanel = /<section class="sswb-panel" aria-labelledby="sswb-context-title">([\s\S]*?)<\/section>/u.exec(mainMarkup)?.[1] ?? "";
+    assert.ok(contextPanel.length > 0, "the current table context and controls stay in the main page");
+    for (const id of ["sswb-database", "sswb-schema", "sswb-table", "sswb-rows", "sswb-seed", "sswb-locale"]) {
+      assert.match(contextPanel, new RegExp(`id="${id}"`), `${id} remains available in the compact panel`);
+    }
+    assert.match(contextPanel, /class="sswb-button sswb-primary"[^>]*data-sswb-action="preview"/u,
+      "the state-driven Preview/Generate action remains primary");
+    assert.ok(mainMarkup.indexOf('id="sswb-context-title"') < mainMarkup.indexOf('id="sswb-preview-title"'),
+      "Preview follows the context and primary controls in document order");
+
+    const css = await readFile(path.join(root, "ui/generation-workbench.css"), "utf8");
+    const mobileStart = css.indexOf("@media (max-width: 640px) {");
+    const mobileEnd = css.indexOf("\n}", mobileStart);
+    assert.ok(mobileStart >= 0 && mobileEnd > mobileStart, "the narrow-screen breakpoint is present");
+    const mobile = css.slice(mobileStart, mobileEnd);
+    assert.match(mobile, /\.sswb-context-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/u,
+      "table identity remains a compact three-column row");
+    assert.match(mobile, /\.sswb-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.7fr\)\s+minmax\(0,\s*1\.4fr\)\s+minmax\(0,\s*\.8fr\)/u,
+      "row count, seed and data locale remain in the three-column control grid");
+    assert.match(mobile, /\.sswb-actions\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/u,
+      "the current primary action gets a full-width narrow row");
+    assert.match(mobile, /\.sswb-actions \.sswb-button\s*\{[^}]*white-space:\s*normal/u,
+      "long localized button labels may wrap on narrow screens");
+    assert.match(css, /\.sswb-context-grid strong\s*\{[^}]*overflow-wrap:\s*anywhere/u,
+      "long database/schema/table identifiers can wrap");
+    assert.match(css, /\.sswb-scroll\s*\{[^}]*overflow:\s*auto/u, "wide field and preview tables retain their horizontal scroll surface");
+    assert.match(css, /\.sswb-mapping\s*\{[^}]*min-width:\s*800px/u, "field detail columns do not collapse beyond usability");
+    assert.match(css, /\.sswb-preview\s*\{[^}]*width:\s*max-content/u, "wide Preview columns remain horizontally scrollable");
+  });
+
   it("keeps the main page focused on table context, controls, preview, and export", async () => {
     const source = await readFile(UI_SOURCE, "utf8");
     const markup = markupOf(source);

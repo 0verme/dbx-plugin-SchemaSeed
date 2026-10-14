@@ -67,3 +67,12 @@
 - `npm run build`：通过，生成 unsigned universal `.dbxp` review candidate；构建目录在忽略的 `dist/`，未提交。
 - `git diff --check`：通过。
 - 没有运行 DBX Desktop 实机测试或浏览器 viewport 截图；对应事项保持 **PENDING**。
+
+## 6. Post-merge re-audit at `origin/main` `e6104eb213ca22f99c1d97077015d277400aea87`
+
+- PR #86 merged at `7b9e5947cf14c1f8891f9bbf0b43f7293dc5b1f9`; Issue #85 remains OPEN for real viewport and Windows/macOS Runtime evidence. This section records the later source state; the earlier sections remain the historical PR #86 baseline.
+- PR #109 subsequently consolidated the former Generate / same-seed / new-seed buttons into one state-driven primary action. Current markup uses `data-sswb-action="preview"`; `previewPrimaryAction()` selects initial Generate, READY `generate-new-data`, or DIRTY same-input regeneration. The older three-button markup assumed in the PR #86 regression test is not the current DOM contract; state transitions are covered in `tests/preview-action-state.test.mjs`. A separate same-seed replay while READY is not exposed by the current UI and is not inferred from source-level deterministic tests.
+- Current ≤640px CSS keeps table context and row-count/seed/data-locale controls in three-column grids, places the current action in a full-width single-column row, permits long localized button labels to wrap, and allows long context values to break anywhere. Wide field/Preview tables retain their `overflow:auto` surfaces.
+- Current Preview scroll behavior differs from the original baseline: `.sswb-preview-scroll` has `max-height: 50vh` at ≤640px (55vh/620px otherwise), so content can use an internal vertical scroll area. This rule predates this re-audit; it is reported as source evidence, not treated as a measured visibility outcome.
+- A source-level responsive markup/CSS regression test was added for the current DOM and styles. It does not measure rendered geometry, actual first-row visibility, WebView fonts, or platform interaction.
+- Environment recheck: Linux x86_64; no Chromium/Firefox/WebKit executable and no Playwright/Puppeteer/jsdom/happy-dom package or viewport harness; no DBX Desktop runtime. `1280×720`, `1366×768`, `1920×1080`, `390×844` geometry and separate Windows/macOS Runtime checks remain **PENDING**. No estimated measurements or fixture-based Runtime claims are recorded.
