@@ -314,6 +314,7 @@ export class DbxGenerationWorkbenchController {
     return {
       valid: response.plan.status !== "blocked" && response.generated.status !== "blocked",
       diagnostics,
+      plan: response.plan,
     };
   }
 

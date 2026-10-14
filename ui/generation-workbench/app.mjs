@@ -11,8 +11,8 @@ import {
 } from "../src/i18n/diagnostics.mjs";
 import { describeEvidence, evidenceTechnicalRows } from "../src/i18n/evidence.mjs";
 import { createI18n, SUPPORTED_UI_LOCALES } from "../src/i18n/index.mjs";
-import { constraintKindOptions, constraintPlanLabel, ruleFieldLabel } from "../src/i18n/labels.mjs";
-import { getGenerationRuleEditorFields } from "../src/generation/generation-rules.mjs";
+import { constraintKindOptions, constraintPlanLabel } from "../src/i18n/labels.mjs";
+import { toSettingsDraftColumnViewModel } from "../src/workbench/workbench-view-model.mjs";
 import { browserUiLocaleStorage, createUiLocaleStore, readHostLocale } from "../src/i18n/ui-locale.mjs";
 import { createModalDialogController } from "./modal-dialog.mjs";
 import { copyTextToClipboard } from "./clipboard.mjs";
@@ -222,6 +222,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
   let advancedConfirmation = null;
   let restoreUndo = null;
   let restoreUndoUnavailable = false;
+  let defaultsRestored = false;
+  let restoredDefaultsPlan = null;
   let advancedRestoreStatusKey = null;
   let draftValidationToken = 0;
   const sqlDialog = createModalDialogController({
@@ -256,6 +258,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       advancedConfirmation = null;
       restoreUndo = null;
       restoreUndoUnavailable = false;
+      defaultsRestored = false;
+      restoredDefaultsPlan = null;
       advancedRestoreStatusKey = null;
       draftValidationToken += 1;
       element("sswb-advanced-confirm").hidden = true;
@@ -953,6 +957,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     advancedConfirmation = null;
     restoreUndo = null;
     restoreUndoUnavailable = false;
+    defaultsRestored = false;
+    restoredDefaultsPlan = null;
     advancedRestoreStatusKey = null;
     draftValidationToken += 1;
     element("sswb-column-search-input").value = "";
@@ -1010,6 +1016,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     enumEditorStates.clear();
     restoreUndo = { snapshot, restored: { rules: {}, constraints: [] } };
     restoreUndoUnavailable = false;
+    defaultsRestored = true;
+    restoredDefaultsPlan = null;
     advancedRestoreStatusKey = "advanced.restore.restored";
     advancedConfirmation = null;
     clearAdvancedValidation();
@@ -1031,6 +1039,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
     for (const [column, state] of structuredClone(snapshot.enumEditorStates)) enumEditorStates.set(column, state);
     restoreUndo = null;
     restoreUndoUnavailable = false;
+    defaultsRestored = false;
+    restoredDefaultsPlan = null;
     advancedRestoreStatusKey = null;
     clearAdvancedValidation();
     render(controller.getViewModel());
@@ -1059,6 +1069,7 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
       });
       if (!advancedDialog.isOpen || settingsDraft !== submittedDraft || requestToken !== draftValidationToken) return;
       advancedValidating = false;
+      restoredDefaultsPlan = result.plan;
       advancedValidationDiagnostics = result.diagnostics;
       advancedSaveErrorKey = null;
       renderAdvancedSettings(controller.getViewModel(), localeStore.getTranslator());
@@ -1463,16 +1474,13 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
 
   function draftColumnViewModel(column, t) {
     if (!settingsDraft) return column;
-    const rule = editableRule(settingsDraft.rules[column.column] ?? column.generationRule);
     const schemaColumn = controller.schema?.columns.find((entry) => entry.name === column.column);
-    const fields = schemaColumn
-      ? getGenerationRuleEditorFields(schemaColumn, rule).map((field) => ({ ...field, label: ruleFieldLabel(field, rule.kind, t) }))
-      : column.ruleFields;
-    const selectedMapping = rule.kind === "auto" ? column.selectedMapping
-      : rule.kind === "semantic"
-        ? (t.has(`semantic.${rule.semanticType}`) ? t(`semantic.${rule.semanticType}`) : String(rule.semanticType ?? ""))
-        : (t.has(`ruleKind.${rule.kind}`) ? t(`ruleKind.${rule.kind}`) : rule.kind);
-    return { ...column, generationRule: rule, ruleFields: fields, selectedMapping };
+    return toSettingsDraftColumnViewModel(column, settingsDraft, {
+      defaultsRestored,
+      defaultPlan: restoredDefaultsPlan,
+      schemaColumn,
+      translator: t,
+    });
   }
 
   function renderConstraints(viewModel, t) {

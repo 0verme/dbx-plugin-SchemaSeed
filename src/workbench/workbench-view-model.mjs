@@ -10,6 +10,7 @@ import {
   schemaTypeStateLabel,
 } from "../i18n/labels.mjs";
 import { SEMANTIC_TYPES } from "../semantic/semantic-inference.mjs";
+import { getGenerationRuleEditorFields } from "../generation/generation-rules.mjs";
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 
 /**
@@ -101,6 +102,57 @@ export function toColumnViewModel(column, diagnostics = [], options = {}) {
     ruleDiagnostics: diagnostics.filter((entry) => entry.column === column.schema.name).map((entry) => ({ ...entry })),
     evidence: [...semanticMapping.evidence],
   };
+}
+
+/**
+ * Build a column row from an advanced-settings draft. After restoring defaults,
+ * a missing Draft override means Core defaults, not the committed rule still
+ * shown by the current preview. `defaultPlan` supplies the Core-resolved view
+ * when validation has completed; the temporary fallback is explicitly Auto.
+ *
+ * @param {ReturnType<typeof toColumnViewModel>} column
+ * @param {{ rules: Record<string, unknown> }} settingsDraft
+ * @param {{ defaultsRestored?: boolean, defaultPlan?: import("../generation/generation-plan.mjs").GenerationPlan | null, schemaColumn?: import("../schema/schema-model.mjs").ColumnSchema, translator?: import("../i18n/index.mjs").Translator }} [options]
+ */
+export function toSettingsDraftColumnViewModel(column, settingsDraft, options = {}) {
+  const t = options.translator ?? createI18n(DEFAULT_UI_LOCALE);
+  let baseColumn = column;
+  if (options.defaultsRestored) {
+    const defaultPlanColumn = options.defaultPlan?.columns?.find((entry) => entry.schema?.name === column.column);
+    if (defaultPlanColumn) {
+      baseColumn = toColumnViewModel(defaultPlanColumn, options.defaultPlan.diagnostics ?? [], { translator: t });
+    } else {
+      baseColumn = {
+        ...column,
+        generationRule: { kind: "auto" },
+        selectedMapping: ruleKindLabel("auto", t),
+        mappingStatus: mappingStatusLabel("fallback", t),
+        mappingStatusToken: "fallback",
+        mappingValue: "auto",
+        canConfirm: false,
+        rule: { kind: "auto", source: "auto", sourceLabel: ruleSourceLabel("auto", t) },
+        ruleFields: [],
+        ruleDiagnostics: [],
+      };
+    }
+  }
+
+  const draftRule = Object.hasOwn(settingsDraft.rules, column.column)
+    ? settingsDraft.rules[column.column]
+    : baseColumn.generationRule;
+  const rule = structuredClone(draftRule ?? { kind: "auto" });
+  delete rule.identity;
+  const fields = options.schemaColumn
+    ? getGenerationRuleEditorFields(options.schemaColumn, rule).map((field) => ({
+      ...field,
+      label: ruleFieldLabel(field, rule.kind, t),
+    }))
+    : baseColumn.ruleFields;
+  const selectedMapping = rule.kind === "auto" ? baseColumn.selectedMapping
+    : rule.kind === "semantic"
+      ? (t.has(`semantic.${rule.semanticType}`) ? t(`semantic.${rule.semanticType}`) : String(rule.semanticType ?? ""))
+      : (t.has(`ruleKind.${rule.kind}`) ? t(`ruleKind.${rule.kind}`) : rule.kind);
+  return { ...baseColumn, generationRule: rule, ruleFields: fields, selectedMapping };
 }
 
 /**
