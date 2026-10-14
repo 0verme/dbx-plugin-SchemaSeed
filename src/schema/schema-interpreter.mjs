@@ -1,3 +1,5 @@
+import { sqlBigIntMaximum, sqlBigIntMinimum, sqlIntegerFromBigInt } from "../integer-value.mjs";
+
 const INTEGER_TYPES = new Map([
   ["tinyint", 127],
   ["smallint", 32_767],
@@ -58,11 +60,13 @@ export function interpretColumnType(column) {
   const integerName = base.match(/^(tinyint|smallint|int2|smallserial|mediumint|int|integer|int4|serial|bigint|int8|bigserial)(?:\s*\(\s*\d+\s*\))?$/)?.[1];
   if (integerName) {
     const max = INTEGER_TYPES.get(integerName);
+    const signedBigInt = ["bigint", "int8", "bigserial"].includes(integerName) && !unsigned;
     return {
       kind: "integer",
       parameters: {
-        schemaMin: unsigned ? 0 : -max - 1,
-        schemaMax: unsigned ? Math.min(max * 2 + 1, Number.MAX_SAFE_INTEGER) : max,
+        schemaMin: signedBigInt ? sqlIntegerFromBigInt(sqlBigIntMinimum()) : unsigned ? 0 : -max - 1,
+        schemaMax: signedBigInt ? sqlIntegerFromBigInt(sqlBigIntMaximum())
+          : unsigned ? Math.min(max * 2 + 1, Number.MAX_SAFE_INTEGER) : max,
       },
     };
   }

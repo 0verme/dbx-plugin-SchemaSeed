@@ -1,5 +1,6 @@
 import { createGenerationWorkbenchController } from "../src/workbench/dbx-generation-workbench-adapter.mjs";
 import { isJsonDocumentValue, serializeJsonDocumentValue } from "../src/json-document.mjs";
+import { isSqlBigIntValue, parseSqlIntegerText, sqlIntegerText } from "../src/integer-value.mjs";
 import { selectInitialContext } from "./context.mjs";
 import { renderWorkbenchContextVisibility } from "./visibility.mjs";
 import {
@@ -1905,7 +1906,8 @@ export async function mountGenerationWorkbench(root, host, initialContext, optio
         const value = previewRow[column];
         cell.textContent = value === null ? t("preview.null")
           : isJsonDocumentValue(value) ? serializeJsonDocumentValue(value)
-            : typeof value === "string" ? value : JSON.stringify(value);
+            : isSqlBigIntValue(value) ? sqlIntegerText(value)
+              : typeof value === "string" ? value : JSON.stringify(value);
         if (value === null) cell.className = "sswb-null";
         row.append(cell);
       }
@@ -1971,15 +1973,16 @@ function renderRuleEditor(column, t, enumState) {
       input.value = field.value === undefined ? "" : JSON.stringify(field.value);
     } else {
       input = document.createElement("input");
-      input.type = field.editor === "integer" || field.editor === "ratio" ? "number" : "text";
-      if (field.editor === "integer") input.step = "1";
+      input.type = field.editor === "ratio" ? "number" : "text";
+      if (field.editor === "integer") input.inputMode = "decimal";
       if (field.editor === "ratio") {
         input.min = "0";
         input.max = "1";
         input.step = "any";
       }
       if (field.editor === "decimal") input.inputMode = "decimal";
-      input.value = field.value === undefined || field.value === null ? "" : String(field.value);
+      input.value = field.value === undefined || field.value === null ? ""
+        : isSqlBigIntValue(field.value) ? sqlIntegerText(field.value) : String(field.value);
     }
     input.dataset.ruleField = field.key;
     input.dataset.ruleEditor = field.editor;
@@ -2016,12 +2019,12 @@ function renderEnumEditor(column, state, t) {
       tag.setAttribute("role", "listitem");
       const text = document.createElement("span");
       text.className = "sswb-enum-tag-text";
-      text.textContent = typeof value === "string" ? (value === "" ? '""' : value) : JSON.stringify(value);
+      text.textContent = formatCandidateDisplay(value);
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "sswb-enum-remove";
       remove.textContent = "×";
-      remove.setAttribute("aria-label", t("enumInput.remove", { candidate: typeof value === "string" ? value : JSON.stringify(value) }));
+      remove.setAttribute("aria-label", t("enumInput.remove", { candidate: formatCandidateDisplay(value) }));
       remove.dataset.enumRemove = "true";
       remove.dataset.enumIndex = String(index);
       remove.dataset.ruleColumn = column.column;
@@ -2166,7 +2169,12 @@ function editableRule(rule) {
 }
 
 function readRuleField(input) {
-  if (input.dataset.ruleEditor === "integer" || input.dataset.ruleEditor === "ratio") {
+  if (input.dataset.ruleEditor === "integer") {
+    if (input.value.trim() === "") return null;
+    const parsed = parseSqlIntegerText(input.value);
+    return parsed.ok ? parsed.value : input.value;
+  }
+  if (input.dataset.ruleEditor === "ratio") {
     return input.value.trim() === "" ? null : Number(input.value);
   }
   if (input.dataset.ruleEditor === "json") {
@@ -2177,6 +2185,12 @@ function readRuleField(input) {
     }
   }
   return input.value;
+}
+
+function formatCandidateDisplay(value) {
+  if (isSqlBigIntValue(value)) return sqlIntegerText(value);
+  if (typeof value === "string") return value === "" ? '""' : value;
+  return JSON.stringify(value);
 }
 
 function textCell(text, className) {

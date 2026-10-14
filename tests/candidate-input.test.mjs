@@ -35,9 +35,16 @@ describe("enum candidate input parsing", () => {
       assert.deepEqual(parseCandidateText("integer", text), { ok: true, value });
     }
     assert.deepEqual(parseCandidateText("integer", "abc"), { ok: false, reason: "invalid-integer" });
-    for (const text of ["9007199254740992", "9223372036854775807", "-9223372036854775808"]) {
-      assert.deepEqual(parseCandidateText("integer", text), { ok: false, reason: "integer-range" }, text);
+    for (const [text, decimal] of [
+      ["9007199254740992", "9007199254740992"],
+      ["9223372036854775807", "9223372036854775807"],
+      ["-9223372036854775808", "-9223372036854775808"],
+    ]) {
+      assert.deepEqual(parseCandidateText("integer", text), {
+        ok: true, value: { $schemaSeedType: "sql-bigint", value: decimal },
+      }, text);
     }
+    assert.deepEqual(parseCandidateText("integer", "9223372036854775808"), { ok: false, reason: "integer-range" });
 
     for (const text of ["0.1", "12.50", "-99.99", "12345678901234567890.123456"]) {
       assert.deepEqual(parseCandidateText("decimal", text), { ok: true, value: text });
@@ -51,7 +58,8 @@ describe("enum candidate input parsing", () => {
 
   it("enables tags only when the Core values round-trip losslessly", () => {
     assert.equal(canEditEnumCandidatesAsTags("varchar", ["", "张三"]), true);
-    assert.equal(canEditEnumCandidatesAsTags("integer", [1, -1, Number.MAX_SAFE_INTEGER]), true);
+    assert.equal(canEditEnumCandidatesAsTags("integer", [1, -1, Number.MAX_SAFE_INTEGER,
+      { $schemaSeedType: "sql-bigint", value: "9223372036854775807" }]), true);
     assert.equal(canEditEnumCandidatesAsTags("integer", ["1"]), false);
     assert.equal(canEditEnumCandidatesAsTags("integer", [Number.MAX_SAFE_INTEGER + 1]), false);
     assert.equal(canEditEnumCandidatesAsTags("decimal", ["12.50", "12345678901234567890.123456"]), true);
@@ -65,6 +73,9 @@ describe("enum candidate input parsing", () => {
 
   it("parses typed paste atomically and rejects JSON numbers that could lose precision", () => {
     assert.deepEqual(parseCandidateValues("integer", ["1", 2, "-3"]), { ok: true, values: [1, 2, -3] });
+    assert.deepEqual(parseCandidateValues("integer", ["9223372036854775807"]), {
+      ok: true, values: [{ $schemaSeedType: "sql-bigint", value: "9223372036854775807" }],
+    });
     assert.deepEqual(parseCandidateValues("integer", ["1", 9007199254740992]), {
       ok: false, reason: "integer-range", index: 1,
     });

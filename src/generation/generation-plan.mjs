@@ -1,4 +1,5 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
+import { sqlIntegerFromBigInt, sqlIntegerToBigInt } from "../integer-value.mjs";
 import { normalizeJsonValue } from "../json-document.mjs";
 import { interpretColumnType, interpretStringCapacity, resolveTemporalPrecision } from "../schema/schema-interpreter.mjs";
 import { formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
@@ -433,8 +434,24 @@ function planColumn(tableIdentity, column, override, semanticMapping, inference,
   const ruleKind = interpreted.kind;
   const baseParameters = { ...interpreted.parameters };
   if (ruleKind === "integer") {
-    baseParameters.defaultMin = Math.max(0, baseParameters.schemaMin);
-    baseParameters.defaultMax = Math.max(baseParameters.defaultMin, Math.min(baseParameters.schemaMax, 1_000_000));
+    const schemaMin = sqlIntegerToBigInt(baseParameters.schemaMin);
+    const schemaMax = sqlIntegerToBigInt(baseParameters.schemaMax);
+    if (schemaMin === null || schemaMax === null) {
+      diagnostics.push(makeDiagnostic({
+        severity: "error",
+        code: "invalid_schema_integer_bounds",
+        table: tableIdentity,
+        column: column.name,
+        rule: schemaRuleId,
+        reason: "Integer schema bounds cannot be represented exactly",
+      }));
+    } else {
+      const defaultMin = schemaMin > 0n ? schemaMin : 0n;
+      const upper = schemaMax < 1_000_000n ? schemaMax : 1_000_000n;
+      const defaultMax = upper < defaultMin ? defaultMin : upper;
+      baseParameters.defaultMin = sqlIntegerFromBigInt(defaultMin);
+      baseParameters.defaultMax = sqlIntegerFromBigInt(defaultMax);
+    }
   }
   const hasExplicitRule = generationRule.kind !== "auto" || override !== undefined;
   const sampleInferenceEligible = !hasExplicitRule && !semanticMapping.selected && inference.status === "unknown";
@@ -612,9 +629,12 @@ function sampleGenerationRule(column, interpreted, sampleProfile, rowCount, temp
     if (!Number.isSafeInteger(sampleCount) || sampleCount < 1
       || !Number.isSafeInteger(zeroCount) || zeroCount < 0 || zeroCount > sampleCount) return null;
     if (schemaKind === "integer") {
-      const schemaMin = interpreted.parameters.schemaMin;
-      const schemaMax = interpreted.parameters.schemaMax;
-      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min > max || min < schemaMin || max > schemaMax) return null;
+      const schemaMin = sqlIntegerToBigInt(interpreted.parameters.schemaMin);
+      const schemaMax = sqlIntegerToBigInt(interpreted.parameters.schemaMax);
+      const minimum = sqlIntegerToBigInt(min);
+      const maximum = sqlIntegerToBigInt(max);
+      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || minimum === null || maximum === null
+        || schemaMin === null || schemaMax === null || minimum > maximum || minimum < schemaMin || maximum > schemaMax) return null;
       return {
         identity: "sample:numeric-range:v1",
         kind: "sample_numeric",
@@ -936,14 +956,18 @@ function validateOverride(tableIdentity, column, schemaKind, raw, fallbackParame
   if (schemaKind === "integer") {
     const min = raw.min === undefined ? fallbackParameters.defaultMin : raw.min;
     const max = raw.max === undefined ? fallbackParameters.defaultMax : raw.max;
-    if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min > max) {
-      return reject("integer min/max must be safe integers with min <= max");
+    const minimum = sqlIntegerToBigInt(min);
+    const maximum = sqlIntegerToBigInt(max);
+    const schemaMin = sqlIntegerToBigInt(fallbackParameters.schemaMin);
+    const schemaMax = sqlIntegerToBigInt(fallbackParameters.schemaMax);
+    if (minimum === null || maximum === null || minimum > maximum) {
+      return reject("integer min/max must be safe integer numbers or tagged signed BIGINT scalars with min <= max");
     }
-    if (min < fallbackParameters.schemaMin || max > fallbackParameters.schemaMax) {
-      return reject(`integer range [${min}, ${max}] exceeds schema domain [${fallbackParameters.schemaMin}, ${fallbackParameters.schemaMax}]`);
+    if (schemaMin === null || schemaMax === null || minimum < schemaMin || maximum > schemaMax) {
+      return reject(`integer range [${minimum}, ${maximum}] exceeds schema domain [${schemaMin}, ${schemaMax}]`);
     }
-    parameters.min = min;
-    parameters.max = max;
+    parameters.min = sqlIntegerFromBigInt(minimum);
+    parameters.max = sqlIntegerFromBigInt(maximum);
   } else if (schemaKind === "varchar") {
     const schemaMax = fallbackParameters.schemaMaxLength;
     const maxLength = raw.maxLength === undefined ? resolveStringGenerationMaxLength(undefined, schemaMax) : raw.maxLength;

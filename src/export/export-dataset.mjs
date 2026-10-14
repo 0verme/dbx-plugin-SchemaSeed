@@ -1,5 +1,6 @@
 import { validateDatasetConstraints } from "../generation/manual-constraints.mjs";
 import { isJsonDocumentValue, normalizeJsonValue, unwrapJsonDocumentValue } from "../json-document.mjs";
+import { isSqlBigIntValue, sqlIntegerFromBigInt } from "../integer-value.mjs";
 
 const SAFE_STATUSES = new Set(["ready", "ready_with_warnings"]);
 const EXPORT_SCALAR_TYPES = new Set(["string", "number", "boolean"]);
@@ -135,7 +136,10 @@ function validateColumns(columns) {
 /** @param {Array<Record<string, unknown>>} rows @param {string[]} columns */
 function normalizeRows(rows, columns) {
   validateRows(rows, columns);
-  return rows.map((row) => Object.freeze(Object.fromEntries(columns.map((column) => [column, row[column]]))));
+  return rows.map((row) => Object.freeze(Object.fromEntries(columns.map((column) => {
+    const value = row[column];
+    return [column, isSqlBigIntValue(value) ? sqlIntegerFromBigInt(BigInt(value.value)) : value];
+  }))));
 }
 
 /** @param {Array<Record<string, unknown>>} rows @param {string[]} columns */
@@ -162,6 +166,7 @@ function validateRows(rows, columns) {
         }
         continue;
       }
+      if (isSqlBigIntValue(value)) continue;
       if (value !== null && !EXPORT_SCALAR_TYPES.has(typeof value)) {
         throw new ExportError("export_serialization_failed", `Column ${column} contains a value that CSV / JSON cannot safely serialize`);
       }
@@ -177,7 +182,7 @@ function validateRows(rows, columns) {
  * @property {string} tableIdentity
  * @property {{ database: string | null, schema: string | null, table: string } | null} table Database / schema / table reference captured with this snapshot.
  * @property {string[]} columns Explicit TableSchema column order.
- * @property {Array<Record<string, string | number | boolean | null | import("../json-document.mjs").JsonDocumentValue>>} rows
+ * @property {Array<Record<string, string | number | boolean | null | import("../json-document.mjs").JsonDocumentValue | import("../integer-value.mjs").SqlBigIntValue>>} rows
  * @property {{ seed: string, locale: string, rowCount: number, determinismProfile: string }} generationContext
  */
 

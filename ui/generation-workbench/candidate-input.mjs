@@ -1,3 +1,46 @@
+const SQL_BIGINT_MIN = -(1n << 63n);
+const SQL_BIGINT_MAX = (1n << 63n) - 1n;
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_INTEGER_BIGINT = -MAX_SAFE_INTEGER_BIGINT;
+
+/** Keep the Tag Input's scalar parser aligned with the Core JSON tag contract. @param {unknown} value */
+function isSqlBigIntValue(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== 2 || !keys.includes("$schemaSeedType") || !keys.includes("value")) return false;
+  if (keys.some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return !descriptor?.enumerable || !Object.hasOwn(descriptor, "value");
+  })) return false;
+  if (value.$schemaSeedType !== "sql-bigint" || typeof value.value !== "string"
+    || value.value.length > 20 || !/^(?:0|-?[1-9]\d*)$/u.test(value.value)) return false;
+  try {
+    const exact = BigInt(value.value);
+    return exact.toString() === value.value && exact >= SQL_BIGINT_MIN && exact <= SQL_BIGINT_MAX
+      && (exact < MIN_SAFE_INTEGER_BIGINT || exact > MAX_SAFE_INTEGER_BIGINT);
+  } catch {
+    return false;
+  }
+}
+
+/** @param {string} text */
+function parseSqlIntegerText(text) {
+  const token = typeof text === "string" ? text.trim() : "";
+  if (!/^[+-]?\d+$/u.test(token)) return { ok: false, reason: "invalid-integer" };
+  if (token.replace(/^[+-]/u, "").length > 19) return { ok: false, reason: "integer-range" };
+  try {
+    const exact = BigInt(token);
+    if (exact < SQL_BIGINT_MIN || exact > SQL_BIGINT_MAX) return { ok: false, reason: "integer-range" };
+    const value = exact >= MIN_SAFE_INTEGER_BIGINT && exact <= MAX_SAFE_INTEGER_BIGINT
+      ? Number(exact) : Object.freeze({ $schemaSeedType: "sql-bigint", value: exact.toString() });
+    return { ok: true, value };
+  } catch {
+    return { ok: false, reason: "integer-range" };
+  }
+}
+
 /** Parse strict JSON editor input; only an array is a valid enum value list. @param {string} text @param {string} [schemaFamily] */
 export function parseCandidateJson(text, schemaFamily) {
   let value;
@@ -158,8 +201,6 @@ function canonicalCandidateValue(value) {
 }
 
 const TAG_EDITABLE_FAMILIES = new Set(["varchar", "integer", "decimal", "boolean", "date", "timestamp"]);
-const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
-const INTEGER_TEXT = /^[+-]?\d+$/u;
 const DECIMAL_TEXT = /^[+-]?\d+(?:\.\d+)?$/u;
 
 /**
@@ -178,7 +219,7 @@ export function canEditEnumCandidatesAsTags(schemaFamily, values) {
       case "timestamp":
         return typeof value === "string";
       case "integer":
-        return Number.isSafeInteger(value);
+        return Number.isSafeInteger(value) || isSqlBigIntValue(value);
       case "decimal": {
         if (typeof value !== "string") return false;
         const parsed = parseCandidateText(schemaFamily, value);
@@ -206,20 +247,8 @@ export function parseCandidateText(schemaFamily, text) {
     case "date":
     case "timestamp":
       return { ok: true, value: text };
-    case "integer": {
-      const token = text.trim();
-      if (!INTEGER_TEXT.test(token)) return { ok: false, reason: "invalid-integer" };
-      const unsigned = token.replace(/^[+-]/u, "").replace(/^0+(?=\d)/u, "");
-      if (unsigned.length > String(Number.MAX_SAFE_INTEGER).length) return { ok: false, reason: "integer-range" };
-      const exact = BigInt(`${token.startsWith("-") ? "-" : ""}${unsigned}`);
-      if (exact < -MAX_SAFE_INTEGER_BIGINT || exact > MAX_SAFE_INTEGER_BIGINT) {
-        return { ok: false, reason: "integer-range" };
-      }
-      const value = Number(exact);
-      return Number.isSafeInteger(value) && BigInt(value) === exact
-        ? { ok: true, value }
-        : { ok: false, reason: "integer-range" };
-    }
+    case "integer":
+      return parseSqlIntegerText(text);
     case "decimal": {
       const token = text.trim();
       return DECIMAL_TEXT.test(token)
@@ -260,7 +289,7 @@ function parseCandidateValue(schemaFamily, value) {
   if (typeof value === "string") return parseCandidateText(schemaFamily, value);
   switch (schemaFamily) {
     case "integer":
-      return Number.isSafeInteger(value)
+      return Number.isSafeInteger(value) || isSqlBigIntValue(value)
         ? { ok: true, value }
         : { ok: false, reason: "integer-range" };
     case "decimal":

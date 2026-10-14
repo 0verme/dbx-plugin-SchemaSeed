@@ -201,7 +201,7 @@ export const ZH_CN_MESSAGES = Object.freeze({
   "enumInput.incompatible": "候选值与当前字段类型不兼容",
   "enumInput.invalidInteger": "请输入有效整数",
   "enumInput.integerRange": "候选值超出当前字段允许的整数范围",
-  "enumInput.bigintRange": "候选值超出 bigint 当前可无损处理的安全范围",
+  "enumInput.bigintRange": "候选值超出 BIGINT 有符号 64 位范围",
   "enumInput.invalidDecimal": "请输入有效十进制数，例如 12.50",
   "enumInput.decimalPrecision": "候选值超出字段允许的精度或小数位数",
   "enumInput.decimalJsonNumber": "JSON 数字无法保证十进制精度，请使用精确文本或 JSON 字符串",
@@ -644,6 +644,11 @@ export const ZH_CN_DIAGNOSTICS = Object.freeze({
     title: "序列无法提供足够多的不同取值",
     description: "按当前起始值 / 步长计算，序列在达到所需行数之前就会耗尽。",
     action: "请减少行数、增大步长，或改用其他生成策略。",
+  },
+  invalid_schema_integer_bounds: {
+    title: "整数列范围无效",
+    description: "SchemaSeed 无法精确表示该字段的整数边界，因此已阻止生成。",
+    action: "请刷新表结构 metadata，或改用受支持的整数类型。",
   },
   semantic_confirmation_required: {
     title: "字段语义需要人工确认",

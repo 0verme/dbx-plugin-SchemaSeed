@@ -1,5 +1,6 @@
 import { ExportError, validateExportDataset } from "./export-dataset.mjs";
 import { isJsonDocumentValue, serializeJsonDocumentValue } from "../json-document.mjs";
+import { isSqlBigIntValue, sqlIntegerText } from "../integer-value.mjs";
 
 const CSV_MODES = new Set(["raw", "spreadsheet_safe"]);
 const UTF8_BOM = "\uFEFF";
@@ -27,6 +28,7 @@ export function exportCsv(dataset, options = {}) {
         if (isJsonDocumentValue(value)) {
           return serializeField(serializeJsonDocumentValue(value), mode, true);
         }
+        if (isSqlBigIntValue(value)) return serializeField(sqlIntegerText(value), mode, false);
         return serializeField(value, mode, typeof value === "string");
       }).join(","));
     }

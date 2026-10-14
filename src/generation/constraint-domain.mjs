@@ -1,4 +1,5 @@
 import { formatDecimalUnits, formatTimestamp, parseTimestamp, resolveStringGenerationMaxLength } from "./generation-rules.mjs";
+import { sqlIntegerFromBigInt, sqlIntegerToBigInt } from "../integer-value.mjs";
 import { interpretColumnType } from "../schema/schema-interpreter.mjs";
 import { toHex } from "./sha256.mjs";
 
@@ -25,19 +26,24 @@ export function describeConstraintDomain(columnPlan, rowCount) {
         ? known("null_only", 0n, () => null, { nullOnly: true })
         : known("constant", 1n, () => p.value);
     case "sequence": {
-      const capacity = p.numericKind === "decimal"
-        ? (BigInt(p.stepUnits) === 0n ? 1n : BigInt(rowCount))
-        : (BigInt(p.step) === 0n ? 1n : BigInt(rowCount));
-      return known("sequence", capacity, (index) => {
-        if (p.numericKind === "decimal") return formatDecimalUnits(BigInt(p.startUnits) + BigInt(p.stepUnits) * index, p.scale);
-        const value = BigInt(p.start) + BigInt(p.step) * index;
-        const number = Number(value);
-        if (!Number.isSafeInteger(number)) throw new Error("Integer Sequence exceeded safe numeric representation");
-        return number;
-      }, { intrinsicUnique: p.numericKind === "decimal" ? BigInt(p.stepUnits) !== 0n : BigInt(p.step) !== 0n });
+      if (p.numericKind === "decimal") {
+        const start = BigInt(p.startUnits);
+        const step = BigInt(p.stepUnits);
+        return known("sequence", step === 0n ? 1n : BigInt(rowCount),
+          (index) => formatDecimalUnits(start + step * index, p.scale), { intrinsicUnique: step !== 0n });
+      }
+      const start = sqlIntegerToBigInt(p.start);
+      const step = sqlIntegerToBigInt(p.step);
+      if (start === null || step === null) return unsupported("Integer Sequence bounds cannot be represented exactly");
+      return known("sequence", step === 0n ? 1n : BigInt(rowCount),
+        (index) => sqlIntegerFromBigInt(start + step * index), { intrinsicUnique: step !== 0n });
     }
-    case "random_integer":
-      return known("integer_range", BigInt(p.max) - BigInt(p.min) + 1n, (index) => Number(BigInt(p.min) + index));
+    case "random_integer": {
+      const min = sqlIntegerToBigInt(p.min);
+      const max = sqlIntegerToBigInt(p.max);
+      if (min === null || max === null || min > max) return { state: "cannot_prove", kind: rule.kind, reason: "Integer bounds cannot be represented exactly" };
+      return known("integer_range", max - min + 1n, (index) => sqlIntegerFromBigInt(min + index));
+    }
     case "random_decimal": {
       const min = BigInt(p.minUnits);
       const max = BigInt(p.maxUnits);
@@ -54,15 +60,16 @@ export function describeConstraintDomain(columnPlan, rowCount) {
       return known("enum", BigInt(values.length), (index) => values[Number(index)], { values });
     }
     case "sample_numeric": {
-      const min = p.numericKind === "decimal" ? BigInt(p.minUnits) : BigInt(p.min);
-      const max = p.numericKind === "decimal" ? BigInt(p.maxUnits) : BigInt(p.max);
+      const min = p.numericKind === "decimal" ? BigInt(p.minUnits) : sqlIntegerToBigInt(p.min);
+      const max = p.numericKind === "decimal" ? BigInt(p.maxUnits) : sqlIntegerToBigInt(p.max);
+      if (min === null || max === null || min > max) return { state: "cannot_prove", kind: rule.kind, reason: "Numeric bounds cannot be represented exactly" };
       const excludesZero = p.zeroCount === 0 && min <= 0n && max >= 0n;
       const capacity = max - min + 1n - (excludesZero ? 1n : 0n);
       return known("sample_numeric_range", capacity, (index) => {
         let value = min + index;
         if (excludesZero && value >= 0n) value += 1n;
         if (p.numericKind === "decimal") return formatDecimalUnits(value, p.scale);
-        return Number(value);
+        return sqlIntegerFromBigInt(value);
       });
     }
     case "sample_filename":
@@ -93,10 +100,10 @@ export function describeConstraintDomain(columnPlan, rowCount) {
     case "uuid":
       return uuidDomain();
     case "integer": {
-      const min = Number.isSafeInteger(p.min) ? p.min : p.defaultMin;
-      const max = Number.isSafeInteger(p.max) ? p.max : p.defaultMax;
-      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min > max) return unsupported("Integer fallback bounds are not finite");
-      return known("integer_range", BigInt(max) - BigInt(min) + 1n, (index) => Number(BigInt(min) + index));
+      const min = sqlIntegerToBigInt(p.min) ?? sqlIntegerToBigInt(p.defaultMin);
+      const max = sqlIntegerToBigInt(p.max) ?? sqlIntegerToBigInt(p.defaultMax);
+      if (min === null || max === null || min > max) return unsupported("Integer fallback bounds are not finite and exact");
+      return known("integer_range", max - min + 1n, (index) => sqlIntegerFromBigInt(min + index));
     }
     case "decimal": {
       if (!Number.isSafeInteger(p.precision) || !Number.isSafeInteger(p.scale)) return unsupported("Decimal precision/scale are not known");

@@ -32,6 +32,7 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 - 生成结果不会复制真实数据行。仅当字段适合判断时，Workbench 才可能通过 DBX Host API 对当前已打开连接做一次最多 100 行、仅候选列的只读样本探测；原始样本只在当前推断调用中用于计算安全 profile，不作为完整数据行来源。
 - 支持预览并导出 CSV、JSON 和 INSERT SQL；导出内容与当前预览使用同一份数据。
 - 可为单表设置显式生成约束，例如唯一值、组合唯一值和必填且唯一。
+- signed SQL BIGINT 支持完整 64 位范围；超出 JavaScript 安全整数范围的值在 Core/INSERT SQL 中保持精确，JSON 导出为十进制字符串，避免下游舍入。
 
 ## 快速开始
 
@@ -69,6 +70,7 @@ SchemaSeed 是一个 DBX 测试数据生成插件。在数据库表上右键即�
 - [Roadmap](docs/ROADMAP.md)
 - [Generation Model](docs/GENERATION_MODEL.md)
 - [Column Generation Rules](docs/COLUMN_GENERATION_RULES.md)
+- [Export format and exact BIGINT serialization](docs/PHASE1D_EXPORT.md)
 - [Manual Constraints](docs/MANUAL_CONSTRAINTS.md)
 - [Workbench i18n](docs/I18N.md)
 - [Production Workbench](docs/PHASE1E_PRODUCTION_WORKBENCH.md)

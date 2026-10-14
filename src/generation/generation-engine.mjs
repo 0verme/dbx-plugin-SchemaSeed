@@ -1,4 +1,5 @@
 import { makeDiagnostic, planStatus } from "../diagnostics.mjs";
+import { sqlIntegerFromBigInt, sqlIntegerToBigInt } from "../integer-value.mjs";
 import { formatDecimalUnits, formatTimestamp, parseTimestamp, resolveStringGenerationMaxLength } from "./generation-rules.mjs";
 import { allocateConstraintRows } from "./constraint-allocation.mjs";
 import { digestFor, randomBigIntBelow, randomBigIntBelowUniform, randomUnit } from "./generation-identity.mjs";
@@ -115,13 +116,17 @@ function generateValue(rule, identity, locale, rowIndex) {
         const value = BigInt(parameters.startUnits) + BigInt(parameters.stepUnits) * BigInt(rowIndex);
         return formatDecimalUnits(value, parameters.scale);
       }
-      const value = BigInt(parameters.start) + BigInt(parameters.step) * BigInt(rowIndex);
-      const numeric = Number(value);
-      if (!Number.isSafeInteger(numeric)) throw new Error("Integer Sequence exceeded safe numeric representation");
-      return numeric;
+      const start = sqlIntegerToBigInt(parameters.start);
+      const step = sqlIntegerToBigInt(parameters.step);
+      if (start === null || step === null) throw new Error("Invalid exact integer Sequence in GenerationPlan");
+      return sqlIntegerFromBigInt(start + step * BigInt(rowIndex));
     }
-    case "random_integer":
-      return Number(randomBigIntBelowUniform(BigInt(parameters.max) - BigInt(parameters.min) + 1n, [...identity, "random-integer"]) + BigInt(parameters.min));
+    case "random_integer": {
+      const min = sqlIntegerToBigInt(parameters.min);
+      const max = sqlIntegerToBigInt(parameters.max);
+      if (min === null || max === null || min > max) throw new Error("Invalid exact integer range in GenerationPlan");
+      return sqlIntegerFromBigInt(randomBigIntBelowUniform(max - min + 1n, [...identity, "random-integer"]) + min);
+    }
     case "random_decimal": {
       const min = BigInt(parameters.minUnits);
       const max = BigInt(parameters.maxUnits);
@@ -153,9 +158,10 @@ function generateValue(rule, identity, locale, rowIndex) {
     case "uuid":
       return deterministicUuid(identity);
     case "integer": {
-      const min = Number.isSafeInteger(parameters.min) ? parameters.min : parameters.defaultMin;
-      const max = Number.isSafeInteger(parameters.max) ? parameters.max : parameters.defaultMax;
-      return Number(randomBigIntBelow(BigInt(max) - BigInt(min) + 1n, [...identity, "integer"]) + BigInt(min));
+      const min = sqlIntegerToBigInt(parameters.min) ?? sqlIntegerToBigInt(parameters.defaultMin);
+      const max = sqlIntegerToBigInt(parameters.max) ?? sqlIntegerToBigInt(parameters.defaultMax);
+      if (min === null || max === null || min > max) throw new Error("Invalid exact integer fallback range in GenerationPlan");
+      return sqlIntegerFromBigInt(randomBigIntBelow(max - min + 1n, [...identity, "integer"]) + min);
     }
     case "decimal": {
       const precision = parameters.precision;
@@ -241,7 +247,7 @@ function generateSampleNumeric(parameters, identity) {
   if (capacity <= 0n) throw new Error("Sample Numeric range has no nonzero values");
   let value = min + randomBigIntBelowUniform(capacity, [...identity, "sample-numeric-range"]);
   if (includesZero && value >= 0n) value += 1n;
-  return isDecimal ? formatDecimalUnits(value, parameters.scale) : Number(value);
+  return isDecimal ? formatDecimalUnits(value, parameters.scale) : sqlIntegerFromBigInt(value);
 }
 
 function chooseWeighted(candidates, identity, purpose, valueKey) {

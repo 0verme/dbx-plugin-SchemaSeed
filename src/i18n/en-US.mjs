@@ -206,7 +206,7 @@ export const EN_US_MESSAGES = Object.freeze({
   "enumInput.incompatible": "Candidates are incompatible with the current column type.",
   "enumInput.invalidInteger": "Enter a valid integer.",
   "enumInput.integerRange": "The candidate is outside the integer range supported by this column.",
-  "enumInput.bigintRange": "This value is outside the bigint range the current Core can represent exactly.",
+  "enumInput.bigintRange": "The candidate is outside the signed 64-bit BIGINT range.",
   "enumInput.invalidDecimal": "Enter a valid decimal value, for example 12.50.",
   "enumInput.decimalPrecision": "The candidate exceeds the column precision or scale.",
   "enumInput.decimalJsonNumber": "A JSON number cannot preserve exact decimal text. Use exact text or a JSON string.",
@@ -654,6 +654,11 @@ export const EN_US_DIAGNOSTICS = Object.freeze({
     title: "The sequence cannot produce enough distinct values",
     description: "The configured start / step range runs out before the requested number of rows is reached.",
     action: "Lower the row count, widen the step, or use a different rule.",
+  },
+  invalid_schema_integer_bounds: {
+    title: "The integer schema bounds are invalid",
+    description: "SchemaSeed could not represent this column's integer bounds exactly, so generation was blocked.",
+    action: "Refresh the table metadata or use a supported integer schema type.",
   },
   semantic_confirmation_required: {
     title: "This column meaning needs confirmation",

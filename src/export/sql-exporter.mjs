@@ -1,5 +1,6 @@
 import { ExportError, validateExportDataset } from "./export-dataset.mjs";
 import { isJsonDocumentValue, serializeJsonDocumentValue } from "../json-document.mjs";
+import { isSqlBigIntValue, sqlIntegerText } from "../integer-value.mjs";
 
 /**
  * INSERT SQL serializer for the frozen ExportDataset snapshot.
@@ -122,6 +123,7 @@ export function quoteSqlIdentifier(name) {
  */
 export function sqlLiteral(value) {
   if (value === null) return "NULL";
+  if (isSqlBigIntValue(value)) return sqlIntegerText(value);
   if (isJsonDocumentValue(value)) return mysqlJsonLiteral(value);
   switch (typeof value) {
     case "boolean":
