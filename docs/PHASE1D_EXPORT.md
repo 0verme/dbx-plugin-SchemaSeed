@@ -42,14 +42,14 @@ On a successful refresh, the Workbench controller calls `generateRows(plan)` onc
 - Records use CRLF separators. Fields containing comma, double quote, CR, or LF are quoted; embedded quotes are doubled. Embedded line breaks remain inside their quoted field.
 - `null` becomes an empty field by default. The Core API optionally accepts a literal `nullToken`; Workbench uses the empty default.
 - Output is Unicode text intended to be encoded as UTF-8. The Core API defaults to no BOM; the production Workbench CSV export explicitly enables a UTF-8 BOM for Windows / Excel compatibility, including Chinese Safe Synthetic values.
-- `mode: "raw"` preserves string values. `mode: "spreadsheet_safe"` prefixes a leading apostrophe to any string beginning with `=`, `+`, `-`, or `@` (including headers). Workbench exports use `spreadsheet_safe` by default. This is an explicit serialization-only mitigation, not a change to generated data; Preview and JSON are unchanged. It cannot guarantee uniform treatment by every spreadsheet product.
+- `mode: "raw"` preserves string values. `mode: "spreadsheet_safe"` prefixes a leading apostrophe to any string beginning with `=`, `+`, `-`, or `@` (including headers); exact BIGINT scalars are emitted as numeric decimal text, not converted to strings for this mitigation. Workbench exports use `spreadsheet_safe` by default. This is an explicit serialization-only mitigation, not a change to generated data; Preview and JSON are unchanged. It cannot guarantee uniform treatment by every spreadsheet product.
 
 ## JSON
 
 - Output is a JSON array of row objects, pretty-printed by default (2 spaces); compact output is available with `pretty: false`.
 - `dataset.columns` controls object-field serialization order.
-- `null` and booleans remain their JSON types; integer values remain numbers.
-- Core decimal values are exact decimal strings and remain strings; the exporter never converts them to JavaScript `Number`.
+- `null` and booleans remain their JSON types. Safe integer values remain JSON numbers; tagged signed BIGINT values outside JavaScript's safe-integer range are emitted as exact decimal strings so JSON consumers cannot round them.
+- Core decimal values are exact decimal strings and remain strings; the exporter never converts them to JavaScript `Number`. Numeric-looking `VARCHAR` values also remain strings.
 - Date and timestamp values remain Core-produced strings. JSON has no BOM.
 
 Neither format embeds seed, locale, diagnostics, GenerationPlan, or semantic mappings. Small export summary metadata is returned separately for the Workbench UI.
@@ -57,7 +57,7 @@ Neither format embeds seed, locale, diagnostics, GenerationPlan, or semantic map
 ## INSERT SQL
 
 - Every preview row becomes exactly one plain `INSERT INTO ... VALUES (...)` statement; a header comment records the serializer name, the qualified table and the row count. Multi-row `VALUES (...), (...)` is deliberately not used in v0.2.2 so the output stays compatible with the widest set of statement-based import paths.
-- `null` is `NULL`; strings use single quotes with `'` doubled; numbers stay unquoted; the empty string stays `''`; booleans use `TRUE` / `FALSE`; date / timestamp values are emitted as their Core-produced strings.
+- `null` is `NULL`; strings use single quotes with `'` doubled; numbers and tagged exact BIGINT values stay unquoted (BIGINT digits are never converted through `Number`); the empty string stays `''`; booleans use `TRUE` / `FALSE`; date / timestamp values are emitted as their Core-produced strings.
 - A string containing a NUL character fails closed with `export_serialization_failed`; no SQL is emitted for it.
 - Statements never include `UPSERT` / `MERGE` / `ON CONFLICT` / `ON DUPLICATE KEY` / `TRUNCATE` / `DELETE` / `DROP` / `CREATE TABLE` and are never executed.
 

@@ -24,9 +24,9 @@ WorkBench 可在独立、有界的 sample probe 成功后，为安全且充分�
 | Kind | Configuration | Compatibility / semantics |
 | --- | --- | --- |
 | `auto` | 无 | 复用现有 Semantic Mapping 与 schema fallback；不增加 inference engine。 |
-| `constant` | `value` | 每行使用同一 scalar。Integer 必须是 safe integer；decimal 用 exact decimal string；string、boolean、date、timestamp 必须严格类型匹配。varchar 不超已知 length；decimal 不超 precision/scale；date 为有效 `YYYY-MM-DD`；`timestamp`（无时区）只接受 offset-free local timestamp 并输出不带 `Z` 的 wall-clock；`timestamptz` 只接受带 `Z` 或 numeric offset 的 instant，并规范化输出 UTC `Z`。不做隐式转换、round 或 truncate。 |
+| `constant` | `value` | 每行使用同一 scalar。整数接受 safe integer number，或用于超出 JS safe-integer 范围的 tagged signed SQL BIGINT；decimal 用 exact decimal string；string、boolean、date、timestamp 必须严格类型匹配。varchar 不超已知 length；整数不超列类型范围；decimal 不超 precision/scale；date 为有效 `YYYY-MM-DD`；`timestamp`（无时区）只接受 offset-free local timestamp 并输出不带 `Z` 的 wall-clock；`timestamptz` 只接受带 `Z` 或 numeric offset 的 instant，并规范化输出 UTC `Z`。不做隐式转换、round 或 truncate。 |
 | `sequence` | `start`, `step` | 仅整数 / decimal。按 logical row ordinal 计算 `start + rowIndex × step`，可使用负 step，不依赖 mutable counter。Planning 检查本次 rowCount 的末值与 schema representability，溢出则阻塞整份 plan。Decimal start/step 是精确 string，内部按 scale 对齐整数单位计算。 |
-| `random_integer` | `min`, `max` | Safe integer，inclusive range，`min <= max` 且整个范围落在目标整数 schema bounds 内。 |
+| `random_integer` | `min`, `max` | Safe integer number 或 tagged signed SQL BIGINT，inclusive range，`min <= max` 且整个范围落在目标整数 schema bounds 内。 |
 | `random_decimal` | `min`, `max` | Exact decimal strings，inclusive range。两端必须可由 schema scale 表达，且符合 precision；内部以 BigInt unscaled units 计算，不经 JS floating-point。 |
 | `random_string` | `length` | 固定正长度，按 Unicode code point 检查已知 varchar length；超界阻塞。Length 为 unknown/unavailable/unsupported 时不猜测上限，Core 诊断并阻塞；明确 absent/not-applicable 仍按 metadata fact 语义处理。 |
 | `enum` | `values[]` | 至少一个 unique scalar candidate；逐个按目标 schema 校验，任一无效或重复则整条 rule invalid。Uniform deterministic selection；无 weights / probability DSL。 |
@@ -36,6 +36,18 @@ WorkBench 可在独立、有界的 sample probe 成功后，为安全且充分�
 | `uuid` | 无 | 基于稳定 cell identity 的 synthetic deterministic UUID，RFC variant 与 v4-style version bits 固定；不是业务 UUID、真实性或唯一性承诺。支持 native UUID 与可证明容纳 36 字符的 varchar。 |
 | `null_ratio` | `ratio` | `0..1` deterministic。`ratio = 0` 不产生 NULL；`ratio > 0` 仅在 schema 明确 `nullable=true` 时可用，NOT NULL 或 nullable unknown/unavailable/unsupported 时拒绝。UUID 可使用此 rule 包裹既有 synthetic UUID base strategy。 |
 | `semantic` | `semanticType` | 用户明确选择后，走现有 Semantic Mapping precedence、Safe Synthetic Person 和 Person group/row identity。不会创建新的姓名、手机号、email generator，也不会自动确认 inference。 |
+
+## Exact SQL BIGINT scalar
+
+Signed SQL `BIGINT` uses the exact inclusive range `-9223372036854775808..9223372036854775807`. Core keeps safe values as ordinary JSON numbers. Values outside `Number.MIN_SAFE_INTEGER..Number.MAX_SAFE_INTEGER` use this JSON-safe scalar (not a JavaScript `bigint` primitive):
+
+```json
+{"$schemaSeedType":"sql-bigint","value":"9223372036854775807"}
+```
+
+The decimal `value` is canonical text; Core validates it against the signed 64-bit boundary before planning or generation. The plain object survives JSON Host/WebView request and result serialization; no JavaScript `bigint` primitive crosses that boundary. UI integer fields parse decimal text directly with `BigInt`, while raw JSON numeric tokens outside the safe range are rejected because `JSON.parse` would already have rounded them. Integer Enum values can use the same explicit tag. Numeric-looking `VARCHAR` values remain strings and never become tagged integer scalars.
+
+GenerationPlan, deterministic generation identities, unique-domain allocation, preview values, and ExportDataset retain that exact tag. CSV emits its decimal digits as a numeric field; INSERT SQL emits an unquoted exact integer literal; JSON export writes unsafe BIGINT values as decimal **strings** (safe values remain JSON numbers) so JSON consumers cannot silently round them. The JSON export distinction is deliberate and does not convert ordinary VARCHAR strings or JSON document contents.
 
 ## Validation, diagnostics, and availability
 

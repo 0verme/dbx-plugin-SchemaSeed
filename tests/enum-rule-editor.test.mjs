@@ -12,6 +12,7 @@ import { normalizeTableSchema } from "../src/schema/schema-model.mjs";
 import { toColumnViewModel } from "../src/workbench/workbench-view-model.mjs";
 import { buildGenerationPlan } from "../src/generation/generation-plan.mjs";
 import { canEditEnumCandidatesAsTags } from "../ui/generation-workbench/candidate-input.mjs";
+import { sqlIntegerFromBigInt, sqlIntegerText } from "../src/integer-value.mjs";
 
 function column(dataType, extra = {}) {
   return normalizeTableSchema({
@@ -39,9 +40,14 @@ describe("enum candidate rule editor contract", () => {
     assert.equal(enumValidation(integer, [1, null]).diagnostics[0].code, "generation_rule_incompatible");
 
     const bigint = column("bigint");
-    assert.equal(enumValidation(bigint, [1, -1, Number.MAX_SAFE_INTEGER]).valid, true);
+    const exactMaximum = sqlIntegerFromBigInt((1n << 63n) - 1n);
+    const exactMinimum = sqlIntegerFromBigInt(-(1n << 63n));
+    const highValue = sqlIntegerFromBigInt(BigInt(Number.MAX_SAFE_INTEGER) + 1n);
+    assert.equal(enumValidation(bigint, [1, -1, Number.MAX_SAFE_INTEGER, exactMinimum, exactMaximum, highValue]).valid, true);
     assert.equal(enumValidation(bigint, [Number.MAX_SAFE_INTEGER + 1]).valid, false);
     assert.equal(enumValidation(bigint, ["9223372036854775807"]).valid, false);
+    assert.equal(enumValidation(bigint, [{ $schemaSeedType: "sql-bigint", value: "9223372036854775808" }]).valid, false);
+    assert.match(enumValidation(bigint, [highValue, { value: highValue.value, $schemaSeedType: "sql-bigint" }]).diagnostics[0].reason, /unique/u);
 
     const decimal = column("decimal", { precision: 26, scale: 6 });
     assert.deepEqual(enumValidation(decimal, ["0.1", "12.50", "-99.99", "12345678901234567890.123456"]).rule.values,
@@ -59,7 +65,7 @@ describe("enum candidate rule editor contract", () => {
       tableIdentity: "bigint-tag-family",
       columns: [{ name: "id", dataType: "bigint", nullable: false }],
     }).schema;
-    const plan = buildGenerationPlan(schema, { rules: { id: { kind: "enum", values: [1001, 1002] } } });
+    const plan = buildGenerationPlan(schema, { rules: { id: { kind: "enum", values: [1001, sqlIntegerFromBigInt(9007199254740992n)] } } });
     const columnView = toColumnViewModel(plan.columns[0], plan.diagnostics);
     assert.equal(columnView.schemaFamily, "integer");
     assert.equal(canEditEnumCandidatesAsTags(columnView.schemaFamily, columnView.generationRule.values), true);
@@ -73,11 +79,16 @@ describe("enum candidate rule editor contract", () => {
         { name: "amount", dataType: "numeric", precision: 26, scale: 6, nullable: false },
       ],
     }).schema;
-    const bigintValues = [Number.MAX_SAFE_INTEGER, -Number.MAX_SAFE_INTEGER, 1];
+    const bigintValues = [
+      sqlIntegerFromBigInt(-(1n << 63n)),
+      sqlIntegerFromBigInt((1n << 63n) - 1n),
+      sqlIntegerFromBigInt(BigInt(Number.MAX_SAFE_INTEGER) + 1n),
+    ];
     const decimalValues = ["12345678901234567890.123456", "0.100000"];
     const plan = buildGenerationPlan(schema, {
-      rowCount: 24,
+      rowCount: 3,
       seed: "typed-enum-precision",
+      constraints: [{ id: "bigint-id", kind: "unique", column: "id" }],
       rules: {
         id: { kind: "enum", values: bigintValues },
         amount: { kind: "enum", values: decimalValues },
@@ -90,17 +101,19 @@ describe("enum candidate rule editor contract", () => {
     const generated = generateRows(plan);
     assert.notEqual(generated.status, "blocked");
     assert.deepEqual(generateRows(plan), generated, "same Seed and plan remain deterministic");
-    assert.ok(generated.rows.every((row) => bigintValues.includes(row.id)));
+    assert.ok(generated.rows.every((row) => bigintValues.some((value) => sqlIntegerText(value) === sqlIntegerText(row.id))));
     assert.ok(generated.rows.every((row) => decimalValues.includes(row.amount)));
 
     const dataset = createExportDataset(plan, generated, { table: { table: "records" } });
     const jsonRows = JSON.parse(exportJson(dataset));
-    assert.ok(jsonRows.every((row) => bigintValues.includes(row.id)));
+    assert.ok(jsonRows.every((row) => bigintValues.some((value) => sqlIntegerText(value) === row.id)
+      && typeof row.id === "string"));
     assert.ok(jsonRows.every((row) => decimalValues.includes(row.amount) && typeof row.amount === "string"));
     const csv = exportCsv(dataset, { header: false });
     const sql = exportInsertSql(dataset, { header: false });
     assert.match(csv, /12345678901234567890\.123456/u);
-    assert.match(sql, /9007199254740991/u);
+    assert.match(sql, /-9223372036854775808/u);
+    assert.match(sql, /9223372036854775807/u);
     assert.match(sql, /'12345678901234567890\.123456'/u);
   });
 
@@ -154,6 +167,8 @@ describe("enum candidate rule editor contract", () => {
     assert.match(source, /parseCandidateText\(column\.schemaFamily, target\.value\)/u);
     assert.match(source, /enumDraftPending\(\) \|\| exportSaveState/u);
     assert.match(source, /renderPreview\(viewModel, t, pendingEnumDraft\)/u);
+    assert.match(source, /isSqlBigIntValue\(value\) \? sqlIntegerText\(value\)/u);
+    assert.match(source, /input\.dataset\.ruleEditor === "integer"[\s\S]*?parseSqlIntegerText\(input\.value\)/u);
     assert.match(source, /data-enum-json/u);
     assert.match(source, /dataset\.enumMode = "json"/u);
     assert.doesNotMatch(source, /localStorage|sessionStorage/);

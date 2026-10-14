@@ -1,4 +1,5 @@
 import { sha256Hex } from "./sha256.mjs";
+import { sqlIntegerFromBigInt, sqlIntegerToBigInt } from "../integer-value.mjs";
 import { makeDiagnostic } from "../diagnostics.mjs";
 import { formatDate, formatTimestamp, parseDate, parseTimestamp } from "../schema/temporal-values.mjs";
 import { interpretColumnType, interpretStringCapacity, resolveTemporalPrecision } from "../schema/schema-interpreter.mjs";
@@ -155,8 +156,12 @@ export function createGenerationRuleDraft(column, kind) {
       return { kind, start: formatDecimalUnits(0n, scale), step: formatDecimalUnits(1n, scale) };
     }
     case "random_integer": {
-      const min = Math.max(0, type?.parameters.schemaMin ?? 0);
-      return { kind, min, max: Math.min(type?.parameters.schemaMax ?? 100, min + 100) };
+      const schemaMin = sqlIntegerToBigInt(type?.parameters.schemaMin) ?? 0n;
+      const schemaMax = sqlIntegerToBigInt(type?.parameters.schemaMax) ?? 100n;
+      const min = schemaMin > 0n ? schemaMin : 0n;
+      const proposedMax = min + 100n;
+      const max = schemaMax < proposedMax ? schemaMax : proposedMax;
+      return { kind, min: sqlIntegerFromBigInt(min), max: sqlIntegerFromBigInt(max) };
     }
     case "random_decimal": {
       const scale = safeDraftDecimalScale(column);
@@ -198,8 +203,11 @@ export function getGenerationRuleEditorFields(column, rule) {
   const add = (key, label, editor, value, labelKey = undefined) => fields.push({ key, label, editor, value, ...(labelKey ? { labelKey } : {}) });
   switch (rule?.kind) {
     case "constant": {
-      const isJson = interpretColumnType(column)?.kind === "json";
-      add("value", isJson ? "JSON value" : "Value (JSON scalar)", "json", rule.value, isJson ? "ruleField.jsonDocumentValue" : undefined);
+      const family = interpretColumnType(column)?.kind;
+      const isJson = family === "json";
+      const editor = family === "integer" ? "integer" : "json";
+      const label = isJson ? "JSON value" : family === "integer" ? "Integer value" : "Value (JSON scalar)";
+      add("value", label, editor, rule.value, isJson ? "ruleField.jsonDocumentValue" : undefined);
       break;
     }
     case "sequence":
@@ -335,15 +343,20 @@ export function validateGenerationRule(column, rawRule, options = {}) {
   if (normalized.kind === "sequence") {
     if (family !== "integer" && family !== "decimal") return incompatible("an integer or decimal schema");
     if (family === "integer") {
-      if (!Number.isSafeInteger(normalized.start) || !Number.isSafeInteger(normalized.step)) {
-        return fail("generation_rule_invalid", "integer Sequence start and step must be safe integers");
+      const start = sqlIntegerToBigInt(normalized.start);
+      const step = sqlIntegerToBigInt(normalized.step);
+      if (start === null || step === null) {
+        return fail("generation_rule_invalid", "integer Sequence start and step must be safe integer numbers or tagged signed BIGINT scalars");
       }
-      const end = BigInt(normalized.start) + BigInt(normalized.step) * BigInt(Math.max(0, rowCount - 1));
-      const low = BigInt(type.parameters.schemaMin);
-      const high = BigInt(type.parameters.schemaMax);
-      if (BigInt(normalized.start) < low || BigInt(normalized.start) > high || end < low || end > high) {
+      const low = sqlIntegerToBigInt(type.parameters.schemaMin);
+      const high = sqlIntegerToBigInt(type.parameters.schemaMax);
+      if (low === null || high === null) return fail("generation_rule_incompatible", "Integer schema bounds cannot be represented exactly");
+      const end = start + step * BigInt(Math.max(0, rowCount - 1));
+      if (start < low || start > high || end < low || end > high) {
         return fail("generation_sequence_overflow", `Sequence values for ${rowCount} rows exceed schema integer bounds [${low}, ${high}]`);
       }
+      normalized.start = sqlIntegerFromBigInt(start);
+      normalized.step = sqlIntegerFromBigInt(step);
     } else {
       const shape = decimalShape(column);
       if (!shape.ok) return fail(shape.code, shape.reason, shape.severity);
@@ -365,12 +378,19 @@ export function validateGenerationRule(column, rawRule, options = {}) {
 
   if (normalized.kind === "random_integer") {
     if (family !== "integer") return incompatible("an integer schema");
-    if (!Number.isSafeInteger(normalized.min) || !Number.isSafeInteger(normalized.max) || normalized.min > normalized.max) {
-      return fail("generation_rule_invalid", "Random Integer min/max must be safe integers with min <= max");
+    const min = sqlIntegerToBigInt(normalized.min);
+    const max = sqlIntegerToBigInt(normalized.max);
+    if (min === null || max === null || min > max) {
+      return fail("generation_rule_invalid", "Random Integer min/max must be safe integer numbers or tagged signed BIGINT scalars with min <= max");
     }
-    if (normalized.min < type.parameters.schemaMin || normalized.max > type.parameters.schemaMax) {
-      return fail("generation_rule_incompatible", `Integer range [${normalized.min}, ${normalized.max}] exceeds schema bounds [${type.parameters.schemaMin}, ${type.parameters.schemaMax}]`);
+    const schemaMin = sqlIntegerToBigInt(type.parameters.schemaMin);
+    const schemaMax = sqlIntegerToBigInt(type.parameters.schemaMax);
+    if (schemaMin === null || schemaMax === null) return fail("generation_rule_incompatible", "Integer schema bounds cannot be represented exactly");
+    if (min < schemaMin || max > schemaMax) {
+      return fail("generation_rule_incompatible", `Integer range [${min}, ${max}] exceeds schema bounds [${schemaMin}, ${schemaMax}]`);
     }
+    normalized.min = sqlIntegerFromBigInt(min);
+    normalized.max = sqlIntegerFromBigInt(max);
     return validRule(normalized, diagnostics);
   }
 
@@ -528,12 +548,19 @@ function validateScalarValue(column, value, temporalPrecision) {
   const type = interpretColumnType(column);
   if (!type) return failScalar("generation_rule_incompatible", `Schema type is ${column.dataType?.state ?? "unknown"} or unsupported`);
   switch (type.kind) {
-    case "integer":
-      if (!Number.isSafeInteger(value)) return failScalar("generation_rule_incompatible", "Integer value must be a safe integer number");
-      if (value < type.parameters.schemaMin || value > type.parameters.schemaMax) {
-        return failScalar("generation_rule_incompatible", `Integer value ${value} exceeds schema bounds [${type.parameters.schemaMin}, ${type.parameters.schemaMax}]`);
+    case "integer": {
+      const exact = sqlIntegerToBigInt(value);
+      if (exact === null) {
+        return failScalar("generation_rule_incompatible", "Integer value must be a safe integer number or an explicit tagged signed BIGINT scalar");
       }
-      return { ok: true, value };
+      const schemaMin = sqlIntegerToBigInt(type.parameters.schemaMin);
+      const schemaMax = sqlIntegerToBigInt(type.parameters.schemaMax);
+      if (schemaMin === null || schemaMax === null) return failScalar("generation_rule_incompatible", "Integer schema bounds cannot be represented exactly");
+      if (exact < schemaMin || exact > schemaMax) {
+        return failScalar("generation_rule_incompatible", `Integer value ${exact} exceeds schema bounds [${schemaMin}, ${schemaMax}]`);
+      }
+      return { ok: true, value: sqlIntegerFromBigInt(exact) };
+    }
     case "decimal": {
       const shape = decimalShape(column);
       if (!shape.ok) return { ok: false, ...shape };

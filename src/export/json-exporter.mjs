@@ -1,5 +1,6 @@
 import { ExportError, validateExportDataset } from "./export-dataset.mjs";
 import { isJsonDocumentValue, unwrapJsonDocumentValue } from "../json-document.mjs";
+import { isSqlBigIntValue, sqlIntegerJsonValue } from "../integer-value.mjs";
 
 /**
  * Serialize an existing ExportDataset as a deterministic JSON array.
@@ -15,7 +16,8 @@ export function exportJson(dataset, options = {}) {
   try {
     const rows = dataset.rows.map((row) => Object.fromEntries(dataset.columns.map((column) => {
       const value = row[column];
-      return [column, isJsonDocumentValue(value) ? unwrapJsonDocumentValue(value) : value];
+      return [column, isJsonDocumentValue(value) ? unwrapJsonDocumentValue(value)
+        : isSqlBigIntValue(value) ? sqlIntegerJsonValue(value) : value];
     })));
     return JSON.stringify(rows, null, pretty ? 2 : undefined);
   } catch (error) {
